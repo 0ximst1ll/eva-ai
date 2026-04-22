@@ -1,0 +1,12 @@
+{
+  "name": "eve-agent",
+  "version": "0.0.1",
+  "description": "a self evolve agent",
+  "license": "MIT",
+  "author": "0ximst1ll",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
