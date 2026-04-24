@@ -10,8 +10,8 @@ export interface FunctionCall {
 
 export interface ToolCall {
     id: string;
-    type: string;
-    funcation: FunctionCall;
+    type: string; // "function"
+    function: FunctionCall;
 }
 
 export type Message = 
@@ -41,5 +41,5 @@ export interface LLMResponse {
     thinking?: string;
     tool_calls?: ToolCall[];
     finish_reason: string;
-    usage: TokenUsage;
+    usage?: TokenUsage;
 }

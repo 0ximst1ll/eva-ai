@@ -1,6 +1,6 @@
-import type { LLMResponse, Message } from "../schema";  
-// import type {Tool}
-import { RetryConfig } from "../retry";
+import type { LLMResponse, Message } from "../schema.js";  
+import type {Tool} from "../tools/base.js";
+import { RetryConfig } from "../retry.js";
 
 
 export abstract class LLMClientBase {
@@ -27,7 +27,7 @@ export abstract class LLMClientBase {
 
     protected abstract _prepareRequest(messages: Message[], tool?: Tool[] | null): Record<string, unknown>;
 
-    protected abstract _converMessage(
+    protected abstract _convertMessages(
         messages: Message[],
     ): [string | null, Record<string, unknown>[]];
 }

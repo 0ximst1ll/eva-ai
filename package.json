@@ -4,9 +4,19 @@
   "description": "a self evolve agent",
   "license": "MIT",
   "author": "0ximst1ll",
-  "type": "commonjs",
-  "main": "index.js",
+  "type": "module",
   "scripts": {
+    "dev": "tsx src/cli.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.0",
+    "gpt-tokenizer": "^3.4.0",
+    "openai": "^6.34.0",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.21.0"
   }
 }
