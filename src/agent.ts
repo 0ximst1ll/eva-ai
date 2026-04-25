@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { encode } from 'gpt-tokenizer';
 import { Colors, calculateDisplayWidth } from './utils/terminal.js';
 import type { LLMClient } from './llm/llm-client.js';
-import type { Message, ToolCall } from './schema.js';
+import type { LLMResponse, Message, ToolCall } from './schema.js';
 import type { Tool } from './tools/base.js';
 // import { AgentLogger } from './logger.js';
 import { RetryExhaustedError } from './retry.js';
@@ -82,6 +82,68 @@ export class Agent {
         return signal?.aborted ?? false;
     }
 
+    private async _generateResponseWithStreaming(toolList: Tool[]): Promise<LLMResponse> {
+        let streamedResponse: LLMResponse | null = null;
+        let content = '';
+        let thinking = '';
+        const toolCalls: ToolCall[] = [];
+        let finishReason = 'stop';
+        let usage = undefined as LLMResponse['usage'];
+
+        let printedThinkingHeader = false;
+        let printedAssistantHeader = false;
+
+        for await (const event of this.llm.generateStream(this.messages, toolList)) {
+            if (event.type === 'thinking_delta') {
+                thinking += event.text;
+                if (!printedThinkingHeader) {
+                    printedThinkingHeader = true;
+                    console.log(`\n${Colors.BOLD}${Colors.MAGENTA}🧠 Thinking:${Colors.RESET}`);
+                }
+                process.stdout.write(`${event.text}`);
+                continue;
+            }
+
+            if (event.type === 'content_delta') {
+                content += event.text;
+                if (!printedAssistantHeader) {
+                    printedAssistantHeader = true;
+                    console.log(`\n${Colors.BOLD}${Colors.BRIGHT_BLUE}🤖 Assistant:${Colors.RESET}`);
+                }
+                process.stdout.write(`${event.text}`);
+                continue;
+            }
+
+            if (event.type === 'tool_call') {
+                toolCalls.push(event.tool_call);
+                continue;
+            }
+
+            if (event.type === 'usage') {
+                usage = event.usage;
+                continue;
+            }
+
+            streamedResponse = event.response;
+        }
+
+        if (printedThinkingHeader || printedAssistantHeader) {
+            process.stdout.write('\n');
+        }
+
+        if (streamedResponse) {
+            return streamedResponse;
+        }
+
+        return {
+            content,
+            thinking: thinking || undefined,
+            tool_calls: toolCalls.length ? toolCalls : undefined,
+            finish_reason: finishReason,
+            usage,
+        };
+    }
+
     async run(signal?: AbortSignal): Promise<string> {
         // this.logger.startNewRun();
         // console.log(`${Colors.DIM}📝 Log file: ${this.logger.getLogFilePath()}${Colors.RESET}`);
@@ -112,7 +174,7 @@ export class Agent {
 
             let response;
             try {
-                response = await this.llm.generate(this.messages, toolList);
+                response = await this._generateResponseWithStreaming(toolList);
             } catch (e) {
                 let errorMsg: string;
                 if (e instanceof RetryExhaustedError) {
@@ -143,16 +205,6 @@ export class Agent {
                 thinking: response.thinking,
                 tool_calls: response.tool_calls,
             });
-
-            if (response.thinking) {
-                console.log(`\n${Colors.BOLD}${Colors.MAGENTA}🧠 Thinking:${Colors.RESET}`);
-                console.log(`${Colors.DIM}${response.thinking}${Colors.RESET}`);
-            }
-
-            if (response.content) {
-                console.log(`\n${Colors.BOLD}${Colors.BRIGHT_BLUE}🤖 Assistant:${Colors.RESET}`);
-                console.log(response.content);
-            }
 
             // No tool calls → task complete
             if (!response.tool_calls?.length) {

@@ -44,3 +44,10 @@ export interface LLMResponse {
     finish_reason: string;
     usage?: TokenUsage;
 }
+
+export type LLMStreamEvent =
+    | { type: 'thinking_delta'; text: string }
+    | { type: 'content_delta'; text: string }
+    | { type: 'tool_call'; tool_call: ToolCall }
+    | { type: 'usage'; usage: TokenUsage }
+    | { type: 'done'; response: LLMResponse };

@@ -1,7 +1,7 @@
 // Anthropic LLM client — mirrors mini_agent/llm/anthropic_client.py
 
 import Anthropic from '@anthropic-ai/sdk';
-import type { LLMResponse, Message, TokenUsage, ToolCall } from '../schema.js';
+import type { LLMResponse, LLMStreamEvent, Message, TokenUsage, ToolCall } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { toAnthropicSchema } from '../tools/base.js';
 import { RetryConfig, withRetry } from '../retry.js';
@@ -44,6 +44,26 @@ export class AnthropicClient extends LLMClientBase {
     return this.client.messages.create(
       params as unknown as Anthropic.MessageCreateParamsNonStreaming,
     ) as Promise<AnthropicMessage>;
+  }
+
+  private async _makeApiStreamRequest(
+    systemMessage: string | null,
+    apiMessages: Record<string, unknown>[],
+    tools?: Tool[] | null,
+  ): Promise<AsyncGenerator<Record<string, unknown>>> {
+    const params: Record<string, unknown> = {
+      model: this.model,
+      max_tokens: 16384,
+      messages: apiMessages,
+      stream: true,
+    };
+
+    if (systemMessage) params['system'] = systemMessage;
+    if (tools?.length) params['tools'] = tools.map(toAnthropicSchema);
+
+    return this.client.messages.create(
+      params as unknown as Anthropic.MessageCreateParamsStreaming,
+    ) as unknown as AsyncGenerator<Record<string, unknown>>;
   }
 
   protected _convertMessages(messages: Message[]): [string | null, Record<string, unknown>[]] {
@@ -176,5 +196,143 @@ export class AnthropicClient extends LLMClientBase {
     }
 
     return this._parseResponse(response);
+  }
+
+  async *generateStream(
+    messages: Message[],
+    tools?: Tool[] | null,
+  ): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
+    const { systemMessage, apiMessages } = this._prepareRequest(messages, tools) as {
+      systemMessage: string | null;
+      apiMessages: Record<string, unknown>[];
+    };
+
+    let stream: AsyncGenerator<Record<string, unknown>>;
+    if (this.retryConfig.enabled) {
+      const wrapped = withRetry(
+        (sm: string | null, am: Record<string, unknown>[], t?: Tool[] | null) =>
+          this._makeApiStreamRequest(sm, am, t),
+        this.retryConfig,
+        this.retryCallback ?? undefined,
+      );
+      stream = await wrapped(systemMessage, apiMessages, tools);
+    } else {
+      stream = await this._makeApiStreamRequest(systemMessage, apiMessages, tools);
+    }
+
+    let fullContent = '';
+    let fullThinking = '';
+    let finishReason = 'stop';
+    let usage: TokenUsage | undefined;
+    const toolCalls: ToolCall[] = [];
+    const toolState = new Map<number, { id?: string; name?: string; inputText: string; inputObj?: Record<string, unknown> }>();
+
+    for await (const event of stream) {
+      const eventType = String(event['type'] ?? '');
+
+      if (eventType === 'content_block_start') {
+        const index = Number(event['index'] ?? 0);
+        const contentBlock = (event['content_block'] ?? {}) as Record<string, unknown>;
+        const blockType = String(contentBlock['type'] ?? '');
+
+        if (blockType === 'tool_use') {
+          toolState.set(index, {
+            id: typeof contentBlock['id'] === 'string' ? contentBlock['id'] : undefined,
+            name: typeof contentBlock['name'] === 'string' ? contentBlock['name'] : undefined,
+            inputText: '',
+            inputObj:
+              contentBlock['input'] && typeof contentBlock['input'] === 'object'
+                ? (contentBlock['input'] as Record<string, unknown>)
+                : undefined,
+          });
+        }
+        continue;
+      }
+
+      if (eventType === 'content_block_delta') {
+        const index = Number(event['index'] ?? 0);
+        const delta = (event['delta'] ?? {}) as Record<string, unknown>;
+        const deltaType = String(delta['type'] ?? '');
+
+        if (deltaType === 'text_delta' && typeof delta['text'] === 'string') {
+          const text = delta['text'] as string;
+          fullContent += text;
+          yield { type: 'content_delta', text };
+          continue;
+        }
+
+        if (deltaType === 'thinking_delta' && typeof delta['thinking'] === 'string') {
+          const text = delta['thinking'] as string;
+          fullThinking += text;
+          yield { type: 'thinking_delta', text };
+          continue;
+        }
+
+        if (deltaType === 'input_json_delta' && typeof delta['partial_json'] === 'string') {
+          const partial = toolState.get(index) ?? { inputText: '' };
+          partial.inputText += delta['partial_json'] as string;
+          toolState.set(index, partial as { id?: string; name?: string; inputText: string; inputObj?: Record<string, unknown> });
+        }
+        continue;
+      }
+
+      if (eventType === 'content_block_stop') {
+        const index = Number(event['index'] ?? 0);
+        const partial = toolState.get(index);
+        if (!partial || !partial.name) continue;
+
+        let args: Record<string, unknown> = partial.inputObj ?? {};
+        if (partial.inputText.trim()) {
+          try {
+            args = JSON.parse(partial.inputText) as Record<string, unknown>;
+          } catch {
+            args = partial.inputObj ?? {};
+          }
+        }
+
+        const tc: ToolCall = {
+          id: partial.id ?? `toolu_${index}`,
+          type: 'function',
+          function: {
+            name: partial.name,
+            arguments: args,
+          },
+        };
+        toolCalls.push(tc);
+        yield { type: 'tool_call', tool_call: tc };
+        continue;
+      }
+
+      if (eventType === 'message_delta') {
+        const delta = (event['delta'] ?? {}) as Record<string, unknown>;
+        if (typeof delta['stop_reason'] === 'string' && delta['stop_reason']) {
+          finishReason = delta['stop_reason'] as string;
+        }
+        const usageAny = (event['usage'] ?? {}) as Record<string, number>;
+        if (Object.keys(usageAny).length) {
+          const inputTokens = usageAny['input_tokens'] ?? 0;
+          const outputTokens = usageAny['output_tokens'] ?? 0;
+          const cacheRead = usageAny['cache_read_input_tokens'] ?? 0;
+          const cacheCreation = usageAny['cache_creation_input_tokens'] ?? 0;
+          const totalInput = inputTokens + cacheRead + cacheCreation;
+          usage = {
+            prompt_tokens: totalInput,
+            completion_tokens: outputTokens,
+            total_tokens: totalInput + outputTokens,
+          };
+          yield { type: 'usage', usage };
+        }
+      }
+    }
+
+    const response: LLMResponse = {
+      content: fullContent,
+      thinking: fullThinking || undefined,
+      tool_calls: toolCalls.length ? toolCalls : undefined,
+      finish_reason: finishReason,
+      usage,
+    };
+    yield { type: 'done', response };
+    return response;
   }
 }

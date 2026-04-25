@@ -1,6 +1,6 @@
 // LLM client wrapper — mirrors mini_agent/llm/llm_wrapper.py
 
-import type { LLMResponse, Message } from '../schema.js';
+import type { LLMResponse, LLMStreamEvent, Message } from '../schema.js';
 import { LLMProvider } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { RetryConfig } from '../retry.js';
@@ -71,5 +71,12 @@ export class LLMClient {
 
   async generate(messages: Message[], tools?: Tool[] | null): Promise<LLMResponse> {
     return this._client.generate(messages, tools);
+  }
+
+  async *generateStream(
+    messages: Message[],
+    tools?: Tool[] | null,
+  ): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
+    return yield* this._client.generateStream(messages, tools);
   }
 }

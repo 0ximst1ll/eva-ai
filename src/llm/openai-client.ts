@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import type { LLMResponse, Message, TokenUsage, ToolCall } from '../schema';
+import type { LLMResponse, LLMStreamEvent, Message, TokenUsage, ToolCall } from '../schema';
 import type { Tool } from '../tools/base';
 import { toOpenAISchema } from '../tools/base';
 import { RetryConfig, withRetry } from '../retry';
@@ -7,6 +7,7 @@ import { LLMClientBase } from './base';
 
 
 type ChatCompletion = OpenAI.Chat.ChatCompletion;
+type ChatCompletionChunk = OpenAI.Chat.ChatCompletionChunk;
 
 export class OpenAIClient extends LLMClientBase {
 
@@ -39,6 +40,25 @@ export class OpenAIClient extends LLMClientBase {
         return this.client.chat.completions.create(
             params as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
         ) as Promise<ChatCompletion>;
+    }
+
+    private async _makeApiStreamRequest(
+        apiMessages: Record<string, unknown>[],
+        tools?: Tool[] | null,
+    ): Promise<AsyncGenerator<ChatCompletionChunk>> {
+        const params: Record<string, unknown> = {
+            model: this.model,
+            messages: apiMessages,
+            extra_body: { reasoning_split: true },
+            stream: true,
+            stream_options: { include_usage: true },
+        };
+
+        if (tools?.length) params['tools'] = tools.map(toOpenAISchema);
+
+        return this.client.chat.completions.create(
+            params as unknown as OpenAI.Chat.ChatCompletionCreateParamsStreaming,
+        ) as unknown as AsyncGenerator<ChatCompletionChunk>;
     }
 
     protected _convertMessages(messages: Message[]): [null, Record<string, unknown>[]] {
@@ -173,6 +193,126 @@ export class OpenAIClient extends LLMClientBase {
 
     }
 
+    async *generateStream(
+        messages: Message[],
+        tools?: Tool[] | null,
+    ): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
+        const { apiMessages } = this._prepareRequest(messages, tools) as {
+            apiMessages: Record<string, unknown>[];
+        };
+
+        let stream: AsyncGenerator<ChatCompletionChunk>;
+        if (this.retryConfig.enabled) {
+            const wrapped = withRetry(
+                (am: Record<string, unknown>[], t?: Tool[] | null) => this._makeApiStreamRequest(am, t),
+                this.retryConfig,
+                this.retryCallback ?? undefined,
+            );
+            stream = await wrapped(apiMessages, tools);
+        } else {
+            stream = await this._makeApiStreamRequest(apiMessages, tools);
+        }
+
+        let fullContent = '';
+        let fullThinking = '';
+        let finishReason = 'stop';
+        let usage: TokenUsage | undefined;
+
+        const toolCallState = new Map<number, { id?: string; name: string; argsText: string }>();
+        const emittedToolCalls = new Set<string>();
+        const toolCalls: ToolCall[] = [];
+
+        for await (const chunk of stream) {
+            if (chunk.usage) {
+                usage = {
+                    prompt_tokens: chunk.usage.prompt_tokens ?? 0,
+                    completion_tokens: chunk.usage.completion_tokens ?? 0,
+                    total_tokens: chunk.usage.total_tokens ?? 0,
+                };
+                yield { type: 'usage', usage };
+            }
+
+            const choice = chunk.choices?.[0];
+            if (!choice) continue;
+
+            if (choice.finish_reason) {
+                finishReason = choice.finish_reason === 'stop' ? 'stop' : String(choice.finish_reason);
+            }
+
+            const delta: Record<string, unknown> = (choice.delta ?? {}) as Record<string, unknown>;
+
+            if (typeof delta['content'] === 'string' && delta['content']) {
+                const text = delta['content'] as string;
+                fullContent += text;
+                yield { type: 'content_delta', text };
+            }
+
+            const reasoningDetails = delta['reasoning_details'];
+            if (Array.isArray(reasoningDetails)) {
+                for (const detail of reasoningDetails as Array<Record<string, unknown>>) {
+                    const thinkingText = typeof detail['text'] === 'string' ? detail['text'] : '';
+                    if (thinkingText) {
+                        fullThinking += thinkingText;
+                        yield { type: 'thinking_delta', text: thinkingText };
+                    }
+                }
+            }
+
+            if (Array.isArray(delta['tool_calls'])) {
+                for (const partialCall of delta['tool_calls'] as Array<Record<string, unknown>>) {
+                    const index = Number(partialCall['index'] ?? 0);
+                    const existing = toolCallState.get(index) ?? { name: '', argsText: '' };
+
+                    if (typeof partialCall['id'] === 'string') existing.id = partialCall['id'];
+                    const fn = partialCall['function'] as Record<string, unknown> | undefined;
+                    if (fn) {
+                        if (typeof fn['name'] === 'string') existing.name = fn['name'];
+                        if (typeof fn['arguments'] === 'string') existing.argsText += fn['arguments'];
+                    }
+                    toolCallState.set(index, existing);
+                }
+            }
+        }
+
+        for (const [index, partial] of toolCallState.entries()) {
+            if (!partial.name) continue;
+            const callId = partial.id ?? `call_${index}`;
+            const key = `${callId}:${partial.name}:${partial.argsText}`;
+            if (emittedToolCalls.has(key)) continue;
+
+            let parsedArgs: Record<string, unknown> = {};
+            if (partial.argsText.trim()) {
+                try {
+                    parsedArgs = JSON.parse(partial.argsText) as Record<string, unknown>;
+                } catch {
+                    parsedArgs = {};
+                }
+            }
+
+            const tc: ToolCall = {
+                id: callId,
+                type: 'function',
+                function: {
+                    name: partial.name,
+                    arguments: parsedArgs,
+                },
+            };
+            emittedToolCalls.add(key);
+            toolCalls.push(tc);
+            yield { type: 'tool_call', tool_call: tc };
+        }
+
+        const response: LLMResponse = {
+            content: fullContent,
+            thinking: fullThinking || undefined,
+            tool_calls: toolCalls.length ? toolCalls : undefined,
+            finish_reason: finishReason,
+            usage,
+        };
+
+        yield { type: 'done', response };
+        return response;
+    }
+
         
 }
-

@@ -171,7 +171,7 @@ async function runAgent(workspaceDir: string, task?: string): Promise<void> {
     provider,
     apiBase: config.llm.apiBase,
     model: config.llm.model,
-    retryConfig: config.llm.retry.enabled ? retryConfig : undefined,
+    retryConfig,
   });
 
   if (config.llm.retry.enabled) {
@@ -212,7 +212,7 @@ async function runAgent(workspaceDir: string, task?: string): Promise<void> {
   //   systemPrompt = systemPrompt.replace('{SKILLS_METADATA}', '');
   // }
 
-  const tools = [];
+  const tools: Tool[] = [];
 
   // 6. Create agent
   const agent = new Agent({

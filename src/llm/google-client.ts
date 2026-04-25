@@ -1,13 +1,20 @@
 // Google Gemini LLM client — mirrors anthropic-client.ts / openai-client.ts
 
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import type {
   GenerateContentResponse,
   Content,
   Part,
   FunctionDeclaration,
+  GenerateContentResponseUsageMetadata,
 } from '@google/genai';
-import type { LLMResponse, Message, TokenUsage, ToolCall } from '../schema.js';
+import type {
+  LLMResponse,
+  LLMStreamEvent,
+  Message,
+  TokenUsage,
+  ToolCall,
+} from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { RetryConfig, withRetry } from '../retry.js';
 import { LLMClientBase } from './base.js';
@@ -42,11 +49,10 @@ export class GoogleClient extends LLMClientBase {
   /**
    * 核心 API 请求 — 提取出来以便 withRetry 可以包装它
    */
-  private async _makeApiRequest(
+  private _buildConfig(
     systemInstruction: string | null,
-    contents: Content[],
     tools?: Tool[] | null,
-  ): Promise<GenerateContentResponse> {
+  ): Record<string, unknown> {
     const config: Record<string, unknown> = {
       thinkingConfig: { includeThoughts: true },
     };
@@ -59,7 +65,31 @@ export class GoogleClient extends LLMClientBase {
       config['tools'] = [{ functionDeclarations: tools.map(toGoogleSchema) }];
     }
 
+    return config;
+  }
+
+  private async _makeApiRequest(
+    systemInstruction: string | null,
+    contents: Content[],
+    tools?: Tool[] | null,
+  ): Promise<GenerateContentResponse> {
+    const config = this._buildConfig(systemInstruction, tools);
+
     return this.client.models.generateContent({
+      model: this.model,
+      contents,
+      config,
+    });
+  }
+
+  private async _makeApiStreamRequest(
+    systemInstruction: string | null,
+    contents: Content[],
+    tools?: Tool[] | null,
+  ): Promise<AsyncGenerator<GenerateContentResponse>> {
+    const config = this._buildConfig(systemInstruction, tools);
+
+    return this.client.models.generateContentStream({
       model: this.model,
       contents,
       config,
@@ -183,19 +213,7 @@ export class GoogleClient extends LLMClientBase {
     }
 
     // 解析 token 用量
-    let usage: TokenUsage | undefined;
-    if (response.usageMetadata) {
-      const meta = response.usageMetadata;
-      const promptTokens = meta.promptTokenCount ?? 0;
-      const completionTokens = meta.candidatesTokenCount ?? 0;
-      const cachedTokens = meta.cachedContentTokenCount ?? 0;
-      const thoughtsTokens = meta.thoughtsTokenCount ?? 0;
-      usage = {
-        prompt_tokens: promptTokens + cachedTokens,
-        completion_tokens: completionTokens + thoughtsTokens,
-        total_tokens: meta.totalTokenCount ?? (promptTokens + completionTokens),
-      };
-    }
+    const usage = this._parseUsage(response.usageMetadata);
 
     // 映射 finishReason
     const finishReason = candidate?.finishReason ?? 'STOP';
@@ -231,5 +249,104 @@ export class GoogleClient extends LLMClientBase {
     }
 
     return this._parseResponse(response);
+  }
+
+  async *generateStream(
+    messages: Message[],
+    tools?: Tool[] | null,
+  ): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
+    const { systemInstruction, contents } = this._prepareRequest(messages, tools) as {
+      systemInstruction: string | null;
+      contents: Content[];
+    };
+
+    let stream: AsyncGenerator<GenerateContentResponse>;
+    if (this.retryConfig.enabled) {
+      const wrapped = withRetry(
+        (si: string | null, c: Content[], t?: Tool[] | null) => this._makeApiStreamRequest(si, c, t),
+        this.retryConfig,
+        this.retryCallback ?? undefined,
+      );
+      stream = await wrapped(systemInstruction, contents, tools);
+    } else {
+      stream = await this._makeApiStreamRequest(systemInstruction, contents, tools);
+    }
+
+    let fullContent = '';
+    let fullThinking = '';
+    let finishReason = 'stop';
+    let usage: TokenUsage | undefined;
+    const toolCalls: ToolCall[] = [];
+    const seenToolCalls = new Set<string>();
+
+    for await (const chunk of stream) {
+      usage = this._parseUsage(chunk.usageMetadata) ?? usage;
+      if (usage) {
+        yield { type: 'usage', usage };
+      }
+
+      const candidate = chunk.candidates?.[0];
+      if (candidate?.finishReason) {
+        finishReason =
+          candidate.finishReason === 'STOP' ? 'stop' : candidate.finishReason.toLowerCase();
+      }
+
+      for (const part of candidate?.content?.parts ?? []) {
+        if (part.thought && part.text) {
+          fullThinking += part.text;
+          yield { type: 'thinking_delta', text: part.text };
+          continue;
+        }
+
+        if (part.text) {
+          fullContent += part.text;
+          yield { type: 'content_delta', text: part.text };
+          continue;
+        }
+
+        if (part.functionCall) {
+          const fc = part.functionCall;
+          const toolCall: ToolCall = {
+            id: fc.id ?? `call_${fc.name}_${Date.now()}`,
+            type: 'function',
+            function: {
+              name: fc.name ?? '',
+              arguments: (fc.args ?? {}) as Record<string, unknown>,
+            },
+          };
+          const key = `${toolCall.id}:${toolCall.function.name}:${JSON.stringify(toolCall.function.arguments)}`;
+          if (!seenToolCalls.has(key)) {
+            seenToolCalls.add(key);
+            toolCalls.push(toolCall);
+            yield { type: 'tool_call', tool_call: toolCall };
+          }
+        }
+      }
+
+    }
+
+    const response: LLMResponse = {
+      content: fullContent,
+      thinking: fullThinking || undefined,
+      tool_calls: toolCalls.length ? toolCalls : undefined,
+      finish_reason: finishReason,
+      usage,
+    };
+
+    yield { type: 'done', response };
+    return response;
+  }
+
+  private _parseUsage(meta?: GenerateContentResponseUsageMetadata): TokenUsage | undefined {
+    if (!meta) return undefined;
+    const promptTokens = meta.promptTokenCount ?? 0;
+    const completionTokens = meta.candidatesTokenCount ?? 0;
+    const cachedTokens = meta.cachedContentTokenCount ?? 0;
+    const thoughtsTokens = meta.thoughtsTokenCount ?? 0;
+    return {
+      prompt_tokens: promptTokens + cachedTokens,
+      completion_tokens: completionTokens + thoughtsTokens,
+      total_tokens: meta.totalTokenCount ?? (promptTokens + completionTokens),
+    };
   }
 }
