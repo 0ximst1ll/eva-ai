@@ -7,6 +7,7 @@ import { RetryConfig } from '../retry.js';
 import { LLMClientBase } from './base.js';
 import { AnthropicClient } from './anthropic-client.js';
 import { OpenAIClient } from './openai-client.js';
+import { GoogleClient } from './google-client.js';
 
 const MINIMAX_DOMAINS = ['api.minimax.io', 'api.minimaxi.com'];
 
@@ -61,6 +62,8 @@ export class LLMClient {
       this._client = new AnthropicClient(apiKey, fullApiBase, model, retryConfig);
     } else if (provider === LLMProvider.OPENAI) {
       this._client = new OpenAIClient(apiKey, fullApiBase, model, retryConfig);
+    } else if (provider === LLMProvider.GOOGLE) {
+      this._client = new GoogleClient(apiKey, fullApiBase, model, retryConfig);
     } else {
       throw new Error(`Unsupported provider: ${provider}`);
     }

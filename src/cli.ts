@@ -155,8 +155,16 @@ async function runAgent(workspaceDir: string, task?: string): Promise<void> {
     exponentialBase: config.llm.retry.exponentialBase,
   });
 
-  const provider =
-    config.llm.provider.toLowerCase() === 'anthropic' ? LLMProvider.ANTHROPIC : LLMProvider.OPENAI;
+  const providerMap: Record<string, LLMProvider> = {
+    anthropic: LLMProvider.ANTHROPIC,
+    openai: LLMProvider.OPENAI,
+    google: LLMProvider.GOOGLE,
+  };
+  const provider = providerMap[config.llm.provider.toLowerCase()];
+  if (!provider) {
+    console.log(`${Colors.RED}❌ Unsupported provider: ${config.llm.provider}${Colors.RESET}`);
+    return;
+  }
 
   const llmClient = new LLMClient({
     apiKey: config.llm.apiKey,

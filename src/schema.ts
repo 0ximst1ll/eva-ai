@@ -1,6 +1,7 @@
 export enum LLMProvider {
   OPENAI = 'openai',
   ANTHROPIC = 'anthropic',
+  GOOGLE = 'google',
 }
 
 export interface FunctionCall {
