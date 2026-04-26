@@ -2,131 +2,110 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as readline from 'node:readline';
-// import { program } from 'commander';
-import { Agent } from './agent.js';
 import { Config } from './config.js';
-import { LLMProvider } from './schema.js';
+import { LLMProvider, type AgentSessionEvent } from './schema.js';
 import { LLMClient } from './llm/llm-client.js';
 import { RetryConfig } from './retry.js';
-// import { ReadTool, WriteTool, EditTool } from './tools/file-tools.js';
-// import { BashTool, BashOutputTool, BashKillTool } from './tools/bash-tool.js';
-// import { SessionNoteTool } from './tools/note-tool.js';
-// import { createSkillTools } from './tools/skill-tool.js';
-// import { loadMcpToolsAsync, cleanupMcpConnections, setMcpTimeoutConfig } from './tools/mcp-loader.js';
 import type { Tool } from './tools/base.js';
+import { AgentSession } from './core/agent-session.js';
+import { SessionManager } from './core/session-manager.js';
 import { Colors, calculateDisplayWidth } from './utils/terminal.js';
 
+const BOX_WIDTH = 58;
 
-// ============ Tool initialization ============
+type RenderState = {
+  printedThinkingHeader: boolean;
+  printedAssistantHeader: boolean;
+};
 
-// async function initializeBaseTools(config: ReturnType<typeof Config.fromYaml>): Promise<{
-//   tools: Tool[];
-//   skillLoader: ReturnType<typeof createSkillTools>['loader'] | null;
-// }> {
-//   const tools: Tool[] = [];
-//   let skillLoader: ReturnType<typeof createSkillTools>['loader'] | null = null;
+function createCliRenderer() {
+  let state: RenderState = {
+    printedThinkingHeader: false,
+    printedAssistantHeader: false,
+  };
 
-//   // Bash auxiliary tools
-//   if (config.tools.enableBash) {
-//     tools.push(new BashOutputTool(), new BashKillTool());
-//     console.log(`${Colors.GREEN}✅ Loaded Bash Output tool${Colors.RESET}`);
-//     console.log(`${Colors.GREEN}✅ Loaded Bash Kill tool${Colors.RESET}`);
-//   }
+  return (event: AgentSessionEvent): void => {
+    if (event.type === 'message_start') {
+      state = { printedThinkingHeader: false, printedAssistantHeader: false };
+      const stepText = `${Colors.BOLD}${Colors.BRIGHT_CYAN}💭 Step ${event.step}/${event.maxSteps}${Colors.RESET}`;
+      const stepWidth = calculateDisplayWidth(stepText);
+      const padding = Math.max(0, BOX_WIDTH - 1 - stepWidth);
+      console.log(`\n${Colors.DIM}╭${'─'.repeat(BOX_WIDTH)}╮${Colors.RESET}`);
+      console.log(`${Colors.DIM}│${Colors.RESET} ${stepText}${' '.repeat(padding)}${Colors.DIM}│${Colors.RESET}`);
+      console.log(`${Colors.DIM}╰${'─'.repeat(BOX_WIDTH)}╯${Colors.RESET}`);
+      return;
+    }
 
-//   // Claude Skills
-//   if (config.tools.enableSkills) {
-//     console.log(`${Colors.BRIGHT_CYAN}Loading Claude Skills...${Colors.RESET}`);
-//     try {
-//       const skillsPath = config.tools.skillsDir.replace(/^~/, os.homedir());
-//       const searchPaths = [
-//         skillsPath,
-//         path.join('mini_agent', skillsPath),
-//         path.join(Config.getPackageDir(), '..', skillsPath),
-//       ];
+    if (event.type === 'thinking_delta') {
+      if (!state.printedThinkingHeader) {
+        state.printedThinkingHeader = true;
+        console.log(`\n${Colors.BOLD}${Colors.MAGENTA}🧠 Thinking:${Colors.RESET}`);
+      }
+      process.stdout.write(event.text);
+      return;
+    }
 
-//       let skillsDir = skillsPath;
-//       for (const p of searchPaths) {
-//         if (fs.existsSync(p)) {
-//           skillsDir = path.resolve(p);
-//           break;
-//         }
-//       }
+    if (event.type === 'content_delta') {
+      if (!state.printedAssistantHeader) {
+        state.printedAssistantHeader = true;
+        console.log(`\n${Colors.BOLD}${Colors.BRIGHT_BLUE}🤖 Assistant:${Colors.RESET}`);
+      }
+      process.stdout.write(event.text);
+      return;
+    }
 
-//       const { tools: skillTools, loader } = createSkillTools(skillsDir);
-//       if (skillTools.length) {
-//         tools.push(...skillTools);
-//         skillLoader = loader;
-//         console.log(`${Colors.GREEN}✅ Loaded Skill tool (get_skill)${Colors.RESET}`);
-//       } else {
-//         console.log(`${Colors.YELLOW}⚠️  No available Skills found${Colors.RESET}`);
-//       }
-//     } catch (e) {
-//       console.log(`${Colors.YELLOW}⚠️  Failed to load Skills: ${e}${Colors.RESET}`);
-//     }
-//   }
+    if (event.type === 'tool_call') {
+      console.log(
+        `\n${Colors.BRIGHT_YELLOW}🔧 Tool Call:${Colors.RESET} ${Colors.BOLD}${Colors.CYAN}${event.tool_call.function.name}${Colors.RESET}`,
+      );
+      console.log(`${Colors.DIM}   Arguments:${Colors.RESET}`);
+      const truncated: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(event.tool_call.function.arguments)) {
+        const s = String(v);
+        truncated[k] = s.length > 200 ? s.slice(0, 200) + '...' : v;
+      }
+      for (const line of JSON.stringify(truncated, null, 2).split('\n')) {
+        console.log(`   ${Colors.DIM}${line}${Colors.RESET}`);
+      }
+      return;
+    }
 
-//   // MCP tools
-//   if (config.tools.enableMcp) {
-//     console.log(`${Colors.BRIGHT_CYAN}Loading MCP tools...${Colors.RESET}`);
-//     try {
-//       setMcpTimeoutConfig({
-//         connectTimeout: config.tools.mcp.connectTimeout,
-//         executeTimeout: config.tools.mcp.executeTimeout,
-//         sseReadTimeout: config.tools.mcp.sseReadTimeout,
-//       });
+    if (event.type === 'tool_result') {
+      if (event.result.success) {
+        let text = event.result.content;
+        if (text.length > 300) text = text.slice(0, 300) + `${Colors.DIM}...${Colors.RESET}`;
+        console.log(`${Colors.BRIGHT_GREEN}✓ Result:${Colors.RESET} ${text}`);
+      } else {
+        console.log(
+          `${Colors.BRIGHT_RED}✗ Error:${Colors.RESET} ${Colors.RED}${event.result.error}${Colors.RESET}`,
+        );
+      }
+      return;
+    }
 
-//       const mcpConfigPath = Config.findConfigFile(config.tools.mcpConfigPath);
-//       if (mcpConfigPath) {
-//         const mcpTools = await loadMcpToolsAsync(mcpConfigPath);
-//         if (mcpTools.length) {
-//           tools.push(...mcpTools);
-//           console.log(`${Colors.GREEN}✅ Loaded ${mcpTools.length} MCP tools (from: ${mcpConfigPath})${Colors.RESET}`);
-//         } else {
-//           console.log(`${Colors.YELLOW}⚠️  No available MCP tools found${Colors.RESET}`);
-//         }
-//       } else {
-//         console.log(`${Colors.YELLOW}⚠️  MCP config file not found: ${config.tools.mcpConfigPath}${Colors.RESET}`);
-//       }
-//     } catch (e) {
-//       console.log(`${Colors.YELLOW}⚠️  Failed to load MCP tools: ${e}${Colors.RESET}`);
-//     }
-//   }
+    if (event.type === 'usage') {
+      return;
+    }
 
-//   console.log();
-//   return { tools, skillLoader };
-// }
+    if (event.type === 'message_end') {
+      if (state.printedThinkingHeader || state.printedAssistantHeader) {
+        process.stdout.write('\n');
+      }
+      const stepElapsed = (event.elapsedMs / 1000).toFixed(2);
+      const totalElapsed = (event.totalElapsedMs / 1000).toFixed(2);
+      console.log(
+        `\n${Colors.DIM}⏱️  Step ${event.step} completed in ${stepElapsed}s (total: ${totalElapsed}s)${Colors.RESET}`,
+      );
+      return;
+    }
 
-// function addWorkspaceTools(
-//   tools: Tool[],
-//   config: ReturnType<typeof Config.fromYaml>,
-//   workspaceDir: string,
-// ): void {
-//   fs.mkdirSync(workspaceDir, { recursive: true });
-
-//   if (config.tools.enableBash) {
-//     tools.push(new BashTool(workspaceDir));
-//     console.log(`${Colors.GREEN}✅ Loaded Bash tool (cwd: ${workspaceDir})${Colors.RESET}`);
-//   }
-
-//   if (config.tools.enableFileTools) {
-//     tools.push(
-//       new ReadTool(workspaceDir),
-//       new WriteTool(workspaceDir),
-//       new EditTool(workspaceDir),
-//     );
-//     console.log(`${Colors.GREEN}✅ Loaded file operation tools (workspace: ${workspaceDir})${Colors.RESET}`);
-//   }
-
-//   if (config.tools.enableNote) {
-//     tools.push(new SessionNoteTool(path.join(workspaceDir, '.agent_memory.json')));
-//     console.log(`${Colors.GREEN}✅ Loaded session note tool${Colors.RESET}`);
-//   }
-// }
-
+    if (event.type === 'error') {
+      console.log(`\n${Colors.BRIGHT_RED}❌ Error:${Colors.RESET} ${event.message}`);
+    }
+  };
+}
 
 async function runAgent(workspaceDir: string, task?: string): Promise<void> {
-  const sessionStart = new Date();
-
   // 1. Load config
   const configPath = Config.getDefaultConfigPath();
   if (!fs.existsSync(configPath)) {
@@ -214,27 +193,32 @@ async function runAgent(workspaceDir: string, task?: string): Promise<void> {
 
   const tools: Tool[] = [];
 
-  // 6. Create agent
-  const agent = new Agent({
+  // 6. Create session manager + session
+  const sessionManager = new SessionManager({ workspaceDir, mode: 'jsonl' });
+  let sessionId = await sessionManager.loadLatestSession();
+  if (!sessionId) {
+    sessionId = await sessionManager.createSession(systemPrompt);
+  }
+
+  const session = new AgentSession({
     llmClient,
     systemPrompt,
     tools,
     maxSteps: config.agent.maxSteps,
-    workspaceDir,
+    sessionManager,
+    sessionId,
   });
+  const renderEvent = createCliRenderer();
 
   // 7. Non-interactive mode
   if (task) {
     console.log(`\n${Colors.BRIGHT_BLUE}Agent${Colors.RESET} ${Colors.DIM}›${Colors.RESET} ${Colors.DIM}Executing task...${Colors.RESET}\n`);
-    agent.addUserMessage(task);
+    await session.addUserMessage(task);
     try {
-      await agent.run();
+      await session.run({ onEvent: renderEvent });
     } catch (e) {
       console.log(`\n${Colors.RED}❌ Error: ${e}${Colors.RESET}`);
-    } finally {
-      // printStats(agent, sessionStart);
     }
-    // await cleanupMcpConnections();
     return;
   }
 
@@ -261,9 +245,7 @@ async function runAgent(workspaceDir: string, task?: string): Promise<void> {
   // Handle Ctrl+C
   rl.on('SIGINT', () => {
     console.log(`\n\n${Colors.BRIGHT_YELLOW}👋 Interrupt signal detected, exiting...${Colors.RESET}\n`);
-    // printStats(agent, sessionStart);
     rl.close();
-    // cleanupMcpConnections().catch(() => {});
     process.exit(0);
   });
 
@@ -283,21 +265,20 @@ async function runAgent(workspaceDir: string, task?: string): Promise<void> {
 
       if (['/exit', '/quit', '/q'].includes(cmd)) {
         console.log(`\n${Colors.BRIGHT_YELLOW}👋 Goodbye! Thanks for using Eve Agent${Colors.RESET}\n`);
-        // printStats(agent, sessionStart);
         break;
       }
 
       // if (cmd === '/help') { printHelp(); continue; }
 
       if (cmd === '/clear') {
-        const old = agent.messages.length;
-        agent.messages = [agent.messages[0]];
+        const old = session.messages.length;
+        await session.clear();
         console.log(`${Colors.GREEN}✅ Cleared ${old - 1} messages, starting new session${Colors.RESET}\n`);
         continue;
       }
 
       if (cmd === '/history') {
-        console.log(`\n${Colors.BRIGHT_CYAN}Current session message count: ${agent.messages.length}${Colors.RESET}\n`);
+        console.log(`\n${Colors.BRIGHT_CYAN}Current session message count: ${session.messages.length}${Colors.RESET}\n`);
         continue;
       }
 
@@ -321,7 +302,6 @@ async function runAgent(workspaceDir: string, task?: string): Promise<void> {
     // Plain exit keywords
     if (['exit', 'quit', 'q'].includes(userInput.toLowerCase())) {
       console.log(`\n${Colors.BRIGHT_YELLOW}👋 Goodbye! Thanks for using Eve Agent${Colors.RESET}\n`);
-      // printStats(agent, sessionStart);
       break;
     }
 
@@ -330,11 +310,14 @@ async function runAgent(workspaceDir: string, task?: string): Promise<void> {
       `\n${Colors.BRIGHT_BLUE}Agent${Colors.RESET} ${Colors.DIM}›${Colors.RESET} ${Colors.DIM}Thinking... (Ctrl+C to cancel)${Colors.RESET}\n`,
     );
 
-    agent.addUserMessage(userInput);
+    await session.addUserMessage(userInput);
     abortController = new AbortController();
 
     try {
-      await agent.run(abortController.signal);
+      await session.run({
+        signal: abortController.signal,
+        onEvent: renderEvent,
+      });
     } catch (e) {
       if ((e as Error).name === 'AbortError') {
         console.log(`\n${Colors.BRIGHT_YELLOW}⚠️  Agent execution cancelled${Colors.RESET}`);
@@ -349,7 +332,6 @@ async function runAgent(workspaceDir: string, task?: string): Promise<void> {
   }
 
   rl.close();
-  // await cleanupMcpConnections();
 }
 
 const workspaceDir = process.cwd();

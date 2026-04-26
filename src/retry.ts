@@ -1,7 +1,7 @@
 export class RetryConfig {
     readonly enabled: boolean;
     readonly maxRetries: number;
-    readonly initalDelay: number;
+    readonly initialDelay: number;
     readonly maxDelay: number;
     readonly exponentialBase: number;
 
@@ -20,14 +20,14 @@ export class RetryConfig {
         }> = {}) { //JS: 整个参数缺失时用 = 后的默认对象
             this.enabled = enabled;
             this.maxRetries = maxRetries;
-            this.initalDelay = initialDelay;
+            this.initialDelay = initialDelay;
             this.maxDelay = maxDelay;
             this.exponentialBase = exponentialBase;
 
     }
 
     calculateDelay(attempt: number): number {
-        const delay = this.initalDelay * Math.pow(this.exponentialBase, attempt);
+        const delay = this.initialDelay * Math.pow(this.exponentialBase, attempt);
         return Math.min(delay, this.maxDelay);
     }
 
@@ -39,7 +39,7 @@ export class RetryExhaustedError extends Error {
 
     constructor(lastException: Error, attempts: number) {
         super(`Retry failed after ${attempts} attempts. Last error: ${lastException.message}`);
-        this.name = 'RertyExhaustedError';
+        this.name = 'RetryExhaustedError';
         this.lastException = lastException;
         this.attempts = attempts;
     }
@@ -57,20 +57,22 @@ export function withRetry<TArgs extends unknown[], TReturn> ( //泛型约束TArg
    return async (...args: TArgs): Promise<TReturn> => { //这里定义一个箭头函数
         let lastError: Error = new Error('Unknown error');
 
-        for (let attempt = 0; attempt < config.maxRetries; attempt++) {
+        for (let attempt = 0; ; attempt++) {
             try {
                 return await fn(...args);
             } catch (err) {
                 lastError = err instanceof Error ? err : new Error(String(err));
+                const retryAttempt = attempt + 1;
 
-                if(attempt < config.maxRetries) {
-                    throw new RetryExhaustedError(lastError, attempt + 1);
+                // maxRetries 表示“最多重试次数”，总尝试次数 = 1 + maxRetries
+                if (retryAttempt > config.maxRetries) {
+                    throw new RetryExhaustedError(lastError, retryAttempt);
                 }
 
                 const delay = config.calculateDelay(attempt);
 
                 if(onRetry) {
-                    onRetry(lastError, attempt + 1);
+                    onRetry(lastError, retryAttempt);
                 }
 
                 await sleep(delay * 1000);
