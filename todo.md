@@ -21,14 +21,18 @@
 - [ ] 建立统一 diagnostics 收集与展示策略，覆盖配置、provider、tools、MCP、session 初始化
 - [ ] 建立核心回归测试：session JSONL、tool loop、retry、runtime 创建、CLI 默认新会话
 
-## P2（协议层与可扩展骨架）
+## P2（对齐 pi-mono 的可扩展骨架）
 
+- [ ] 新增 `RuntimeHost`，持有当前 runtime/session，并支持 `newSession()`、`switchSession()`，后续扩展 `fork()`
+- [ ] 拆分 mode 层：`interactive-mode`、`print-mode`、`rpc-mode`，CLI 入口只负责参数解析与模式分发
+- [ ] 新增 `RuntimeServices`，集中管理 cwd 绑定的 config、resource loader、tool loader、diagnostics 等基础设施
 - [ ] 实现最小 RPC mode（JSONL stdin/stdout）：`prompt / get_state / abort / new_session`
-- [ ] 让 CLI 与 RPC 共享同一个 runtime/session 内核，避免双装配路径漂移
+- [ ] 让 CLI、print、RPC 共享同一个 RuntimeHost/session 内核，避免双装配路径漂移
 - [ ] 增加会话恢复增强：`/resume <id>`、按当前 workspace 列出 session、显示 session id/path
 - [ ] 增加模型/思考级别切换与状态同步，并写入 session 事件
 - [ ] 增加资源加载器：system prompt / skills / context / MCP config，并支持 reload
 - [ ] 引入基础可观测性：tool 耗时、LLM retry 次数、token usage、关键路径 timings
+- [ ] 为 RuntimeHost、mode 分发、RPC 协议增加回归测试
 
 ## P3（吸收 claude-code 的工程能力）
 
@@ -36,7 +40,7 @@
 - [ ] MCP 渐进加载：pending -> connected/failed 增量更新，慢连接不阻塞首轮
 - [ ] 扩展钩子框架：`before_prompt / after_response / before_tool / after_tool / session_*`
 - [ ] 上下文压缩：手动 compact -> 自动阈值触发
-- [ ] 会话树分叉：`/fork`、branch summary、从任意历史 entry 派生新 session
+- [ ] 升级 `SessionManager` 为 entry tree：每条记录具备 `id / parentId / timestamp`，支持 leaf、branch、fork、context rebuild
 - [ ] sidecar metadata：为后续 subagent、todo、file history 等可恢复运行现场预留
 
 ## P4（体验与长期治理）
