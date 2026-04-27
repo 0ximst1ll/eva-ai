@@ -1,4 +1,4 @@
-# Eve-Agent 架构文档
+# Eva AI 架构文档
 
 > 每次架构有实质变化时更新此文档。
 
@@ -9,7 +9,7 @@
 ### 目录结构
 
 ```
-Eve-Agent/
+Eva AI/
 ├── config/
 │   ├── config.yaml            # 主配置（api_key / model / tools 开关等）
 │   ├── config-example.yaml    # 配置示例
@@ -42,8 +42,8 @@ Eve-Agent/
 │   └── utils/
 │       └── terminal.ts        # ANSI 颜色常量 + 终端显示宽度计算
 └── docs/
-    ├── eve-agent-architecture.md
-    └── eve-agent-iteration-plan.md
+    ├── eva-ai-architecture.md
+    └── eva-ai-iteration-plan.md
 ```
 
 ### 架构分层图
@@ -76,7 +76,7 @@ Eve-Agent/
 │                                                             │
 │   SessionManager                                            │
 │   ├── 内存模式（memory）：Map<sessionId, Message[]>         │
-│   └── JSONL 模式（jsonl）：~/.eve-agent/sessions/ 持久化    │
+│   └── JSONL 模式（jsonl）：~/.eva-ai/sessions/ 持久化    │
 └──────────┬──────────────────────────┬───────────────────────┘
            │ generate / generateStream │ execute
            ▼                           ▼

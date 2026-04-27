@@ -1,4 +1,4 @@
-// Configuration management — mirrors mini_agent/config.py
+// Configuration management — mirrors eva_ai/config.py
 // Python uses Pydantic BaseModel; TypeScript uses plain interfaces + a Config class.
 
 import * as fs from 'node:fs';
@@ -91,12 +91,12 @@ export class Config {
   }
 
   static findConfigFile(filename: string): string | null {
-    // Priority 1: ./mini_agent/config/<filename> (development)
-    const devConfig = path.join(process.cwd(), 'eve_agent', 'config', filename);
+    // Priority 1: ./eva_ai/config/<filename> (development)
+    const devConfig = path.join(process.cwd(), 'eva_ai', 'config', filename);
     if (fs.existsSync(devConfig)) return devConfig;
 
-    // Priority 2: ~/.mini-agent/config/<filename> (user)
-    const userConfig = path.join(os.homedir(), '.eve-agent', 'config', filename);
+    // Priority 2: ~/.eva-ai/config/<filename> (user)
+    const userConfig = path.join(os.homedir(), '.eva-ai', 'config', filename);
     if (fs.existsSync(userConfig)) return userConfig;
 
     // Priority 3: <package>/config/<filename>
@@ -109,7 +109,7 @@ export class Config {
   static getDefaultConfigPath(): string {
     const found = Config.findConfigFile('config.yaml');
     if (found) return found;
-    return path.join(os.homedir(), '.eve-agent', 'config', 'config.yaml');
+    return path.join(os.homedir(), '.eva-ai', 'config', 'config.yaml');
   }
 
   static fromYaml(configPath: string): ConfigData {
@@ -167,7 +167,7 @@ export class Config {
     const configPath = Config.getDefaultConfigPath();
     if (!fs.existsSync(configPath)) {
       throw new Error(
-        'Configuration file not found. Place config.yaml in ~/.eve-agent/config/',
+        'Configuration file not found. Place config.yaml in ~/.eva-ai/config/',
       );
     }
     return Config.fromYaml(configPath);

@@ -1,4 +1,4 @@
-// MCP tool loader — mirrors mini_agent/tools/mcp_loader.py
+// MCP tool loader — mirrors eva_ai/tools/mcp_loader.py
 
 import * as fs from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -153,7 +153,7 @@ export class MCPServerConnection {
 
   async connect(): Promise<boolean> {
     try {
-      this.client = new Client({ name: `mini-agent-${this.name}`, version: '0.1.0' });
+      this.client = new Client({ name: `eva-ai-${this.name}`, version: '0.1.0' });
 
       let transport;
       if (this.connectionType === 'stdio') {

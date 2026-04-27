@@ -1,4 +1,4 @@
-// Terminal display utilities — mirrors mini_agent/utils/terminal_utils.py
+// Terminal display utilities — mirrors eva_ai/utils/terminal_utils.py
 
 const ANSI_ESCAPE_RE = /\x1b\[[0-9;]*m/g;
 const EMOJI_START = 0x1f300;
@@ -40,7 +40,7 @@ export function calculateDisplayWidth(text: string): number {
   return width;
 }
 
-// ANSI color constants — mirrors mini_agent/agent.py Colors class
+// ANSI color constants — mirrors eva_ai/agent.py Colors class
 export const Colors = {
   RESET: '\x1b[0m',
   BOLD: '\x1b[1m',

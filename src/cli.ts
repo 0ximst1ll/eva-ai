@@ -1,14 +1,12 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
 import * as readline from 'node:readline';
-import { Config } from './config.js';
-import { LLMProvider, type AgentSessionEvent } from './schema.js';
-import { LLMClient } from './llm/llm-client.js';
-import { RetryConfig } from './retry.js';
-import type { Tool } from './tools/base.js';
-import { AgentSession } from './core/agent-session.js';
-import { SessionManager } from './core/session-manager.js';
+import { type AgentSessionEvent } from './schema.js';
+import {
+  createRuntime,
+  RuntimeConfigNotFoundError,
+  UnsupportedProviderError,
+  type RuntimeDiagnostic,
+} from './core/runtime.js';
 import { Colors, calculateDisplayWidth } from './utils/terminal.js';
 
 const BOX_WIDTH = 58;
@@ -105,109 +103,60 @@ function createCliRenderer() {
   };
 }
 
-async function runAgent(workspaceDir: string, task?: string): Promise<void> {
-  // 1. Load config
-  const configPath = Config.getDefaultConfigPath();
-  if (!fs.existsSync(configPath)) {
-    console.log(`${Colors.RED}❌ Configuration file not found${Colors.RESET}`);
-    console.log(`\n${Colors.BRIGHT_YELLOW}📝 Manual Setup:${Colors.RESET}`);
-    const userConfigDir = path.join(os.homedir(), '.eve-agent', 'config');
-    console.log(`  ${Colors.DIM}mkdir -p ${userConfigDir}${Colors.RESET}`);
-    console.log(`  ${Colors.DIM}# Place config.yaml in ${userConfigDir}${Colors.RESET}`);
-    return;
-  }
+function renderRuntimeDiagnostics(diagnostics: RuntimeDiagnostic[]): void {
+  for (const diagnostic of diagnostics) {
+    if (diagnostic.code === 'retry_enabled') {
+      console.log(`${Colors.GREEN}✅ ${diagnostic.message}${Colors.RESET}`);
+      continue;
+    }
 
-  let config: ReturnType<typeof Config.fromYaml>;
+    if (diagnostic.code === 'system_prompt_loaded') {
+      console.log(`${Colors.GREEN}✅ ${diagnostic.message}${Colors.RESET}`);
+      continue;
+    }
+
+    if (diagnostic.type === 'warning') {
+      console.log(`${Colors.YELLOW}⚠️  ${diagnostic.message}${Colors.RESET}`);
+      continue;
+    }
+
+    console.log(`${Colors.DIM}${diagnostic.message}${Colors.RESET}`);
+  }
+}
+
+async function runAgent(workspaceDir: string, task?: string): Promise<void> {
+  let runtime: Awaited<ReturnType<typeof createRuntime>>;
   try {
-    config = Config.fromYaml(configPath);
+    runtime = await createRuntime({
+      workspaceDir,
+      onLlmRetry: ({ error, attempt, nextDelay }) => {
+        console.log(`\n${Colors.BRIGHT_YELLOW}⚠️  LLM call failed (attempt ${attempt}): ${error.message}${Colors.RESET}`);
+        console.log(
+          `${Colors.DIM}   Retrying in ${nextDelay.toFixed(1)}s (attempt ${attempt + 1})...${Colors.RESET}`,
+        );
+      },
+    });
   } catch (e) {
+    if (e instanceof RuntimeConfigNotFoundError) {
+      console.log(`${Colors.RED}❌ Configuration file not found${Colors.RESET}`);
+      console.log(`\n${Colors.BRIGHT_YELLOW}📝 Manual Setup:${Colors.RESET}`);
+      console.log(`  ${Colors.DIM}mkdir -p ${e.userConfigDir}${Colors.RESET}`);
+      console.log(`  ${Colors.DIM}# Place config.yaml in ${e.userConfigDir}${Colors.RESET}`);
+      return;
+    }
+
+    if (e instanceof UnsupportedProviderError) {
+      console.log(`${Colors.RED}❌ Unsupported provider: ${e.provider}${Colors.RESET}`);
+      return;
+    }
+
     console.log(`${Colors.RED}❌ Error: ${e}${Colors.RESET}`);
     return;
   }
 
-  // 2. Initialize LLM client
-  const retryConfig = new RetryConfig({
-    enabled: config.llm.retry.enabled,
-    maxRetries: config.llm.retry.maxRetries,
-    initialDelay: config.llm.retry.initialDelay,
-    maxDelay: config.llm.retry.maxDelay,
-    exponentialBase: config.llm.retry.exponentialBase,
-  });
+  renderRuntimeDiagnostics(runtime.diagnostics);
 
-  const providerMap: Record<string, LLMProvider> = {
-    anthropic: LLMProvider.ANTHROPIC,
-    openai: LLMProvider.OPENAI,
-    google: LLMProvider.GOOGLE,
-  };
-  const provider = providerMap[config.llm.provider.toLowerCase()];
-  if (!provider) {
-    console.log(`${Colors.RED}❌ Unsupported provider: ${config.llm.provider}${Colors.RESET}`);
-    return;
-  }
-
-  const llmClient = new LLMClient({
-    apiKey: config.llm.apiKey,
-    provider,
-    apiBase: config.llm.apiBase,
-    model: config.llm.model,
-    retryConfig,
-  });
-
-  if (config.llm.retry.enabled) {
-    llmClient.retryCallback = (err: Error, attempt: number) => {
-      console.log(`\n${Colors.BRIGHT_YELLOW}⚠️  LLM call failed (attempt ${attempt}): ${err.message}${Colors.RESET}`);
-      const nextDelay = retryConfig.calculateDelay(attempt - 1);
-      console.log(`${Colors.DIM}   Retrying in ${nextDelay.toFixed(1)}s (attempt ${attempt + 1})...${Colors.RESET}`);
-    };
-    console.log(`${Colors.GREEN}✅ LLM retry mechanism enabled (max ${config.llm.retry.maxRetries} retries)${Colors.RESET}`);
-  }
-
-  // 3. Initialize tools
-  // const { tools, skillLoader } = await initializeBaseTools(config);
-  // addWorkspaceTools(tools, config, workspaceDir);
-
-  // 4. Load system prompt
-  const systemPromptPath = Config.findConfigFile(config.agent.systemPromptPath);
-  let systemPrompt: string;
-  if (systemPromptPath && fs.existsSync(systemPromptPath)) {
-    systemPrompt = fs.readFileSync(systemPromptPath, 'utf-8');
-    console.log(`${Colors.GREEN}✅ Loaded system prompt (from: ${systemPromptPath})${Colors.RESET}`);
-  } else {
-    systemPrompt =
-      'You are Eve-Agent, an intelligent assistant that can help users complete various tasks.';
-    console.log(`${Colors.YELLOW}⚠️  System prompt not found, using default${Colors.RESET}`);
-  }
-
-  // 5. Inject skills metadata (Progressive Disclosure Level 1)
-  // if (skillLoader) {
-  //   const meta = skillLoader.getSkillsMetadataPrompt();
-  //   if (meta) {
-  //     systemPrompt = systemPrompt.replace('{SKILLS_METADATA}', meta);
-  //     console.log(`${Colors.GREEN}✅ Injected ${skillLoader.loadedSkills.size} skills metadata into system prompt${Colors.RESET}`);
-  //   } else {
-  //     systemPrompt = systemPrompt.replace('{SKILLS_METADATA}', '');
-  //   }
-  // } else {
-  //   systemPrompt = systemPrompt.replace('{SKILLS_METADATA}', '');
-  // }
-
-  const tools: Tool[] = [];
-
-  // 6. Create session manager + session
-  const sessionManager = new SessionManager({ workspaceDir, mode: 'jsonl' });
-  let sessionId = await sessionManager.loadLatestSession();
-  if (!sessionId) {
-    sessionId = await sessionManager.createSession(systemPrompt);
-  }
-
-  const session = new AgentSession({
-    llmClient,
-    systemPrompt,
-    tools,
-    maxSteps: config.agent.maxSteps,
-    sessionManager,
-    sessionId,
-  });
+  const { session } = runtime;
   const renderEvent = createCliRenderer();
 
   // 7. Non-interactive mode
@@ -264,7 +213,7 @@ async function runAgent(workspaceDir: string, task?: string): Promise<void> {
       const cmd = userInput.toLowerCase();
 
       if (['/exit', '/quit', '/q'].includes(cmd)) {
-        console.log(`\n${Colors.BRIGHT_YELLOW}👋 Goodbye! Thanks for using Eve Agent${Colors.RESET}\n`);
+        console.log(`\n${Colors.BRIGHT_YELLOW}👋 Goodbye! Thanks for using Eva AI${Colors.RESET}\n`);
         break;
       }
 
@@ -301,7 +250,7 @@ async function runAgent(workspaceDir: string, task?: string): Promise<void> {
 
     // Plain exit keywords
     if (['exit', 'quit', 'q'].includes(userInput.toLowerCase())) {
-      console.log(`\n${Colors.BRIGHT_YELLOW}👋 Goodbye! Thanks for using Eve Agent${Colors.RESET}\n`);
+      console.log(`\n${Colors.BRIGHT_YELLOW}👋 Goodbye! Thanks for using Eva AI${Colors.RESET}\n`);
       break;
     }
 

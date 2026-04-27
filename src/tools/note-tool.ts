@@ -1,4 +1,4 @@
-// Session note tool — mirrors mini_agent/tools/note_tool.py
+// Session note tool — mirrors eva_ai/tools/note_tool.py
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';

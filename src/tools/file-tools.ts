@@ -1,4 +1,4 @@
-// File operation tools — mirrors mini_agent/tools/file_tools.py
+// File operation tools — mirrors eva_ai/tools/file_tools.py
 // Python uses tiktoken; TypeScript uses gpt-tokenizer (same cl100k_base encoding).
 
 import * as fs from 'node:fs';

@@ -1,9 +1,9 @@
-# Mini Agent Configuration Example
+# Eva AI Configuration Example
 # 
 # Configuration File Locations (in priority order):
-# 1) mini_agent/config/config.yaml - Development mode (current directory)
-# 2) ~/.mini-agent/config/config.yaml - User config directory
-# 3) <package>/mini_agent/config/config.yaml - Package installation directory
+# 1) eva_ai/config/config.yaml - Development mode (current directory)
+# 2) ~/.eva-ai/config/config.yaml - User config directory
+# 3) <package>/eva_ai/config/config.yaml - Package installation directory
 #
 # To use this config:
 # - Copy this file to one of the above locations as config.yaml

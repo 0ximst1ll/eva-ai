@@ -1,4 +1,4 @@
-// Skill loader — mirrors mini_agent/tools/skill_loader.py
+// Skill loader — mirrors eva_ai/tools/skill_loader.py
 // Python uses dataclass + re + yaml; TypeScript uses a plain class + regex + yaml package.
 
 import * as fs from 'node:fs';

@@ -1,4 +1,4 @@
-// Skill tool — mirrors mini_agent/tools/skill_tool.py
+// Skill tool — mirrors eva_ai/tools/skill_tool.py
 
 import type { Tool, ToolResult } from './base.js';
 import { SkillLoader, skillToPrompt } from './skill-loader.js';

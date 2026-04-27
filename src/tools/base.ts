@@ -1,4 +1,4 @@
-// Base tool types — mirrors mini_agent/tools/base.py
+// Base tool types — mirrors eva_ai/tools/base.py
 // Python uses abstract base class; TypeScript uses an interface.
 // The `toSchema` / `toOpenaiSchema` methods are kept as standalone functions
 // so tools don't need to carry them as instance methods.

@@ -1,4 +1,4 @@
-// Agent run logger — mirrors mini_agent/logger.py
+// Agent run logger — mirrors eva_ai/logger.py
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -11,7 +11,7 @@ export class AgentLogger {
   private logIndex = 0;
 
   constructor() {
-    this.logDir = path.join(os.homedir(), '.mini-agent', 'log');
+    this.logDir = path.join(os.homedir(), '.eva-ai', 'log');
     fs.mkdirSync(this.logDir, { recursive: true });
   }
 

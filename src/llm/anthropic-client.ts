@@ -1,4 +1,4 @@
-// Anthropic LLM client — mirrors mini_agent/llm/anthropic_client.py
+// Anthropic LLM client — mirrors eva_ai/llm/anthropic_client.py
 
 import Anthropic from '@anthropic-ai/sdk';
 import type { LLMResponse, LLMStreamEvent, Message, TokenUsage, ToolCall } from '../schema.js';

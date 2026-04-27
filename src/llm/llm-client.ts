@@ -1,4 +1,4 @@
-// LLM client wrapper — mirrors mini_agent/llm/llm_wrapper.py
+// LLM client wrapper — mirrors eva_ai/llm/llm_wrapper.py
 
 import type { LLMResponse, LLMStreamEvent, Message } from '../schema.js';
 import { LLMProvider } from '../schema.js';

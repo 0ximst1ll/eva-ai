@@ -1,8 +1,8 @@
-# Eve-Agent 全面迭代计划（参考 pi-mono）
+# Eva AI 全面迭代计划（参考 pi-mono）
 
 ## 1. 背景与目标
 
-本文基于对 `pi-mono/packages/coding-agent` 的设计与实现分析，目标是在不直接改动 `pi-mono` 的前提下，将其稳定、可扩展的架构思想迁移到 `Eve-Agent`。
+本文基于对 `pi-mono/packages/coding-agent` 的设计与实现分析，目标是在不直接改动 `pi-mono` 的前提下，将其稳定、可扩展的架构思想迁移到 `Eva AI`。
 
 核心目标：
 
@@ -21,7 +21,7 @@
 
 启发：
 
-- Eve-Agent 需要 `createRuntime()` 层，统一装配 `config + llm + tools + session`
+- Eva AI 需要 `createRuntime()` 层，统一装配 `config + llm + tools + session`
 
 ### 2.2 事件驱动内核
 
@@ -30,7 +30,7 @@
 
 启发：
 
-- Eve-Agent 需要把当前 `Agent` 中的输出逻辑抽离到 mode 层
+- Eva AI 需要把当前 `Agent` 中的输出逻辑抽离到 mode 层
 - 核心层只发事件，不直接 `console.log`
 
 ### 2.3 会话树与 append-only 持久化
@@ -40,7 +40,7 @@
 
 启发：
 
-- Eve-Agent 先实现内存会话管理，再升级 JSONL 持久化
+- Eva AI 先实现内存会话管理，再升级 JSONL 持久化
 - 逐步支持 `/resume` `/fork` `/clone`
 
 ### 2.4 Provider 差异隔离
@@ -50,10 +50,10 @@
 
 启发：
 
-- Eve-Agent 保持 `llm/*-client.ts` 的 provider 适配边界
+- Eva AI 保持 `llm/*-client.ts` 的 provider 适配边界
 - 会话层消费统一事件协议
 
-## 3. Eve-Agent 现状诊断
+## 3. Eva AI 现状诊断
 
 优势：
 
@@ -69,7 +69,7 @@
 - 缺少 runtime 工厂与诊断收敛层
 - 重试实现存在明显缺陷（`src/retry.ts` 的重试边界判断和命名问题）
 
-## 4. 总体架构目标（落地到 Eve-Agent）
+## 4. 总体架构目标（落地到 Eva AI）
 
 建议分层：
 
@@ -112,7 +112,7 @@
 交付：
 
 - 新增 `src/core/session-manager.ts`（先内存版）
-- 接入 JSONL 持久化版（`~/.eve-agent/sessions/...`）
+- 接入 JSONL 持久化版（`~/.eva-ai/sessions/...`）
 - CLI 支持 `/new` `/resume` `/history` `/clear`
 
 验收标准：

@@ -45,7 +45,7 @@ export class SessionManager {
   }) {
     this.mode = mode;
     this.workspaceDir = path.resolve(workspaceDir);
-    this.baseDir = baseDir ?? path.join(os.homedir(), '.eve-agent', 'sessions');
+    this.baseDir = baseDir ?? path.join(os.homedir(), '.eva-ai', 'sessions');
     this.workspaceKey = encodeURIComponent(this.workspaceDir);
   }
 

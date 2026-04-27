@@ -1,4 +1,4 @@
-// Shell command execution tool — mirrors mini_agent/tools/bash_tool.py
+// Shell command execution tool — mirrors eva_ai/tools/bash_tool.py
 // Python uses asyncio.create_subprocess_*; TypeScript uses Node.js child_process.
 
 import * as cp from 'node:child_process';
