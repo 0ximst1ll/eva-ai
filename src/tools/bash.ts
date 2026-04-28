@@ -2,37 +2,93 @@
 // Python uses asyncio.create_subprocess_*; TypeScript uses Node.js child_process.
 
 import * as cp from 'node:child_process';
+import * as fs from 'node:fs';
 import * as os from 'node:os';
+import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Tool, ToolResult } from './base.js';
+import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
 
-// Extended result type with bash-specific fields.
-// Python uses Pydantic inheritance (BashOutputResult extends ToolResult);
-// TypeScript uses an intersection / extended interface.
+const MAX_INLINE_OUTPUT_CHARS = 24000;
+
 export interface BashOutputResult extends ToolResult {
   stdout: string;
   stderr: string;
   exitCode: number;
   bashId?: string;
+  fullOutputPath?: string;
 }
 
-// ============ BackgroundShell ============
+function ensureLogDir(workspaceDir?: string): string {
+  const base = workspaceDir ? path.join(workspaceDir, '.eva-ai', 'bash-logs') : path.join(os.tmpdir(), 'eva-ai-bash-logs');
+  fs.mkdirSync(base, { recursive: true });
+  return base;
+}
+
+function writeFullOutput(workspaceDir: string | undefined, command: string, stdout: string, stderr: string): string | undefined {
+  try {
+    const filePath = path.join(ensureLogDir(workspaceDir), `${Date.now()}-${randomUUID().slice(0, 8)}.log`);
+    fs.writeFileSync(filePath, `$ ${command}\n\n[stdout]\n${stdout}\n\n[stderr]\n${stderr}\n`, 'utf-8');
+    return filePath;
+  } catch {
+    return undefined;
+  }
+}
+
+function truncateOutput(content: string, fullOutputPath?: string): string {
+  if (content.length <= MAX_INLINE_OUTPUT_CHARS) return content || '(no output)';
+  const keep = Math.floor(MAX_INLINE_OUTPUT_CHARS / 2);
+  return (
+    content.slice(0, keep) +
+    `\n\n... [output truncated: ${content.length} chars; full output: ${fullOutputPath ?? 'unavailable'}] ...\n\n` +
+    content.slice(-keep)
+  );
+}
+
+function killProcessTree(proc: cp.ChildProcess, isWindows: boolean): void {
+  if (!proc.pid) return;
+  try {
+    if (isWindows) {
+      cp.spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
+      return;
+    }
+    try {
+      process.kill(-proc.pid, 'SIGTERM');
+    } catch {
+      proc.kill('SIGTERM');
+    }
+    setTimeout(() => {
+      try {
+        process.kill(-proc.pid!, 'SIGKILL');
+      } catch {
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          // Process already exited.
+        }
+      }
+    }, 5000).unref();
+  } catch {
+    // Best effort termination only.
+  }
+}
 
 class BackgroundShell {
   readonly bashId: string;
   readonly command: string;
   readonly startTime: number;
   private readonly process: cp.ChildProcess;
+  private readonly isWindows: boolean;
   private readonly outputLines: string[] = [];
   private lastReadIndex = 0;
   status: 'running' | 'completed' | 'failed' | 'terminated' | 'error' = 'running';
   exitCode: number | null = null;
 
-  constructor(bashId: string, command: string, process: cp.ChildProcess) {
+  constructor(bashId: string, command: string, process: cp.ChildProcess, isWindows: boolean) {
     this.bashId = bashId;
     this.command = command;
     this.startTime = Date.now();
     this.process = process;
+    this.isWindows = isWindows;
   }
 
   addOutput(line: string): void {
@@ -71,15 +127,10 @@ class BackgroundShell {
         this.exitCode = this.process.exitCode;
         resolve();
       });
-      this.process.kill('SIGTERM');
-      // Force kill after 5 s
-      setTimeout(() => this.process.kill('SIGKILL'), 5000);
+      killProcessTree(this.process, this.isWindows);
     });
   }
 }
-
-// ============ BackgroundShellManager (module-level singleton) ============
-// Python uses class-level dicts; TypeScript uses module-level Maps.
 
 const _shells = new Map<string, BackgroundShell>();
 
@@ -103,9 +154,11 @@ function startMonitor(shell: BackgroundShell): void {
   const proc = shell['process'] as cp.ChildProcess;
   proc.stdout?.on('data', (chunk: Buffer) => {
     const lines = chunk.toString('utf-8').split('\n');
-    for (const line of lines) {
-      if (line) shell.addOutput(line);
-    }
+    for (const line of lines) if (line) shell.addOutput(line);
+  });
+  proc.stderr?.on('data', (chunk: Buffer) => {
+    const lines = chunk.toString('utf-8').split('\n');
+    for (const line of lines) if (line) shell.addOutput(`[stderr] ${line}`);
   });
   proc.once('exit', (code) => {
     shell.updateStatus(false, code ?? undefined);
@@ -119,8 +172,6 @@ async function terminateShell(bashId: string): Promise<BackgroundShell> {
   removeShell(bashId);
   return shell;
 }
-
-// ============ BashTool ============
 
 interface BashInput extends Record<string, unknown> {
   command: string;
@@ -138,52 +189,22 @@ export class BashTool implements Tool<BashInput> {
   readonly name = 'bash';
 
   get description(): string {
-    if (this.isWindows) {
-      return `Execute PowerShell commands in foreground or background.
+    return `Execute ${this.isWindows ? 'PowerShell' : 'bash'} commands in foreground or background.
 
 For terminal operations like git, npm, docker, etc. DO NOT use for file operations - use specialized tools.
 
 Parameters:
-  - command (required): PowerShell command to execute
+  - command (required): command to execute
   - timeout (optional): Timeout in seconds (default: 120, max: 600) for foreground commands
   - run_in_background (optional): Set true for long-running commands (servers, etc.)
 
-Tips:
-  - Quote file paths with spaces: cd "My Documents"
-  - Chain dependent commands with semicolon: git add . ; git commit -m "msg"
-  - Use absolute paths instead of cd when possible
-  - For background commands, monitor with bash_output and terminate with bash_kill
-
-Examples:
-  - git status
-  - npm test
-  - python -m http.server 8080 (with run_in_background=true)`;
-    }
-    return `Execute bash commands in foreground or background.
-
-For terminal operations like git, npm, docker, etc. DO NOT use for file operations - use specialized tools.
-
-Parameters:
-  - command (required): Bash command to execute
-  - timeout (optional): Timeout in seconds (default: 120, max: 600) for foreground commands
-  - run_in_background (optional): Set true for long-running commands (servers, etc.)
-
-Tips:
-  - Quote file paths with spaces: cd "My Documents"
-  - Chain dependent commands with &&: git add . && git commit -m "msg"
-  - Use absolute paths instead of cd when possible
-  - For background commands, monitor with bash_output and terminate with bash_kill
-
-Examples:
-  - git status
-  - npm test
-  - python3 -m http.server 8080 (with run_in_background=true)`;
+For background commands, monitor with bash_output and terminate with bash_kill.`;
   }
 
   readonly parameters = {
     type: 'object',
     properties: {
-      command: { type: 'string', description: 'The bash command to execute.' },
+      command: { type: 'string', description: 'The shell command to execute.' },
       timeout: {
         type: 'integer',
         description: 'Optional: Timeout in seconds (default: 120, max: 600). Only applies to foreground commands.',
@@ -198,14 +219,14 @@ Examples:
     required: ['command'],
   };
 
-  async execute({ command, timeout = 120, run_in_background = false }: BashInput): Promise<BashOutputResult> {
+  async execute(
+    { command, timeout = 120, run_in_background = false }: BashInput,
+    context?: ToolExecutionContext,
+  ): Promise<BashOutputResult> {
     try {
       const effectiveTimeout = Math.min(Math.max(timeout, 1), 600);
-
-      if (run_in_background) {
-        return this._runBackground(command);
-      }
-      return this._runForeground(command, effectiveTimeout);
+      if (run_in_background) return this._runBackground(command);
+      return this._runForeground(command, effectiveTimeout, context?.signal);
     } catch (err) {
       return {
         success: false,
@@ -218,19 +239,24 @@ Examples:
     }
   }
 
-  private _runBackground(command: string): BashOutputResult {
-    const bashId = randomUUID().slice(0, 8);
-    const proc = this.isWindows
+  private _spawn(command: string): cp.ChildProcess {
+    return this.isWindows
       ? cp.spawn('powershell.exe', ['-NoProfile', '-Command', command], {
           cwd: this.workspaceDir,
+          detached: false,
           stdio: ['ignore', 'pipe', 'pipe'],
         })
       : cp.spawn('bash', ['-c', command], {
           cwd: this.workspaceDir,
+          detached: true,
           stdio: ['ignore', 'pipe', 'pipe'],
         });
+  }
 
-    const shell = new BackgroundShell(bashId, command, proc);
+  private _runBackground(command: string): BashOutputResult {
+    const bashId = randomUUID().slice(0, 8);
+    const proc = this._spawn(command);
+    const shell = new BackgroundShell(bashId, command, proc, this.isWindows);
     addShell(shell);
     startMonitor(shell);
 
@@ -245,40 +271,61 @@ Examples:
     };
   }
 
-  private _runForeground(command: string, timeoutSecs: number): Promise<BashOutputResult> {
+  private _runForeground(command: string, timeoutSecs: number, signal?: AbortSignal): Promise<BashOutputResult> {
     return new Promise((resolve) => {
-      const proc = this.isWindows
-        ? cp.spawn('powershell.exe', ['-NoProfile', '-Command', command], {
-            cwd: this.workspaceDir,
-            stdio: ['ignore', 'pipe', 'pipe'],
-          })
-        : cp.spawn('bash', ['-c', command], {
-            cwd: this.workspaceDir,
-            stdio: ['ignore', 'pipe', 'pipe'],
-          });
-
+      const proc = this._spawn(command);
       let stdout = '';
       let stderr = '';
       let timedOut = false;
+      let aborted = false;
+      let settled = false;
+
+      const finish = (result: BashOutputResult): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+        resolve(result);
+      };
 
       const timer = setTimeout(() => {
         timedOut = true;
-        proc.kill('SIGKILL');
+        killProcessTree(proc, this.isWindows);
       }, timeoutSecs * 1000);
+
+      const onAbort = () => {
+        aborted = true;
+        killProcessTree(proc, this.isWindows);
+      };
+      if (signal?.aborted) onAbort();
+      else signal?.addEventListener('abort', onAbort, { once: true });
 
       proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString('utf-8'); });
       proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString('utf-8'); });
 
       proc.once('exit', (code) => {
-        clearTimeout(timer);
-        if (timedOut) {
-          resolve({
+        const fullOutputPath = writeFullOutput(this.workspaceDir, command, stdout, stderr);
+        if (aborted) {
+          finish({
             success: false,
-            content: '',
-            error: `Command timed out after ${timeoutSecs} seconds`,
-            stdout: '',
-            stderr: `Command timed out after ${timeoutSecs} seconds`,
+            content: `Command aborted. Full output: ${fullOutputPath ?? 'unavailable'}`,
+            error: 'Command aborted',
+            stdout,
+            stderr,
             exitCode: -1,
+            fullOutputPath,
+          });
+          return;
+        }
+        if (timedOut) {
+          finish({
+            success: false,
+            content: `Command timed out after ${timeoutSecs} seconds. Full output: ${fullOutputPath ?? 'unavailable'}`,
+            error: `Command timed out after ${timeoutSecs} seconds`,
+            stdout,
+            stderr,
+            exitCode: -1,
+            fullOutputPath,
           });
           return;
         }
@@ -291,17 +338,15 @@ Examples:
           if (stderr.trim()) error += `\n${stderr.trim()}`;
         }
 
-        let content = stdout;
-        if (stderr) content += `\n[stderr]:\n${stderr}`;
-        if (exitCode) content += `\n[exit_code]:\n${exitCode}`;
-        if (!content) content = '(no output)';
-
-        resolve({ success, content, error, stdout, stderr, exitCode });
+        let rawContent = stdout;
+        if (stderr) rawContent += `\n[stderr]:\n${stderr}`;
+        if (exitCode) rawContent += `\n[exit_code]:\n${exitCode}`;
+        const content = truncateOutput(rawContent, fullOutputPath);
+        finish({ success, content, error, stdout, stderr, exitCode, fullOutputPath });
       });
 
       proc.once('error', (err) => {
-        clearTimeout(timer);
-        resolve({
+        finish({
           success: false,
           content: '',
           error: err.message,
@@ -314,8 +359,6 @@ Examples:
   }
 }
 
-// ============ BashOutputTool ============
-
 interface BashOutputInput extends Record<string, unknown> {
   bash_id: string;
   filter_str?: string;
@@ -323,34 +366,12 @@ interface BashOutputInput extends Record<string, unknown> {
 
 export class BashOutputTool implements Tool<BashOutputInput> {
   readonly name = 'bash_output';
-  readonly description = `Retrieves output from a running or completed background bash shell.
-
-        - Takes a bash_id parameter identifying the shell
-        - Always returns only new output since the last check
-        - Returns stdout and stderr output along with shell status
-        - Supports optional regex filtering to show only lines matching a pattern
-        - Use this tool when you need to monitor or check the output of a long-running shell
-        - Shell IDs can be found using the bash tool with run_in_background=true
-
-        Process status values:
-          - "running": Still executing
-          - "completed": Finished successfully
-          - "failed": Finished with error
-          - "terminated": Was terminated
-          - "error": Error occurred
-
-        Example: bash_output(bash_id="abc12345")`;
+  readonly description = 'Retrieves output from a running or completed background bash shell by bash_id.';
   readonly parameters = {
     type: 'object',
     properties: {
-      bash_id: {
-        type: 'string',
-        description: 'The ID of the background shell to retrieve output from.',
-      },
-      filter_str: {
-        type: 'string',
-        description: 'Optional regular expression to filter the output lines.',
-      },
+      bash_id: { type: 'string', description: 'The ID of the background shell to retrieve output from.' },
+      filter_str: { type: 'string', description: 'Optional regular expression to filter the output lines.' },
     },
     required: ['bash_id'],
   };
@@ -372,12 +393,12 @@ export class BashOutputTool implements Tool<BashOutputInput> {
     const newLines = shell.getNewOutput(filter_str);
     const stdout = newLines.join('\n');
     let content = stdout;
-    if (shell.bashId) content += `\n[bash_id]:\n${shell.bashId}`;
-    if (!content) content = '(no output)';
+    content += `\n[status]:\n${shell.status}`;
+    content += `\n[bash_id]:\n${shell.bashId}`;
 
     return {
       success: true,
-      content,
+      content: content || '(no output)',
       stdout,
       stderr: '',
       exitCode: shell.exitCode ?? 0,
@@ -386,31 +407,17 @@ export class BashOutputTool implements Tool<BashOutputInput> {
   }
 }
 
-// ============ BashKillTool ============
-
 interface BashKillInput extends Record<string, unknown> {
   bash_id: string;
 }
 
 export class BashKillTool implements Tool<BashKillInput> {
   readonly name = 'bash_kill';
-  readonly description = `Kills a running background bash shell by its ID.
-
-        - Takes a bash_id parameter identifying the shell to kill
-        - Attempts graceful termination (SIGTERM) first, then forces (SIGKILL) if needed
-        - Returns the final status and any remaining output before termination
-        - Cleans up all resources associated with the shell
-        - Use this tool when you need to terminate a long-running shell
-        - Shell IDs can be found using the bash tool with run_in_background=true
-
-        Example: bash_kill(bash_id="abc12345")`;
+  readonly description = 'Kills a running background bash shell by its ID.';
   readonly parameters = {
     type: 'object',
     properties: {
-      bash_id: {
-        type: 'string',
-        description: 'The ID of the background shell to terminate.',
-      },
+      bash_id: { type: 'string', description: 'The ID of the background shell to terminate.' },
     },
     required: ['bash_id'],
   };
@@ -419,15 +426,11 @@ export class BashKillTool implements Tool<BashKillInput> {
     try {
       const shell = getShell(bash_id);
       const remaining = shell ? shell.getNewOutput() : [];
-
       const terminated = await terminateShell(bash_id);
       const stdout = remaining.join('\n');
-      let content = stdout;
-      if (!content) content = '(no output)';
-
       return {
         success: true,
-        content,
+        content: stdout || '(no output)',
         stdout,
         stderr: '',
         exitCode: terminated.exitCode ?? 0,

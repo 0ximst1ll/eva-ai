@@ -12,13 +12,72 @@ export interface ToolResult {
 // JSON Schema object type (what the LLM sees for parameters)
 export type JsonSchema = Record<string, unknown>;
 
+export type ToolCategory = 'read' | 'write' | 'bash' | 'mcp' | 'skill' | 'note';
+export type ToolRiskLevel = 'low' | 'medium' | 'high';
+export type ToolSource = 'builtin' | 'mcp' | 'skill';
+
+export interface ToolMetadata {
+  readonly category: ToolCategory;
+  readonly riskLevel: ToolRiskLevel;
+  readonly source: ToolSource;
+  readonly sourceName?: string;
+  readonly isReadOnly: boolean;
+  readonly isConcurrencySafe: boolean;
+  readonly requiresConfirmation?: boolean;
+}
+
+export interface ToolExecutionContext {
+  readonly toolCallId?: string;
+  readonly signal?: AbortSignal;
+  readonly onUpdate?: (update: { content?: string; details?: Record<string, unknown> }) => void;
+}
+
+export interface ToolDefinition<Input extends Record<string, unknown> = Record<string, unknown>> {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: JsonSchema;
+  readonly metadata: ToolMetadata;
+  prepareArguments?(args: Record<string, unknown>): Input;
+  execute(args: Input, context?: ToolExecutionContext): Promise<ToolResult>;
+}
+
 // Base interface all tools must implement.
 // Generic Input type defaults to Record<string, unknown> (like Python's **kwargs).
 export interface Tool<Input extends Record<string, unknown> = Record<string, unknown>> {
   readonly name: string;
   readonly description: string;
   readonly parameters: JsonSchema;
-  execute(args: Input): Promise<ToolResult>;
+  readonly metadata?: ToolMetadata;
+  execute(args: Input, context?: ToolExecutionContext): Promise<ToolResult>;
+}
+
+export function withToolMetadata<T extends Tool>(tool: T, metadata: ToolMetadata): T {
+  return Object.assign(tool, { metadata });
+}
+
+export function createToolDefinition<Input extends Record<string, unknown>>(
+  tool: Tool<Input>,
+  metadata: ToolMetadata,
+): ToolDefinition<Input> {
+  return {
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters,
+    metadata,
+    execute: (args, context) => tool.execute(args, context),
+  };
+}
+
+export function toolFromDefinition<Input extends Record<string, unknown>>(
+  definition: ToolDefinition<Input>,
+): Tool<Input> {
+  return {
+    name: definition.name,
+    description: definition.description,
+    parameters: definition.parameters,
+    metadata: definition.metadata,
+    execute: (args, context) => definition.execute(definition.prepareArguments?.(args) ?? (args as Input), context),
+  };
 }
 
 // Convert a Tool to Anthropic's tool schema format.

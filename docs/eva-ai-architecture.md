@@ -17,13 +17,15 @@ Eva AI/
 │   └── system_prompt.md       # 默认系统提示词
 ├── src/
 │   ├── cli.ts                 # 入口：装配 + 交互式/非交互式 CLI 主循环
-│   ├── agent.ts               # Agent 外壳：封装 AgentSession + SessionManager
+│   ├── agent.ts               # legacy 兼容外壳；新功能使用 core/agent.ts
 │   ├── config.ts              # Config 类：读取 YAML 配置，提供结构化 ConfigData
 │   ├── schema.ts              # 全局类型定义（Message / LLMResponse / AgentSessionEvent 等）
 │   ├── retry.ts               # RetryConfig + withRetry 高阶函数 + RetryExhaustedError
 │   ├── logger.ts              # 日志（占位，待完善）
 │   ├── core/
-│   │   ├── agent-session.ts   # AgentSession：推理循环 + 流式处理 + 工具执行
+│   │   ├── agent-loop.ts      # 底层推理循环：LLM turn + tool call + 事件发射
+│   │   ├── agent.ts           # 有状态 Agent：messages/tools/queue/abort/subscribe
+│   │   ├── agent-session.ts   # 会话桥接：订阅 Agent 事件并持久化到 SessionManager
 │   │   └── session-manager.ts # SessionManager：内存/JSONL 双模式会话持久化
 │   ├── llm/
 │   │   ├── base.ts            # LLMClientBase 抽象类
@@ -32,13 +34,19 @@ Eva AI/
 │   │   ├── openai-client.ts   # OpenAI provider 适配
 │   │   └── google-client.ts   # Google Gemini provider 适配
 │   ├── tools/
-│   │   ├── base.ts            # Tool 接口 + toOpenAISchema / toAnthropicSchema
-│   │   ├── bash-tool.ts       # bash / bash_output / bash_kill（含后台 Shell 管理）
-│   │   ├── file-tools.ts      # read_file / write_file / edit_file
-│   │   ├── note-tool.ts       # note 笔记工具
-│   │   ├── mcp-loader.ts      # MCP 服务器连接与工具加载（stdio / SSE / HTTP）
-│   │   ├── skill-loader.ts    # SKILL.md 技能发现与加载
-│   │   └── skill-tool.ts      # skill 工具（将技能注入上下文）
+│   │   ├── index.ts           # 工具统一导出、ToolRegistry、builtin tool 装配
+│   │   ├── base.ts            # Tool / ToolDefinition / metadata / schema 转换
+│   │   ├── bash.ts            # bash / bash_output / bash_kill
+│   │   ├── read.ts            # read_file
+│   │   ├── write.ts           # write_file
+│   │   ├── edit.ts            # edit_file
+│   │   ├── find.ts            # find_files
+│   │   ├── grep.ts            # grep_files
+│   │   ├── ls.ts              # list_files
+│   │   ├── file-mutation-queue.ts # 文件写入/编辑串行队列
+│   │   ├── path-utils.ts      # workspace 路径解析与边界保护
+│   │   ├── truncate.ts        # 输出截断工具
+│   │   └── tool-definition-wrapper.ts # ToolDefinition 包装/转换
 │   └── utils/
 │       └── terminal.ts        # ANSI 颜色常量 + 终端显示宽度计算
 └── docs/
@@ -54,12 +62,12 @@ Eva AI/
 │                                                             │
 │   cli.ts                                                    │
 │   ├── 读取 Config（config.yaml）                             │
-│   ├── 装配 LLMClient + Tool[]                               │
+│   ├── 通过 createRuntime 装配 LLMClient + builtin Tool[]      │
 │   ├── 创建 SessionManager + AgentSession                    │
 │   ├── 创建 CliRenderer（订阅 AgentSessionEvent）             │
 │   └── readline 交互循环 / 非交互式单次执行                   │
 │                                                             │
-│   agent.ts（对外简化壳，包装 Session + SessionManager）       │
+│   agent.ts（legacy 兼容壳；新功能使用 core/agent.ts）          │
 └──────────────────────────┬──────────────────────────────────┘
                            │ AgentSessionEvent
                            ▼

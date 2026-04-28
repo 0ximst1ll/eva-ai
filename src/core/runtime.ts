@@ -6,6 +6,7 @@ import { LLMProvider } from '../schema.js';
 import { LLMClient } from '../llm/llm-client.js';
 import { RetryConfig } from '../retry.js';
 import type { Tool } from '../tools/base.js';
+import { loadConfiguredTools, type ToolRegistry } from '../tools/index.js';
 import { AgentSession } from './agent-session.js';
 import { SessionManager } from './session-manager.js';
 
@@ -44,6 +45,7 @@ export interface Runtime {
   systemPrompt: string;
   systemPromptPath: string | null;
   tools: Tool[];
+  toolRegistry: ToolRegistry | null;
   sessionManager: SessionManager;
   sessionId: string;
   session: AgentSession;
@@ -164,9 +166,22 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
   const { systemPrompt, systemPromptPath, diagnostic } = loadSystemPrompt(config);
   diagnostics.push(diagnostic);
 
-  // Tool construction is intentionally centralized here. P1's next task will
-  // replace this default with config-driven file/bash/note/skill/MCP loading.
-  const tools = options.tools ?? [];
+  let tools: Tool[];
+  let toolRegistry: ToolRegistry | null = null;
+  if (options.tools) {
+    tools = options.tools;
+    diagnostics.push({
+      type: 'info',
+      code: 'custom_tools_loaded',
+      message: `Loaded ${tools.length} custom tool(s)`,
+      details: { count: tools.length },
+    });
+  } else {
+    const loadedTools = await loadConfiguredTools({ config, workspaceDir });
+    tools = loadedTools.tools;
+    toolRegistry = loadedTools.registry;
+    diagnostics.push(...loadedTools.diagnostics);
+  }
 
   const sessionManager = new SessionManager({
     workspaceDir,
@@ -200,6 +215,7 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
     systemPrompt,
     systemPromptPath,
     tools,
+    toolRegistry,
     sessionManager,
     sessionId,
     session,

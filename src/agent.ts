@@ -5,6 +5,11 @@ import { AgentSession } from './core/agent-session.js';
 import { SessionManager } from './core/session-manager.js';
 import * as path from 'node:path';
 
+/**
+ * @deprecated Legacy compatibility wrapper. The main runtime path now uses
+ * core/agent.ts + core/agent-loop.ts through AgentSession. Do not extend this
+ * class for new features.
+ */
 export class Agent {
     private readonly session: AgentSession;
     private readonly sessionManager: SessionManager;
