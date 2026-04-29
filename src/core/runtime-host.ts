@@ -1,0 +1,77 @@
+import {
+  createRuntime,
+  type CreateRuntimeOptions,
+  type Runtime,
+  RuntimeSessionNotFoundError,
+} from './runtime.js';
+import type { AgentSession } from './agent-session.js';
+
+export interface RuntimeHostOptions extends Omit<CreateRuntimeOptions, 'createNewSession' | 'sessionId' | 'createSessionIfMissing'> {
+  createNewSession?: boolean;
+  sessionId?: string;
+}
+
+export class RuntimeHost {
+  private currentRuntime: Runtime;
+  private readonly options: RuntimeHostOptions;
+
+  private constructor(options: RuntimeHostOptions, runtime: Runtime) {
+    this.options = { ...options };
+    this.currentRuntime = runtime;
+  }
+
+  static async create(options: RuntimeHostOptions): Promise<RuntimeHost> {
+    const runtime = await createRuntime({
+      ...options,
+      createNewSession: options.createNewSession,
+      sessionId: options.sessionId,
+    });
+    return new RuntimeHost(options, runtime);
+  }
+
+  get runtime(): Runtime {
+    return this.currentRuntime;
+  }
+
+  get session(): AgentSession {
+    return this.currentRuntime.session;
+  }
+
+  get sessionId(): string {
+    return this.currentRuntime.sessionId;
+  }
+
+  async newSession(): Promise<Runtime> {
+    this.currentRuntime = await createRuntime({
+      ...this.options,
+      createNewSession: true,
+      sessionId: undefined,
+    });
+    return this.currentRuntime;
+  }
+
+  async resumeLatestSession(): Promise<Runtime> {
+    this.currentRuntime = await createRuntime({
+      ...this.options,
+      createNewSession: false,
+      sessionId: undefined,
+    });
+    return this.currentRuntime;
+  }
+
+  async switchSession(sessionId: string): Promise<Runtime> {
+    const runtime = await createRuntime({
+      ...this.options,
+      createNewSession: false,
+      createSessionIfMissing: false,
+      sessionId,
+    });
+
+    if (runtime.sessionId !== sessionId) {
+      throw new RuntimeSessionNotFoundError(sessionId);
+    }
+
+    this.currentRuntime = runtime;
+    return this.currentRuntime;
+  }
+}

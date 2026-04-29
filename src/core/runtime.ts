@@ -5,9 +5,10 @@ import { Config, type ConfigData } from '../config.js';
 import { LLMProvider } from '../schema.js';
 import { LLMClient } from '../llm/llm-client.js';
 import { RetryConfig } from '../retry.js';
-import type { Tool } from '../tools/base.js';
+import type { Tool, ToolMetadata } from '../tools/base.js';
 import { loadConfiguredTools, type ToolRegistry } from '../tools/index.js';
 import { AgentSession } from './agent-session.js';
+import type { BeforeToolCallContext } from './agent-loop.js';
 import { SessionManager } from './session-manager.js';
 
 type SessionMode = 'memory' | 'jsonl';
@@ -27,14 +28,24 @@ export interface RuntimeRetryEvent {
   nextDelay: number;
 }
 
+export interface ToolConfirmationRequest {
+  toolCall: BeforeToolCallContext['toolCall'];
+  tool: Tool;
+  args: Record<string, unknown>;
+  metadata: ToolMetadata;
+}
+
 export interface CreateRuntimeOptions {
   workspaceDir: string;
   configPath?: string;
   sessionMode?: SessionMode;
+  sessionBaseDir?: string;
   createNewSession?: boolean;
   sessionId?: string;
+  createSessionIfMissing?: boolean;
   tools?: Tool[];
   onLlmRetry?: (event: RuntimeRetryEvent) => void;
+  confirmToolCall?: (request: ToolConfirmationRequest) => boolean | Promise<boolean>;
 }
 
 export interface Runtime {
@@ -68,9 +79,19 @@ export class UnsupportedProviderError extends Error {
   readonly provider: string;
 
   constructor(provider: string) {
-    super(`Unsupported provider: ${provider}`);
+    super('Unsupported provider: ' + provider);
     this.name = 'UnsupportedProviderError';
     this.provider = provider;
+  }
+}
+
+export class RuntimeSessionNotFoundError extends Error {
+  readonly sessionId: string;
+
+  constructor(sessionId: string) {
+    super('Session not found: ' + sessionId);
+    this.name = 'RuntimeSessionNotFoundError';
+    this.sessionId = sessionId;
   }
 }
 
@@ -124,6 +145,44 @@ function loadSystemPrompt(config: ConfigData): {
       message: 'System prompt not found, using default',
       details: { configuredPath: config.agent.systemPromptPath },
     },
+  };
+}
+
+function shouldConfirmTool(metadata: ToolMetadata, config: ConfigData): boolean {
+  if (!config.tools.requireConfirmation) return false;
+  if (metadata.requiresConfirmation) return true;
+  return config.tools.confirmRiskLevels.includes(metadata.riskLevel);
+}
+
+function createToolGovernanceHook(config: ConfigData, options: CreateRuntimeOptions) {
+  return async (context: BeforeToolCallContext) => {
+    if (!context.tool?.metadata) return undefined;
+
+    const metadata = context.tool.metadata;
+    if (!shouldConfirmTool(metadata, config)) return undefined;
+
+    if (!options.confirmToolCall) {
+      return {
+        block: true,
+        reason: 'Tool requires confirmation but no confirmation handler is available: ' + context.tool.name,
+      };
+    }
+
+    const approved = await options.confirmToolCall({
+      toolCall: context.toolCall,
+      tool: context.tool,
+      args: context.args,
+      metadata,
+    });
+
+    if (!approved) {
+      return {
+        block: true,
+        reason: 'Tool execution rejected by user: ' + context.tool.name,
+      };
+    }
+
+    return undefined;
   };
 }
 
@@ -186,12 +245,19 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
   const sessionManager = new SessionManager({
     workspaceDir,
     mode: options.sessionMode ?? 'jsonl',
+    baseDir: options.sessionBaseDir,
   });
 
   let sessionId: string;
   if (options.sessionId) {
     const loaded = await sessionManager.loadSession(options.sessionId);
-    sessionId = loaded ? options.sessionId : await sessionManager.createSession(systemPrompt, options.sessionId);
+    if (loaded) {
+      sessionId = options.sessionId;
+    } else if (options.createSessionIfMissing === false) {
+      throw new RuntimeSessionNotFoundError(options.sessionId);
+    } else {
+      sessionId = await sessionManager.createSession(systemPrompt, options.sessionId);
+    }
   } else if (options.createNewSession === false) {
     sessionId = (await sessionManager.loadLatestSession()) ?? (await sessionManager.createSession(systemPrompt));
   } else {
@@ -203,6 +269,7 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
     systemPrompt,
     tools,
     maxSteps: config.agent.maxSteps,
+    beforeToolCall: createToolGovernanceHook(config, options),
     sessionManager,
     sessionId,
   });

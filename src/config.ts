@@ -36,6 +36,11 @@ export interface ToolsConfigData {
   skillsDir: string;
   enableMcp: boolean;
   mcpConfigPath: string;
+  enabledTools: string[];
+  disabledTools: string[];
+  disabledCategories: string[];
+  requireConfirmation: boolean;
+  confirmRiskLevels: string[];
   mcp: MCPConfigData;
 }
 
@@ -75,6 +80,11 @@ interface RawYaml {
     skills_dir?: string;
     enable_mcp?: boolean;
     mcp_config_path?: string;
+    enabled_tools?: string[];
+    disabled_tools?: string[];
+    disabled_categories?: string[];
+    require_confirmation?: boolean;
+    confirm_risk_levels?: string[];
     mcp?: {
       connect_timeout?: number;
       execute_timeout?: number;
@@ -154,6 +164,11 @@ export class Config {
         skillsDir: tools.skills_dir ?? './skills',
         enableMcp: tools.enable_mcp ?? true,
         mcpConfigPath: tools.mcp_config_path ?? 'mcp.json',
+        enabledTools: Array.isArray(tools.enabled_tools) ? tools.enabled_tools : [],
+        disabledTools: Array.isArray(tools.disabled_tools) ? tools.disabled_tools : [],
+        disabledCategories: Array.isArray(tools.disabled_categories) ? tools.disabled_categories : [],
+        requireConfirmation: tools.require_confirmation ?? true,
+        confirmRiskLevels: Array.isArray(tools.confirm_risk_levels) ? tools.confirm_risk_levels : ['high'],
         mcp: {
           connectTimeout: mcp.connect_timeout ?? 10.0,
           executeTimeout: mcp.execute_timeout ?? 60.0,

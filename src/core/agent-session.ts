@@ -2,7 +2,14 @@ import type { LLMClient } from '../llm/llm-client.js';
 import type { AgentSessionEvent, Message } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { Agent } from './agent.js';
-import type { AgentLoopEvent } from './agent-loop.js';
+import type {
+  AfterToolCallContext,
+  AfterToolCallResult,
+  AgentLoopEvent,
+  BeforeToolCallContext,
+  BeforeToolCallResult,
+  ToolExecutionMode,
+} from './agent-loop.js';
 import { SessionManager } from './session-manager.js';
 
 export class AgentSession {
@@ -18,6 +25,9 @@ export class AgentSession {
     systemPrompt,
     tools,
     maxSteps = 50,
+    toolExecution,
+    beforeToolCall,
+    afterToolCall,
     sessionManager,
     sessionId,
   }: {
@@ -25,6 +35,11 @@ export class AgentSession {
     systemPrompt: string;
     tools: Tool[];
     maxSteps?: number;
+    toolExecution?: ToolExecutionMode;
+    beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) =>
+      BeforeToolCallResult | Promise<BeforeToolCallResult | undefined> | undefined;
+    afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) =>
+      AfterToolCallResult | Promise<AfterToolCallResult | undefined> | undefined;
     sessionManager: SessionManager;
     sessionId: string;
   }) {
@@ -36,6 +51,9 @@ export class AgentSession {
       systemPrompt,
       tools,
       maxSteps,
+      toolExecution,
+      beforeToolCall,
+      afterToolCall,
       messages: this.sessionManager.getMessages(sessionId),
     });
   }

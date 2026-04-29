@@ -90,6 +90,16 @@ export class ToolRegistry {
     return this.entries.get(toolName)?.metadata;
   }
 
+  has(toolName: string): boolean {
+    return this.entries.has(toolName);
+  }
+
+  remove(toolName: string): ToolRegistryEntry | undefined {
+    const entry = this.entries.get(toolName);
+    if (entry) this.entries.delete(toolName);
+    return entry;
+  }
+
   get size(): number {
     return this.entries.size;
   }
@@ -114,6 +124,72 @@ function addTool(
 ): void {
   const duplicate = registry.add(tool, metadata);
   if (duplicate) diagnostics.push(duplicate);
+}
+
+function applyToolGovernance(registry: ToolRegistry, diagnostics: ToolDiagnostic[], config: ConfigData): void {
+  const allNames = new Set(registry.getTools().map((tool) => tool.name));
+  const enabledTools = new Set(config.tools.enabledTools);
+  const disabledTools = new Set(config.tools.disabledTools);
+  const disabledCategories = new Set(config.tools.disabledCategories);
+
+  for (const toolName of enabledTools) {
+    if (!allNames.has(toolName)) {
+      diagnostics.push({
+        type: 'warning',
+        code: 'tool_enabled_unknown',
+        message: 'Configured enabled tool does not exist: ' + toolName,
+        details: { toolName },
+      });
+    }
+  }
+
+  if (enabledTools.size > 0) {
+    for (const tool of registry.getTools()) {
+      if (!enabledTools.has(tool.name)) {
+        registry.remove(tool.name);
+        diagnostics.push({
+          type: 'info',
+          code: 'tool_not_enabled_skipped',
+          message: 'Skipped tool not present in enabled_tools: ' + tool.name,
+          details: { toolName: tool.name },
+        });
+      }
+    }
+  }
+
+  for (const toolName of disabledTools) {
+    const removed = registry.remove(toolName);
+    if (removed) {
+      diagnostics.push({
+        type: 'info',
+        code: 'tool_disabled',
+        message: 'Disabled tool by config: ' + toolName,
+        details: { toolName, category: removed.metadata.category },
+      });
+    } else if (!allNames.has(toolName)) {
+      diagnostics.push({
+        type: 'warning',
+        code: 'tool_disabled_unknown',
+        message: 'Configured disabled tool does not exist: ' + toolName,
+        details: { toolName },
+      });
+    }
+  }
+
+  if (disabledCategories.size > 0) {
+    for (const tool of registry.getTools()) {
+      const category = tool.metadata?.category;
+      if (category && disabledCategories.has(category)) {
+        registry.remove(tool.name);
+        diagnostics.push({
+          type: 'info',
+          code: 'tool_category_disabled',
+          message: 'Disabled ' + category + ' tool by config: ' + tool.name,
+          details: { toolName: tool.name, category },
+        });
+      }
+    }
+  }
 }
 
 export async function loadConfiguredTools({
@@ -207,6 +283,8 @@ export async function loadConfiguredTools({
       details: { workspaceDir },
     });
   }
+
+  applyToolGovernance(registry, diagnostics, config);
 
   diagnostics.push({
     type: 'info',

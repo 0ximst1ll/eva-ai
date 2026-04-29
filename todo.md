@@ -16,12 +16,12 @@
 
 - [x] 新增 `createRuntime()`，统一装配 `config / llm / tools / session / system prompt`
 - [x] 恢复 CLI 工具装配：按配置加载 builtin file/search/bash tools（MCP/skills 后续迁入 resource loader）
-- [ ] 建立最小工具治理策略：区分 read-only / write / bash / MCP，支持启用集、禁用集和高风险确认
+- [x] 建立最小工具治理策略：区分 read-only / write / bash / MCP，支持启用集、禁用集和高风险确认
   - [x] 按 pi-mono 风格拆分 tools 结构，新增 `ToolDefinition / ToolRegistry` 与工具元数据
   - [x] 为文件写入/编辑增加串行写操作队列
   - [x] 补齐只读搜索工具：`list_files / find_files / grep_files`
   - [x] 增强 bash：`AbortSignal`、进程树终止、输出截断、完整日志路径
-  - [ ] 基于工具元数据实现真正的禁用集、并发策略和高风险确认
+  - [x] 基于工具元数据实现真正的禁用集、并发策略和高风险确认
 - [ ] 增加基础会话命令：`/new`、`/resume`、`/history`、`/stats`
 - [ ] 建立统一 diagnostics 收集与展示策略，覆盖配置、provider、tools、MCP、session 初始化
 - [ ] 建立核心回归测试：session JSONL、tool loop、retry、runtime 创建、CLI 默认新会话
@@ -36,17 +36,22 @@
 - [x] 统一 AgentEvent 协议基础版：补齐 `agent_start / turn_start / tool_execution_start / tool_execution_end / turn_end / agent_end` 等更细事件
 - [x] AgentLoop 双层循环：支持 inner tool loop + steering 注入、outer follow-up loop
 - [x] 将 tool 调度治理迁入 agent-loop：支持 `toolExecution`、`beforeToolCall`、`afterToolCall`、`ToolMetadata.isConcurrencySafe` 并发/串行基础策略
-- [ ] 高风险工具确认：基于 `ToolMetadata.requiresConfirmation / riskLevel` 接入用户确认流程
-- [ ] 让 RuntimeHost 持有 `AgentSession`，由 `AgentSession` 持有/管理 Agent，CLI/print/RPC 不直接操作底层 AgentLoop
+- [x] 高风险工具确认：基于 `ToolMetadata.requiresConfirmation / riskLevel` 接入用户确认流程
+- [x] 让 RuntimeHost 持有 `AgentSession`，由 `AgentSession` 持有/管理 Agent，CLI/print/RPC 不直接操作底层 AgentLoop
 - [ ] 为新 Agent 抽象增加回归测试：prompt、continue、abort、queue、tool loop、事件顺序、session 持久化桥接
 
 ## P2（对齐 pi-mono 的可扩展骨架）
 
-- [ ] 新增 `RuntimeHost`，持有当前 runtime/session，并支持 `newSession()`、`switchSession()`，后续扩展 `fork()`
-- [ ] 拆分 mode 层：`interactive-mode`、`print-mode`、`rpc-mode`，CLI 入口只负责参数解析与模式分发
+- [x] 新增 `RuntimeHost`，持有当前 runtime/session，并支持 `newSession()`、`switchSession()`，后续扩展 `fork()`
+- [ ] 拆分 mode 层：CLI 入口只负责参数解析与模式分发
+  - [x] `interactive-mode`：承接现有 readline 主循环
+  - [x] `print-mode`：承接单次任务执行路径
+  - [ ] `rpc-mode`：JSONL stdin/stdout 协议
 - [ ] 新增 `RuntimeServices`，集中管理 cwd 绑定的 config、resource loader、tool loader、diagnostics 等基础设施
 - [ ] 实现最小 RPC mode（JSONL stdin/stdout）：`prompt / get_state / abort / new_session`
 - [ ] 让 CLI、print、RPC 共享同一个 RuntimeHost/session 内核，避免双装配路径漂移
+  - [x] CLI / interactive / print 已共享 RuntimeHost
+  - [ ] RPC 接入 RuntimeHost
 - [ ] 增加会话恢复增强：`/resume <id>`、按当前 workspace 列出 session、显示 session id/path
 - [ ] 增加模型/思考级别切换与状态同步，并写入 session 事件
 - [ ] 增加资源加载器：system prompt / skills / context / MCP config，并支持 reload（MCP/skills 不再放在 tools 目录）

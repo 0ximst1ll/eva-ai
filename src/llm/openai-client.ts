@@ -90,11 +90,11 @@ export class OpenAIClient extends LLMClientBase {
                     }));
                 }
                 
-                // 重要：保留 reasoning_details 以便交错思维。
+                // 重要：保留 reasoning_content 以便兼容支持 reasoning_split 的 OpenAI-compatible 服务。
 
-                // 完整的 response_message（包括 reasoning_details）必须在下一轮传递回模型，以保持其思维链不被打断。
+                // OpenAI 官方 Chat Completions 不会保留 reasoning items；这里是兼容接口扩展字段。
                 if(msg.thinking) {
-                    am['reasoning_details'] = [{text: msg.thinking}];
+                    am['reasoning_content'] = msg.thinking;
                 }
 
                 apiMessages.push(am);
@@ -122,19 +122,25 @@ export class OpenAIClient extends LLMClientBase {
         return { apiMessages, tools };
     }
 
+    private _extractReasoningText(payload: Record<string, unknown>): string {
+        // Align with pi-mono: OpenAI-compatible endpoints may stream reasoning under
+        // reasoning_content, reasoning, or reasoning_text. Use the first non-empty field
+        // to avoid duplicate thinking when gateways emit aliases.
+        for (const field of ['reasoning_content', 'reasoning', 'reasoning_text']) {
+            const value = payload[field];
+            if (typeof value === 'string' && value.length > 0) return value;
+        }
+        return '';
+    }
+
     private _parseResponse(response: ChatCompletion): LLMResponse {
 
         const message = response.choices[0].message;
         const textContent = message.content ?? '';
 
         //导出thinking内容
-        let thinkingContent = '';
         const msgAny = message as unknown as Record<string, unknown>;
-        if(Array.isArray(msgAny['reasoning_details'])) {
-            for(const detail of msgAny['reasoning_details'] as Array<{text?: string}>) {
-                if(detail.text) thinkingContent += detail.text;
-            }
-        }
+        const thinkingContent = this._extractReasoningText(msgAny);
 
         const toolCalls: ToolCall[] = [];
         if (message.tool_calls) {
@@ -247,15 +253,10 @@ export class OpenAIClient extends LLMClientBase {
                 yield { type: 'content_delta', text };
             }
 
-            const reasoningDetails = delta['reasoning_details'];
-            if (Array.isArray(reasoningDetails)) {
-                for (const detail of reasoningDetails as Array<Record<string, unknown>>) {
-                    const thinkingText = typeof detail['text'] === 'string' ? detail['text'] : '';
-                    if (thinkingText) {
-                        fullThinking += thinkingText;
-                        yield { type: 'thinking_delta', text: thinkingText };
-                    }
-                }
+            const thinkingText = this._extractReasoningText(delta);
+            if (thinkingText) {
+                fullThinking += thinkingText;
+                yield { type: 'thinking_delta', text: thinkingText };
             }
 
             if (Array.isArray(delta['tool_calls'])) {

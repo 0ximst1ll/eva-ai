@@ -43,6 +43,18 @@ tools:
   # Basic tool switches
   enable_file_tools: true  # File read/write/edit tools (ReadTool, WriteTool, EditTool)
   enable_bash: true        # Bash command execution tool
+
+  # Tool governance
+  # enabled_tools is an allowlist. Leave empty or omit to enable every loaded builtin tool.
+  enabled_tools: []
+  # disabled_tools removes specific tools after loading, e.g. ['bash', 'write_file'].
+  disabled_tools: []
+  # disabled_categories removes tool categories after loading: read, write, bash, mcp, skill, note.
+  disabled_categories: []
+  # If true, tools with requiresConfirmation=true or matching confirm_risk_levels ask before execution.
+  require_confirmation: true
+  confirm_risk_levels: ['high']
+
   enable_note: true        # Session note tool (SessionNoteTool)
   
   # Claude Skills
