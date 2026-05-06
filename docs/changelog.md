@@ -201,7 +201,7 @@ tools/
 - read 多内容类型：图片、二进制识别、更完整截断信息
 - tool wrapper 分层：区分 ToolDefinition、runtime AgentTool、UI/render adapter
 
-这些已记录到 `todo.md` 的 P2.5，等 RuntimeHost 和 resource loader 稳定后再继续推进。
+这些属于后续工具层升级方向，等 RuntimeHost 和 resource loader 稳定后再继续推进。
 
 ---
 
