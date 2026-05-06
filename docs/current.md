@@ -18,7 +18,7 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
   - `Agent`
   - `runAgentLoop()`
 - 已明确当前未实现范围，避免把 MCP、skills、RPC、session tree、`RuntimeServices` 等路线图能力误写成已实现能力。
-- 已新增 `docs/planing.md`，记录 Eva AI 的项目目标和参考策略。
+- 已新增 `docs/planning.md`，记录 Eva AI 的项目目标和参考策略。
 - 当前 interactive 和 print modes 已共享 `RuntimeHost` 与同一套 runtime/session 路径。
 - 当前已有 JSONL session persistence、builtin file/search/bash tools、tool registry、高风险工具 confirmation hook、abort 和 queue 基础能力。
 
