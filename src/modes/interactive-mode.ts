@@ -67,7 +67,8 @@ export async function handleInteractiveCommand({
   }
 
   if (cmd === '/history') {
-    writeLine(`\n${Colors.BRIGHT_CYAN}Current session message count: ${host.session.messages.length}${Colors.RESET}\n`);
+    writeLine(`\n${Colors.BRIGHT_CYAN}Current session:${Colors.RESET} ${host.sessionId}`);
+    writeLine(`${Colors.BRIGHT_CYAN}Message count:${Colors.RESET} ${host.session.messages.length}\n`);
     return 'continue';
   }
 

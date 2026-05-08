@@ -31,6 +31,7 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 - 已修正 `config/system_prompt.md`，避免声明 MCP、skills、note、RPC 等尚未实现能力。
 - interactive mode 已实现 `/new`，通过 `RuntimeHost.newSession()` 创建新会话并显示新旧 session id。
 - interactive mode 已实现 `/resume` 和 `/resume <id>`，通过 `RuntimeHost` 恢复 latest session 或切换到指定 session。
+- interactive mode 已改进 `/history`，显示当前 session id 和 message count。
 
 ## 进行中
 
@@ -40,7 +41,6 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 
 优先处理 P1：
 
-- 改进 `/history`，显示 session id 和 message count。
 - 实现 `/stats`。
 - 显示当前 workspace 下的 session list。
 - 收敛 config、provider、tools、session、resource diagnostics。
