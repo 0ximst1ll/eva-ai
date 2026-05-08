@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Config, type ConfigData } from '../config.js';
+import { createDiagnostic, type RuntimeDiagnostic } from '../diagnostics.js';
 import { LLMProvider } from '../schema.js';
 import { LLMClient } from '../llm/llm-client.js';
 import { RetryConfig } from '../retry.js';
@@ -13,14 +14,7 @@ import { SessionManager } from './session-manager.js';
 
 type SessionMode = 'memory' | 'jsonl';
 
-type RuntimeDiagnosticType = 'info' | 'warning';
-
-export interface RuntimeDiagnostic {
-  type: RuntimeDiagnosticType;
-  code: string;
-  message: string;
-  details?: Record<string, unknown>;
-}
+export type { RuntimeDiagnostic } from '../diagnostics.js';
 
 export interface RuntimeRetryEvent {
   error: Error;
@@ -127,25 +121,63 @@ function loadSystemPrompt(config: ConfigData): {
     return {
       systemPrompt: fs.readFileSync(systemPromptPath, 'utf-8'),
       systemPromptPath,
-      diagnostic: {
-        type: 'info',
+      diagnostic: createDiagnostic({
+        source: 'resource',
+        level: 'info',
         code: 'system_prompt_loaded',
         message: `Loaded system prompt (from: ${systemPromptPath})`,
         details: { systemPromptPath },
-      },
+      }),
     };
   }
 
   return {
     systemPrompt: 'You are Eva AI, an intelligent assistant that can help users complete various tasks.',
     systemPromptPath: null,
-    diagnostic: {
-      type: 'warning',
+    diagnostic: createDiagnostic({
+      source: 'resource',
+      level: 'warning',
       code: 'system_prompt_missing',
       message: 'System prompt not found, using default',
       details: { configuredPath: config.agent.systemPromptPath },
-    },
+    }),
   };
+}
+
+function collectResourceDiagnostics(config: ConfigData): RuntimeDiagnostic[] {
+  const diagnostics: RuntimeDiagnostic[] = [];
+
+  if (config.tools.enableNote) {
+    diagnostics.push(createDiagnostic({
+      source: 'resource',
+      level: 'warning',
+      code: 'note_resource_not_loaded',
+      message: 'Note resource is configured but not loaded yet',
+      details: { enableNote: config.tools.enableNote },
+    }));
+  }
+
+  if (config.tools.enableSkills) {
+    diagnostics.push(createDiagnostic({
+      source: 'resource',
+      level: 'warning',
+      code: 'skills_resource_not_loaded',
+      message: 'Skills are configured but the skills loader is not implemented yet',
+      details: { enableSkills: config.tools.enableSkills, skillsDir: config.tools.skillsDir },
+    }));
+  }
+
+  if (config.tools.enableMcp) {
+    diagnostics.push(createDiagnostic({
+      source: 'resource',
+      level: 'warning',
+      code: 'mcp_resource_not_loaded',
+      message: 'MCP is configured but the MCP loader is not implemented yet',
+      details: { enableMcp: config.tools.enableMcp, mcpConfigPath: config.tools.mcpConfigPath },
+    }));
+  }
+
+  return diagnostics;
 }
 
 function shouldConfirmTool(metadata: ToolMetadata, config: ConfigData): boolean {
@@ -196,8 +228,28 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
   }
 
   const config = Config.fromYaml(configPath);
+  diagnostics.push(createDiagnostic({
+    source: 'config',
+    level: 'info',
+    code: 'config_loaded',
+    message: `Loaded config (from: ${configPath})`,
+    details: { configPath },
+  }));
+
   const retryConfig = createRetryConfig(config);
   const provider = resolveProvider(config.llm.provider);
+  diagnostics.push(createDiagnostic({
+    source: 'provider',
+    level: 'info',
+    code: 'provider_configured',
+    message: `Configured ${config.llm.provider} provider (${config.llm.model})`,
+    details: {
+      provider: config.llm.provider,
+      model: config.llm.model,
+      apiBase: config.llm.apiBase,
+    },
+  }));
+
   const llmClient = new LLMClient({
     apiKey: config.llm.apiKey,
     provider,
@@ -214,27 +266,30 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
         nextDelay: retryConfig.calculateDelay(attempt - 1),
       });
     };
-    diagnostics.push({
-      type: 'info',
+    diagnostics.push(createDiagnostic({
+      source: 'provider',
+      level: 'info',
       code: 'retry_enabled',
       message: `LLM retry mechanism enabled (max ${config.llm.retry.maxRetries} retries)`,
       details: { maxRetries: config.llm.retry.maxRetries },
-    });
+    }));
   }
 
   const { systemPrompt, systemPromptPath, diagnostic } = loadSystemPrompt(config);
   diagnostics.push(diagnostic);
+  diagnostics.push(...collectResourceDiagnostics(config));
 
   let tools: Tool[];
   let toolRegistry: ToolRegistry | null = null;
   if (options.tools) {
     tools = options.tools;
-    diagnostics.push({
-      type: 'info',
+    diagnostics.push(createDiagnostic({
+      source: 'tools',
+      level: 'info',
       code: 'custom_tools_loaded',
       message: `Loaded ${tools.length} custom tool(s)`,
       details: { count: tools.length },
-    });
+    }));
   } else {
     const loadedTools = await loadConfiguredTools({ config, workspaceDir });
     tools = loadedTools.tools;
@@ -247,21 +302,72 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
     mode: options.sessionMode ?? 'jsonl',
     baseDir: options.sessionBaseDir,
   });
+  diagnostics.push(createDiagnostic({
+    source: 'session',
+    level: 'info',
+    code: 'session_manager_ready',
+    message: `Session manager ready (${options.sessionMode ?? 'jsonl'})`,
+    details: {
+      mode: options.sessionMode ?? 'jsonl',
+      workspaceDir,
+      baseDir: options.sessionBaseDir,
+    },
+  }));
 
   let sessionId: string;
   if (options.sessionId) {
     const loaded = await sessionManager.loadSession(options.sessionId);
     if (loaded) {
       sessionId = options.sessionId;
+      diagnostics.push(createDiagnostic({
+        source: 'session',
+        level: 'info',
+        code: 'session_loaded',
+        message: `Loaded session: ${sessionId}`,
+        details: { sessionId },
+      }));
     } else if (options.createSessionIfMissing === false) {
       throw new RuntimeSessionNotFoundError(options.sessionId);
     } else {
       sessionId = await sessionManager.createSession(systemPrompt, options.sessionId);
+      diagnostics.push(createDiagnostic({
+        source: 'session',
+        level: 'info',
+        code: 'session_created',
+        message: `Created session: ${sessionId}`,
+        details: { sessionId, requestedSessionId: options.sessionId },
+      }));
     }
   } else if (options.createNewSession === false) {
-    sessionId = (await sessionManager.loadLatestSession()) ?? (await sessionManager.createSession(systemPrompt));
+    const latestSessionId = await sessionManager.loadLatestSession();
+    if (latestSessionId) {
+      sessionId = latestSessionId;
+      diagnostics.push(createDiagnostic({
+        source: 'session',
+        level: 'info',
+        code: 'latest_session_loaded',
+        message: `Loaded latest session: ${sessionId}`,
+        details: { sessionId },
+      }));
+    } else {
+      sessionId = await sessionManager.createSession(systemPrompt);
+      diagnostics.push(createDiagnostic({
+        source: 'session',
+        level: 'info',
+        code: 'session_created',
+        message: `Created session: ${sessionId}`,
+        details: { sessionId, reason: 'latest_session_missing' },
+      }));
+    }
   } else {
     sessionId = await sessionManager.createSession(systemPrompt);
+    diagnostics.push(createDiagnostic({
+      source: 'session',
+      level: 'info',
+      code: 'session_created',
+      message: `Created session: ${sessionId}`,
+      details: { sessionId },
+    }));
   }
 
   const session = new AgentSession({

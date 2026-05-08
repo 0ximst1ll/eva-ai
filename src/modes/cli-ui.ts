@@ -103,6 +103,11 @@ export function renderRuntimeDiagnostics(diagnostics: RuntimeDiagnostic[]): void
       continue;
     }
 
+    if (diagnostic.level === 'error') {
+      console.log(`${Colors.RED}❌ ${diagnostic.message}${Colors.RESET}`);
+      continue;
+    }
+
     if (diagnostic.type === 'warning') {
       console.log(`${Colors.YELLOW}⚠️  ${diagnostic.message}${Colors.RESET}`);
       continue;

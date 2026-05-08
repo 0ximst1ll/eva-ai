@@ -122,12 +122,24 @@ createRuntime()
 - 通过 `Config.getDefaultConfigPath()` 查找配置；
 - 通过 `Config.fromYaml()` 解析 YAML；
 - 校验 provider 是否为 `anthropic`、`openai` 或 `google`；
-- 创建 retry 配置，并接入 retry diagnostic；
+- 创建 retry 配置，并接入 provider diagnostic；
 - 通过 `Config.findConfigFile(config.agent.systemPromptPath)` 加载 system prompt；
 - 通过 `loadConfiguredTools()` 加载内置工具；
 - 创建 `SessionManager`，默认使用 `jsonl` 模式；
 - 选择或创建 session；
 - 创建带工具治理 hook 的 `AgentSession`。
+
+当前 runtime diagnostics 使用统一结构：
+
+- `source`：`config`、`provider`、`tools`、`session`、`resource`。
+- `level`：`info`、`warning`、`error`。
+- `code`：稳定机器可读标识。
+- `message`：面向 CLI 的简短说明。
+- `details`：可选结构化上下文。
+
+`createRuntime()` 负责收集 config/provider/resource/session diagnostics；`loadConfiguredTools()` 返回 tools diagnostics；mode 层通过 `renderRuntimeDiagnostics()` 只负责展示。
+
+当前 resource diagnostics 会报告 system prompt 加载状态，以及 note、skills、MCP 已配置但尚未接入 loader 的情况。
 
 `RuntimeHost` 包装当前 active runtime，并暴露：
 

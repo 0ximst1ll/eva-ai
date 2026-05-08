@@ -7,6 +7,7 @@
 7. 工具治理闭环
 8. RuntimeHost 基础层
 9. mode 分层（interactive / print）
+10. Runtime diagnostics 收敛
 
 
 
@@ -509,3 +510,104 @@ cli.ts
 ### 一句话总结
 
 > mode 分层把 Eva 的入口从“一个 CLI 文件包办所有运行方式”推进到“CLI 分发 + mode 承载行为”的结构；interactive 和 print 已共享 RuntimeHost，RPC 可以在同一骨架上继续接入。
+
+## Runtime diagnostics 收敛
+
+这次升级把启动期 diagnostics 从零散的 runtime/tool 提示，收敛成 core 层统一结构。目标是让 config、provider、tools、session、resource 的状态都从 runtime 边界返回，mode 层只负责展示。
+
+---
+
+### 重构前（diagnostics 来源分散）
+
+`RuntimeDiagnostic` 只有：
+
+- `type`
+- `code`
+- `message`
+- `details`
+
+工具层也有自己的 `ToolDiagnostic` 形状。`createRuntime()` 只记录 retry、system prompt 和 tools 装配结果，缺少 config、provider、session、resource 的统一状态。
+
+问题是后续接入 `RuntimeServices`、resource loader、MCP 和 RPC 时，启动状态会继续散落在各层，mode 层也容易被迫理解 runtime 装配细节。
+
+---
+
+### 重构后（统一 diagnostics 结构）
+
+新增 `src/diagnostics.ts`，统一结构为：
+
+- `source`：`config`、`provider`、`tools`、`session`、`resource`
+- `level`：`info`、`warning`、`error`
+- `code`：稳定机器可读标识
+- `message`：面向 UI 的简短说明
+- `details`：结构化上下文
+
+`type` 暂时保留为 `level` 的兼容别名，避免一次性改动现有 CLI 渲染路径。
+
+---
+
+### 当前覆盖范围
+
+`createRuntime()` 现在负责收集：
+
+- config loaded
+- provider configured
+- retry enabled
+- system prompt loaded/missing
+- note、skills、MCP 已配置但尚未加载
+- session manager ready
+- session created/loaded/latest loaded
+
+`loadConfiguredTools()` 返回统一 tools diagnostics，包括：
+
+- builtin tools loaded
+- tool registry ready
+- unknown enabled/disabled tools
+- disabled tools/categories
+- duplicate tools skipped
+
+mode 层继续通过 `renderRuntimeDiagnostics()` 渲染，不直接参与 runtime 状态判断。
+
+---
+
+### 带来的具体好处
+
+**① Runtime 边界更清晰**
+
+启动状态从 core 返回，CLI/interactive/print/RPC 只需要选择如何显示。
+
+**② Resource Loader 有了落点**
+
+system prompt、note、skills、MCP 当前都进入 `resource` source。后续引入 `RuntimeServices` 和 resource loader 时，可以直接扩展这条 diagnostics 路径。
+
+**③ Headless/RPC 更容易接入**
+
+RPC 不适合打印彩色启动日志，但可以直接把同一组 diagnostics 作为结构化事件或响应字段返回。
+
+**④ 配置中的未实现能力不再静默**
+
+当前配置里启用 note、skills、MCP 时，runtime 会明确给出 warning，而不是让用户误以为这些能力已经加载。
+
+---
+
+### 已验证
+
+- 新增 runtime diagnostics 回归测试
+- 覆盖 `config`、`provider`、`tools`、`session`、`resource` 五类 source
+- 覆盖已配置但尚未加载的 note、skills、MCP resource warnings
+- `npm run typecheck`
+- `npm test`
+
+---
+
+### 仍待完成
+
+- 决定启动时是否过滤部分低价值 `info` diagnostics
+- 评估是否新增 `/diagnostics` 命令展示完整结构化状态
+- 后续 `RuntimeServices` 接入后，把 diagnostics 收集从 `createRuntime()` 进一步下沉到 services
+
+---
+
+### 一句话总结
+
+> Runtime diagnostics 从“启动时顺手打印的提示”升级为“runtime 装配状态的结构化边界”；这为 RuntimeServices、resource loader 和 RPC 输出打好了基础。

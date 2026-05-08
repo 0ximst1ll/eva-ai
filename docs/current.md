@@ -34,16 +34,20 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 - interactive mode 已改进 `/history`，显示当前 session id 和 message count。
 - interactive mode 已实现 `/stats`，显示当前 session、message count、token usage、provider、model 和 tool count。
 - `SessionManager` 已支持列出当前 workspace sessions，interactive mode 已实现 `/sessions`。
+- runtime diagnostics 已统一为 `source`、`level`、`code`、`message`、`details` 结构。
+- `createRuntime()` 已收集 config、provider、resource、session diagnostics。
+- `loadConfiguredTools()` 已返回统一 tools diagnostics。
+- 已增加 runtime diagnostics 回归测试。
 
 ## 进行中
 
-- 推进 P1 会话命令与 diagnostics。
+- 收尾 P1 会话命令与 diagnostics。
 
 ## 下一步
 
 优先处理 P1：
 
-- 收敛 config、provider、tools、session、resource diagnostics。
+- 复核 diagnostics 渲染体验，并决定是否补充 `/diagnostics` 或启动摘要过滤。
 
 ## 后续重点计划
 

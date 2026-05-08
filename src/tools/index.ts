@@ -23,6 +23,7 @@ export { WriteTool, type WriteToolInput } from './write.js';
 export { createToolDefinitionFromTool, wrapToolDefinition } from './tool-definition-wrapper.js';
 
 import type { ConfigData } from '../config.js';
+import { createDiagnostic, type RuntimeDiagnostic } from '../diagnostics.js';
 import { BashKillTool, BashOutputTool, BashTool } from './bash.js';
 import { EditTool } from './edit.js';
 import { FindTool } from './find.js';
@@ -33,14 +34,7 @@ import { WriteTool } from './write.js';
 import type { Tool, ToolDefinition, ToolMetadata } from './base.js';
 import { createToolDefinition, toolFromDefinition, withToolMetadata } from './base.js';
 
-type ToolDiagnosticType = 'info' | 'warning';
-
-export interface ToolDiagnostic {
-  type: ToolDiagnosticType;
-  code: string;
-  message: string;
-  details?: Record<string, unknown>;
-}
+export type ToolDiagnostic = RuntimeDiagnostic;
 
 interface ToolRegistryEntry {
   definition: ToolDefinition;
@@ -58,6 +52,8 @@ export class ToolRegistry {
   addDefinition(definition: ToolDefinition): ToolDiagnostic | null {
     if (this.entries.has(definition.name)) {
       return {
+        source: 'tools',
+        level: 'warning',
         type: 'warning',
         code: 'tool_duplicate_skipped',
         message: `Skipped duplicate tool: ${definition.name}`,
@@ -135,6 +131,8 @@ function applyToolGovernance(registry: ToolRegistry, diagnostics: ToolDiagnostic
   for (const toolName of enabledTools) {
     if (!allNames.has(toolName)) {
       diagnostics.push({
+        source: 'tools',
+        level: 'warning',
         type: 'warning',
         code: 'tool_enabled_unknown',
         message: 'Configured enabled tool does not exist: ' + toolName,
@@ -148,6 +146,8 @@ function applyToolGovernance(registry: ToolRegistry, diagnostics: ToolDiagnostic
       if (!enabledTools.has(tool.name)) {
         registry.remove(tool.name);
         diagnostics.push({
+          source: 'tools',
+          level: 'info',
           type: 'info',
           code: 'tool_not_enabled_skipped',
           message: 'Skipped tool not present in enabled_tools: ' + tool.name,
@@ -161,6 +161,8 @@ function applyToolGovernance(registry: ToolRegistry, diagnostics: ToolDiagnostic
     const removed = registry.remove(toolName);
     if (removed) {
       diagnostics.push({
+        source: 'tools',
+        level: 'info',
         type: 'info',
         code: 'tool_disabled',
         message: 'Disabled tool by config: ' + toolName,
@@ -168,6 +170,8 @@ function applyToolGovernance(registry: ToolRegistry, diagnostics: ToolDiagnostic
       });
     } else if (!allNames.has(toolName)) {
       diagnostics.push({
+        source: 'tools',
+        level: 'warning',
         type: 'warning',
         code: 'tool_disabled_unknown',
         message: 'Configured disabled tool does not exist: ' + toolName,
@@ -182,6 +186,8 @@ function applyToolGovernance(registry: ToolRegistry, diagnostics: ToolDiagnostic
       if (category && disabledCategories.has(category)) {
         registry.remove(tool.name);
         diagnostics.push({
+          source: 'tools',
+          level: 'info',
           type: 'info',
           code: 'tool_category_disabled',
           message: 'Disabled ' + category + ' tool by config: ' + tool.name,
@@ -244,12 +250,13 @@ export async function loadConfiguredTools({
       isReadOnly: true,
       isConcurrencySafe: true,
     });
-    diagnostics.push({
-      type: 'info',
+    diagnostics.push(createDiagnostic({
+      source: 'tools',
+      level: 'info',
       code: 'file_tools_loaded',
       message: `Loaded file/search tools (workspace: ${workspaceDir})`,
       details: { workspaceDir },
-    });
+    }));
   }
 
   if (config.tools.enableBash) {
@@ -276,22 +283,24 @@ export async function loadConfiguredTools({
       isConcurrencySafe: false,
       requiresConfirmation: true,
     });
-    diagnostics.push({
-      type: 'info',
+    diagnostics.push(createDiagnostic({
+      source: 'tools',
+      level: 'info',
       code: 'bash_tools_loaded',
       message: `Loaded bash tools (cwd: ${workspaceDir})`,
       details: { workspaceDir },
-    });
+    }));
   }
 
   applyToolGovernance(registry, diagnostics, config);
 
-  diagnostics.push({
-    type: 'info',
+  diagnostics.push(createDiagnostic({
+    source: 'tools',
+    level: 'info',
     code: 'tool_registry_ready',
     message: `Tool registry ready (${registry.size} tools)`,
     details: { count: registry.size },
-  });
+  }));
 
   return {
     registry,
