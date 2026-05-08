@@ -78,6 +78,24 @@ Eva AI 不应该在 `pi-mono` 和 `claude-code` 之间二选一。
 - 能从 active leaf 确定性 rebuild context。
 - 保留旧 flat JSONL 的兼容读取或迁移路径。
 
+### Agent Loop 边界与长任务执行
+
+Eva AI 的主 agent loop 参考 `pi-mono`，后续应保持同样的自然停止语义。
+
+目标语义：
+
+- 主 loop 不应该依赖固定 `max_steps` 作为 interactive 会话的硬停止条件；
+- loop 由模型停止请求工具、工具返回 terminate、用户 abort、LLM/tool error 等自然条件结束；
+- interactive 长任务通过 session resume、context rebuild 和 compaction 持续推进；
+- bounded execution 属于 print/headless/RPC 的运行策略，而不是 interactive core loop 的默认语义。
+
+配置演进：
+
+- 当前 `max_steps` 应逐步改名或迁移为 `max_turns_per_run` / `max_steps_per_run` 一类更明确的 headless guard；
+- interactive mode 默认不启用固定 100 步硬上限；
+- 保留可选 runaway guard，用于非交互自动化、测试或未来 RPC 调用；
+- 文档和配置示例应避免把该 guard 描述成会话总轮数限制。
+
 ### Resource Loading
 
 资源加载不应该混入 builtin tools。
@@ -163,11 +181,20 @@ MCP 不应阻塞首轮提示。
 
 目标：
 
+- 支持 token accounting，并优先使用 provider 返回的 usage；
+- 支持 context diagnostics，能解释当前上下文预算和压缩状态；
 - 支持手动 `/compact`；
 - 支持自动阈值 compaction；
 - 支持 prompt-too-long recovery；
 - compaction 作为 session entry 写入；
 - compact 后按预算重新注入 project context 和 skills。
+
+实施取舍：
+
+- 先实现 flat JSONL 兼容的 compaction entry 和 context rebuild 最小闭环；
+- 不必为了第一版 `/compact` 立即完成完整 session tree；
+- 完整历史必须继续保留在 session log 中，只改变发送给模型的上下文视图；
+- 后续再补齐 tool result micro-compaction、大输出持久化和 post-compact resource budgets。
 
 ## 阶段规划
 
@@ -206,6 +233,27 @@ MCP 不应阻塞首轮提示。
 
 - session 命令都通过 `RuntimeHost`。
 - startup diagnostics 在 core 收集，在 mode 层渲染。
+
+### M1.x：长任务上下文最小闭环
+
+目标：在不提前引入完整 session tree 的前提下，解除 interactive 长任务被固定 step guard 和完整历史上下文拖住的问题。
+
+范围：
+
+- 对齐 `pi-mono` 的 agent-loop 自然停止语义；
+- 将当前 `max_steps` 从 interactive core loop 的默认硬限制迁出，保留为 print/headless/RPC 可选 guard 的设计方向；
+- 持久化 assistant usage，提供 token accounting fallback；
+- 增加 flat JSONL 兼容的 compaction entry；
+- 增加 `buildContextMessages()`，从 session log 构造模型上下文；
+- 支持手动 `/compact`。
+
+验收标准：
+
+- interactive 会话不再把固定 100 steps 当作长任务上限；
+- compact 后 session 可以继续 resume；
+- 完整历史仍保留在 session log 中；
+- context rebuild 可测试且确定；
+- compaction 失败不破坏当前 session。
 
 ### M2：RuntimeServices 与 Resource Loader
 
@@ -251,6 +299,7 @@ MCP 不应阻塞首轮提示。
 
 - session entry schema。
 - context rebuild。
+- 将 M1.x 的 flat compaction entry 演进到 tree/path-aware context rebuild。
 - `/fork`
 - `/clone`
 - import/export。
@@ -323,15 +372,16 @@ MCP 不应阻塞首轮提示。
 
 ### M8：Context Management
 
-目标：让长会话可持续工作。
+目标：在 M1.x 最小闭环基础上，把长会话上下文管理补齐到更完整的 harness 能力。
 
 范围：
 
-- manual `/compact`。
 - automatic threshold compaction。
 - prompt-too-long recovery。
+- tool result micro-compaction。
+- oversized output persistence。
 - post-compact reinjection budgets。
-- compaction entries。
+- compaction failure circuit breaker。
 
 验收标准：
 

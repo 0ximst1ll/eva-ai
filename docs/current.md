@@ -1,6 +1,6 @@
 # Eva AI Current
 
-## 当前状态（2026-05-08）
+## 当前状态（2026-05-09）
 
 Eva AI 当前处于 M0：稳定当前基线阶段。
 
@@ -45,6 +45,15 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 
 - 收敛 config、provider、tools、session、resource diagnostics。
 
+## 后续重点计划
+
+- 长任务上下文治理已拆成 `docs/planning.md` 中的 M1.x。
+- M1.x 不一定紧接当前 P1 执行，但进入明确路线图。
+- M1.x 的方向是对齐 `pi-mono` 的 agent-loop 自然停止语义，不再把固定 `max_steps` 作为 interactive 长任务硬上限。
+- 当前 `max_steps` 后续应迁移为 print/headless/RPC 场景下的可选 runaway guard。
+- 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 建立最小闭环。
+- 完整 auto-compaction、prompt-too-long recovery、tool result micro-compaction 和 post-compact resource budgets 放入后续 Context Management 增强。
+
 ## 已知问题
 
 - `logger.ts` 仍是占位文件。
@@ -52,6 +61,7 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 - resource loading 目前仅限 system prompt，尚未加载 `AGENTS.md` 等项目上下文。
 - note、skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
 - interactive mode 尚未实现 `/fork`、`/compact`。
+- 当前 `max_steps` 仍作为 agent loop 硬停止条件存在，尚未对齐 `pi-mono` 的自然停止语义。
 - RPC mode 尚不存在。
 - session history 仍是 flat JSONL，尚未升级为 session tree。
 - tool result budget、超大输出持久化、完整 permission pipeline 尚未实现。
