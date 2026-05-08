@@ -1,6 +1,6 @@
 # Eva AI Current
 
-## 当前状态（2026-05-06）
+## 当前状态（2026-05-08）
 
 Eva AI 当前处于 M0：稳定当前基线阶段。
 
@@ -21,25 +21,22 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 - 已新增 `docs/planning.md`，记录 Eva AI 的项目目标和参考策略。
 - 当前 interactive 和 print modes 已共享 `RuntimeHost` 与同一套 runtime/session 路径。
 - 当前已有 JSONL session persistence、builtin file/search/bash tools、tool registry、高风险工具 confirmation hook、abort 和 queue 基础能力。
+- 已增加真实 `test` script，使用 Node test runner + `tsx` 执行 TypeScript 回归测试。
+- 已增加 `typecheck` script 和 `tsconfig.json`，使用 `tsc --noEmit` 做静态检查。
+- 已增加 retry 行为回归测试。
+- 已增加 `SessionManager` memory/jsonl 持久化测试。
+- 已增加 agent-loop tool-call continuation 测试。
+- 已增加 `RuntimeHost` new/resume/switch 测试。
+- 已增加 abort 与 steering/follow-up queue 测试。
 
 ## 进行中
 
 - 稳定 M0 当前基线。
-- 梳理 M0/M1 的下一批可执行任务。
+- 修正 system prompt 中对未实现能力的描述。
 
 ## 下一步
 
-优先处理 P0：
-
-- 增加真实 `test` script。
-- 增加 `typecheck` script。
-- 增加 retry 行为回归测试。
-- 增加 `SessionManager` memory/jsonl 持久化测试。
-- 增加 agent-loop tool-call continuation 测试。
-- 增加 `RuntimeHost` new/resume/switch 测试。
-- 增加 abort 与 steering/follow-up queue 测试。
-
-随后推进 P1：
+优先处理 P1：
 
 - 实现 `/new`。
 - 实现 `/resume` 和 `/resume <id>`。
@@ -50,9 +47,6 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 
 ## 已知问题
 
-- 还没有真正的测试脚本。
-- 还没有 `typecheck` 脚本。
-- 当前缺少覆盖核心 runtime/session/tool loop 的回归测试。
 - `logger.ts` 仍是占位文件。
 - `createRuntime()` 职责仍偏多，尚未拆出 `RuntimeServices`。
 - resource loading 目前仅限 system prompt，尚未加载 `AGENTS.md` 等项目上下文。

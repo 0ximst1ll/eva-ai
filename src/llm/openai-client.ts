@@ -1,9 +1,9 @@
 import OpenAI from 'openai';
-import type { LLMResponse, LLMStreamEvent, Message, TokenUsage, ToolCall } from '../schema';
-import type { Tool } from '../tools/base';
-import { toOpenAISchema } from '../tools/base';
-import { RetryConfig, withRetry } from '../retry';
-import { LLMClientBase } from './base';
+import type { LLMResponse, LLMStreamEvent, Message, TokenUsage, ToolCall } from '../schema.js';
+import type { Tool } from '../tools/base.js';
+import { toOpenAISchema } from '../tools/base.js';
+import { RetryConfig, withRetry } from '../retry.js';
+import { LLMClientBase } from './base.js';
 
 
 type ChatCompletion = OpenAI.Chat.ChatCompletion;
