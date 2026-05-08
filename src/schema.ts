@@ -13,6 +13,11 @@ export interface ToolCall {
     id: string;
     type: string; // "function"
     function: FunctionCall;
+    providerMetadata?: {
+        google?: {
+            thoughtSignature?: string;
+        };
+    };
 }
 
 export type Message = 

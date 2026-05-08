@@ -137,13 +137,17 @@ export class GoogleClient extends LLMClientBase {
         // 函数调用
         if (msg.tool_calls?.length) {
           for (const tc of msg.tool_calls) {
-            parts.push({
+            const part: Part = {
               functionCall: {
                 id: tc.id,
                 name: tc.function.name,
                 args: tc.function.arguments,
               },
-            });
+            };
+            if (tc.providerMetadata?.google?.thoughtSignature) {
+              part.thoughtSignature = tc.providerMetadata.google.thoughtSignature;
+            }
+            parts.push(part);
           }
         }
 
@@ -184,7 +188,7 @@ export class GoogleClient extends LLMClientBase {
   /**
    * 解析 Google Gemini 响应为统一的 LLMResponse
    */
-  private _parseResponse(response: GenerateContentResponse): LLMResponse {
+  protected _parseResponse(response: GenerateContentResponse): LLMResponse {
     let textContent = '';
     let thinkingContent = '';
     const toolCalls: ToolCall[] = [];
@@ -207,6 +211,9 @@ export class GoogleClient extends LLMClientBase {
               name: fc.name ?? '',
               arguments: (fc.args ?? {}) as Record<string, unknown>,
             },
+            providerMetadata: part.thoughtSignature
+              ? { google: { thoughtSignature: part.thoughtSignature } }
+              : undefined,
           });
         }
       }
@@ -313,6 +320,9 @@ export class GoogleClient extends LLMClientBase {
               name: fc.name ?? '',
               arguments: (fc.args ?? {}) as Record<string, unknown>,
             },
+            providerMetadata: part.thoughtSignature
+              ? { google: { thoughtSignature: part.thoughtSignature } }
+              : undefined,
           };
           const key = `${toolCall.id}:${toolCall.function.name}:${JSON.stringify(toolCall.function.arguments)}`;
           if (!seenToolCalls.has(key)) {
