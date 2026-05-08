@@ -133,6 +133,50 @@ test('/history prints current session id and message count', async () => {
   assert.match(output.join('\n'), /Message count:.*3/);
 });
 
+test('/stats prints session and runtime details', async () => {
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-stats';
+    },
+    get session() {
+      return {
+        apiTotalTokens: 123,
+        messages: [
+          { role: 'system', content: 'system' },
+          { role: 'user', content: 'hello' },
+        ],
+      };
+    },
+    get runtime() {
+      return {
+        config: {
+          llm: {
+            provider: 'anthropic',
+            model: 'MiniMax-M2.5',
+          },
+        },
+        tools: [{ name: 'read_file' }, { name: 'bash' }],
+      };
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/stats',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+  const text = output.join('\n');
+
+  assert.equal(result, 'continue');
+  assert.match(text, /Session:.*session-stats/);
+  assert.match(text, /Messages:.*2/);
+  assert.match(text, /API total tokens:.*123/);
+  assert.match(text, /Provider:.*anthropic/);
+  assert.match(text, /Model:.*MiniMax-M2\.5/);
+  assert.match(text, /Tools:.*2/);
+});
+
 test('non-slash input is not handled as an interactive command', async () => {
   const result = await handleInteractiveCommand({
     userInput: 'hello',

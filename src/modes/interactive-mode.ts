@@ -72,6 +72,16 @@ export async function handleInteractiveCommand({
     return 'continue';
   }
 
+  if (cmd === '/stats') {
+    writeLine(`\n${Colors.BRIGHT_CYAN}Session:${Colors.RESET} ${host.sessionId}`);
+    writeLine(`${Colors.BRIGHT_CYAN}Messages:${Colors.RESET} ${host.session.messages.length}`);
+    writeLine(`${Colors.BRIGHT_CYAN}API total tokens:${Colors.RESET} ${host.session.apiTotalTokens}`);
+    writeLine(`${Colors.BRIGHT_CYAN}Provider:${Colors.RESET} ${host.runtime.config.llm.provider}`);
+    writeLine(`${Colors.BRIGHT_CYAN}Model:${Colors.RESET} ${host.runtime.config.llm.model}`);
+    writeLine(`${Colors.BRIGHT_CYAN}Tools:${Colors.RESET} ${host.runtime.tools.length}\n`);
+    return 'continue';
+  }
+
   if (cmd === '/log' || cmd.startsWith('/log ')) {
     return 'continue';
   }
