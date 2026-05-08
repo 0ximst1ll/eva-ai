@@ -106,6 +106,7 @@ createRuntime()
 
 - `/exit`、`/quit`、`/q`：退出。
 - `/new`：通过 `RuntimeHost.newSession()` 创建并切换到新会话。
+- `/resume`、`/resume <id>`：通过 `RuntimeHost` 恢复 latest session 或切换到指定 session。
 - `/clear`：将当前会话重置为 system prompt。
 - `/history`：打印当前会话消息数量。
 - `/log`：当前是忽略型占位命令。

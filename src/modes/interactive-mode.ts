@@ -1,5 +1,5 @@
 import * as readline from 'node:readline';
-import type { ToolConfirmationRequest } from '../core/runtime.js';
+import { RuntimeSessionNotFoundError, type ToolConfirmationRequest } from '../core/runtime.js';
 import type { RuntimeHost } from '../core/runtime-host.js';
 import { Colors } from '../utils/terminal.js';
 import { createCliRenderer, createToolConfirmationPrompt } from './cli-ui.js';
@@ -22,7 +22,8 @@ export async function handleInteractiveCommand({
 }): Promise<InteractiveCommandResult> {
   if (!userInput.startsWith('/')) return 'not_command';
 
-  const cmd = userInput.toLowerCase();
+  const [command = '', ...args] = userInput.split(/\s+/);
+  const cmd = command.toLowerCase();
 
   if (['/exit', '/quit', '/q'].includes(cmd)) {
     writeLine(`\n${Colors.BRIGHT_YELLOW}👋 Goodbye! Thanks for using Eva AI${Colors.RESET}\n`);
@@ -34,6 +35,27 @@ export async function handleInteractiveCommand({
     await host.newSession();
     writeLine(`${Colors.GREEN}✅ Created new session: ${host.sessionId}${Colors.RESET}`);
     writeLine(`${Colors.DIM}Previous session: ${previousSessionId}${Colors.RESET}\n`);
+    return 'continue';
+  }
+
+  if (cmd === '/resume') {
+    const previousSessionId = host.sessionId;
+    try {
+      if (args.length === 0) {
+        await host.resumeLatestSession();
+        writeLine(`${Colors.GREEN}✅ Resumed latest session: ${host.sessionId}${Colors.RESET}`);
+      } else {
+        await host.switchSession(args[0]);
+        writeLine(`${Colors.GREEN}✅ Resumed session: ${host.sessionId}${Colors.RESET}`);
+      }
+      writeLine(`${Colors.DIM}Previous session: ${previousSessionId}${Colors.RESET}\n`);
+    } catch (e) {
+      if (e instanceof RuntimeSessionNotFoundError) {
+        writeLine(`${Colors.RED}❌ Session not found: ${e.sessionId}${Colors.RESET}\n`);
+      } else {
+        throw e;
+      }
+    }
     return 'continue';
   }
 
