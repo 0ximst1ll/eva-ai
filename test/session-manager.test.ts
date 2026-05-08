@@ -17,6 +17,14 @@ test('SessionManager stores and resets memory sessions', async () => {
 
   await manager.resetSession(sessionId, 'reset system');
   assert.deepEqual(manager.getMessages(sessionId), [{ role: 'system', content: 'reset system' }]);
+  assert.deepEqual(
+    (await manager.listSessions()).map((session) => ({
+      sessionId: session.sessionId,
+      messageCount: session.messageCount,
+      isLatest: session.isLatest,
+    })),
+    [{ sessionId, messageCount: 1, isLatest: true }],
+  );
   assert.equal(await manager.loadLatestSession(), null);
 });
 
@@ -30,13 +38,25 @@ test('SessionManager persists and reloads jsonl sessions', async () => {
     const sessionId = await first.createSession('system', 'session-a');
     await first.appendMessage(sessionId, { role: 'user', content: 'hello' });
     await first.appendMessage(sessionId, { role: 'assistant', content: 'hi' });
+    const secondSessionId = await first.createSession('other system', 'session-b');
+    await first.appendMessage(secondSessionId, { role: 'user', content: 'other' });
+
+    const listed = await first.listSessions();
+    assert.equal(listed.length, 2);
+    const sessionA = listed.find((session) => session.sessionId === 'session-a');
+    const sessionB = listed.find((session) => session.sessionId === 'session-b');
+    assert.equal(sessionA?.messageCount, 3);
+    assert.equal(sessionA?.isLatest, false);
+    assert.equal(sessionB?.messageCount, 2);
+    assert.equal(sessionB?.isLatest, true);
+    assert.ok((sessionA?.updatedAt ?? 0) > 0);
+    assert.ok((sessionB?.updatedAt ?? 0) > 0);
 
     const second = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
-    assert.equal(await second.loadLatestSession(), sessionId);
-    assert.deepEqual(second.getMessages(sessionId), [
-      { role: 'system', content: 'system' },
-      { role: 'user', content: 'hello' },
-      { role: 'assistant', content: 'hi' },
+    assert.equal(await second.loadLatestSession(), secondSessionId);
+    assert.deepEqual(second.getMessages(secondSessionId), [
+      { role: 'system', content: 'other system' },
+      { role: 'user', content: 'other' },
     ]);
 
     await second.resetSession(sessionId, 'new system');
@@ -48,4 +68,3 @@ test('SessionManager persists and reloads jsonl sessions', async () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });
-

@@ -177,6 +177,73 @@ test('/stats prints session and runtime details', async () => {
   assert.match(text, /Tools:.*2/);
 });
 
+test('/sessions prints workspace session list and marks the current session', async () => {
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-current';
+    },
+    get runtime() {
+      return {
+        sessionManager: {
+          async listSessions() {
+            return [
+              {
+                sessionId: 'session-current',
+                messageCount: 3,
+                updatedAt: Date.parse('2026-05-08T00:00:00.000Z'),
+                isLatest: true,
+              },
+              {
+                sessionId: 'session-old',
+                messageCount: 1,
+                updatedAt: Date.parse('2026-05-07T00:00:00.000Z'),
+                isLatest: false,
+              },
+            ];
+          },
+        },
+      };
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/sessions',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+  const text = output.join('\n');
+
+  assert.equal(result, 'continue');
+  assert.match(text, /Workspace sessions:/);
+  assert.match(text, /\* session-current messages=3 updated=2026-05-08T00:00:00\.000Z latest/);
+  assert.match(text, /  session-old messages=1 updated=2026-05-07T00:00:00\.000Z/);
+});
+
+test('/sessions reports when the workspace has no sessions', async () => {
+  const output: string[] = [];
+  const host = {
+    get runtime() {
+      return {
+        sessionManager: {
+          async listSessions() {
+            return [];
+          },
+        },
+      };
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/sessions',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.match(output.join('\n'), /No sessions found/);
+});
+
 test('non-slash input is not handled as an interactive command', async () => {
   const result = await handleInteractiveCommand({
     userInput: 'hello',

@@ -82,6 +82,26 @@ export async function handleInteractiveCommand({
     return 'continue';
   }
 
+  if (cmd === '/sessions') {
+    const sessions = await host.runtime.sessionManager.listSessions();
+    if (!sessions.length) {
+      writeLine(`\n${Colors.YELLOW}No sessions found for this workspace.${Colors.RESET}\n`);
+      return 'continue';
+    }
+
+    writeLine(`\n${Colors.BRIGHT_CYAN}Workspace sessions:${Colors.RESET}`);
+    for (const session of sessions) {
+      const currentMarker = session.sessionId === host.sessionId ? '*' : ' ';
+      const latestMarker = session.isLatest ? ' latest' : '';
+      const updatedAt = session.updatedAt > 0 ? new Date(session.updatedAt).toISOString() : 'unknown';
+      writeLine(
+        `${currentMarker} ${session.sessionId} messages=${session.messageCount} updated=${updatedAt}${latestMarker}`,
+      );
+    }
+    writeLine();
+    return 'continue';
+  }
+
   if (cmd === '/log' || cmd.startsWith('/log ')) {
     return 'continue';
   }

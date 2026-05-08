@@ -33,6 +33,7 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 - interactive mode 已实现 `/resume` 和 `/resume <id>`，通过 `RuntimeHost` 恢复 latest session 或切换到指定 session。
 - interactive mode 已改进 `/history`，显示当前 session id 和 message count。
 - interactive mode 已实现 `/stats`，显示当前 session、message count、token usage、provider、model 和 tool count。
+- `SessionManager` 已支持列出当前 workspace sessions，interactive mode 已实现 `/sessions`。
 
 ## 进行中
 
@@ -42,7 +43,6 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 
 优先处理 P1：
 
-- 显示当前 workspace 下的 session list。
 - 收敛 config、provider、tools、session、resource diagnostics。
 
 ## 已知问题

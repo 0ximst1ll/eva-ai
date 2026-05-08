@@ -110,6 +110,7 @@ createRuntime()
 - `/clear`：将当前会话重置为 system prompt。
 - `/history`：打印当前 session id 和消息数量。
 - `/stats`：打印当前 session、message count、token usage、provider、model 和 tool count。
+- `/sessions`：列出当前 workspace 下的 sessions，并标记当前 active session 和 latest session。
 - `/log`：当前是忽略型占位命令。
 
 ## Runtime
@@ -249,6 +250,7 @@ JSONL 模式下：
 - 创建或 reset session 时写入 `session_start`；
 - 每条 message 都写成一个 `message` entry；
 - `manifest.json` 记录 `latestSessionId`。
+- `listSessions()` 可列出当前 workspace 下的 session id、message count、updatedAt 和 latest 标记。
 
 当前 session model 是扁平结构。还不支持 parent/child entries、fork、compaction entries、import/export，也不支持从 session tree 做确定性 context rebuild。
 

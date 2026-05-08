@@ -27,12 +27,26 @@ interface MessageEntry {
 
 type SessionLogEntry = SessionStartEntry | MessageEntry;
 
+interface SessionMetadata {
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SessionListItem {
+  sessionId: string;
+  messageCount: number;
+  updatedAt: number;
+  isLatest: boolean;
+}
+
 export class SessionManager {
   private readonly mode: PersistenceMode;
   private readonly workspaceDir: string;
   private readonly baseDir: string;
   private readonly workspaceKey: string;
   private readonly sessions = new Map<string, Message[]>();
+  private readonly sessionMetadata = new Map<string, SessionMetadata>();
+  private latestSessionId?: string;
 
   constructor({
     workspaceDir,
@@ -51,8 +65,11 @@ export class SessionManager {
 
   async createSession(systemPrompt: string, sessionId?: string): Promise<string> {
     const id = sessionId ?? randomUUID();
+    const now = Date.now();
     const initialMessages: Message[] = [{ role: 'system', content: systemPrompt }];
     this.sessions.set(id, initialMessages);
+    this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
+    this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
       await this.ensureWorkspaceDir();
@@ -60,10 +77,10 @@ export class SessionManager {
       await this.appendEntry({
         type: 'message',
         sessionId: id,
-        timestamp: Date.now(),
+        timestamp: now,
         message: initialMessages[0],
       });
-      await this.writeManifest({ latestSessionId: id, updatedAt: Date.now() });
+      await this.writeManifest({ latestSessionId: id, updatedAt: now });
     }
     return id;
   }
@@ -81,27 +98,22 @@ export class SessionManager {
   }
 
   async loadSession(sessionId: string): Promise<boolean> {
-    if (this.sessions.has(sessionId)) return true;
+    if (this.sessions.has(sessionId)) {
+      await this.markLatestSession(sessionId);
+      return true;
+    }
     if (this.mode !== 'jsonl') return false;
 
     try {
       const content = await fs.readFile(this.getSessionFilePath(sessionId), 'utf-8');
-      const parsed: Message[] = [];
-      for (const line of content.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const entry = JSON.parse(trimmed) as SessionLogEntry;
-          if (entry.type === 'message' && entry.sessionId === sessionId) {
-            parsed.push(entry.message);
-          }
-        } catch {
-          continue;
-        }
-      }
-      if (!parsed.length) return false;
-      this.sessions.set(sessionId, parsed);
-      await this.writeManifest({ latestSessionId: sessionId, updatedAt: Date.now() });
+      const parsed = this.parseSessionLog(content, sessionId);
+      if (!parsed.messages.length) return false;
+      this.sessions.set(sessionId, parsed.messages);
+      this.sessionMetadata.set(sessionId, {
+        createdAt: parsed.createdAt ?? parsed.updatedAt,
+        updatedAt: parsed.updatedAt,
+      });
+      await this.markLatestSession(sessionId);
       return true;
     } catch {
       return false;
@@ -119,21 +131,25 @@ export class SessionManager {
     }
     existing.push(message);
     this.sessions.set(sessionId, existing);
+    const now = Date.now();
+    this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
       await this.appendEntry({
         type: 'message',
         sessionId,
-        timestamp: Date.now(),
+        timestamp: now,
         message,
       });
-      await this.writeManifest({ latestSessionId: sessionId, updatedAt: Date.now() });
+      await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
   }
 
   async resetSession(sessionId: string, systemPrompt: string): Promise<void> {
+    const now = Date.now();
     const resetMessages: Message[] = [{ role: 'system', content: systemPrompt }];
     this.sessions.set(sessionId, resetMessages);
+    this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
       await fs.writeFile(this.getSessionFilePath(sessionId), '', 'utf-8');
@@ -141,11 +157,53 @@ export class SessionManager {
       await this.appendEntry({
         type: 'message',
         sessionId,
-        timestamp: Date.now(),
+        timestamp: now,
         message: resetMessages[0],
       });
-      await this.writeManifest({ latestSessionId: sessionId, updatedAt: Date.now() });
+      await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
+  }
+
+  async listSessions(): Promise<SessionListItem[]> {
+    if (this.mode === 'memory') {
+      return this.sortSessionList(
+        [...this.sessions.entries()].map(([sessionId, messages]) => ({
+          sessionId,
+          messageCount: messages.length,
+          updatedAt: this.sessionMetadata.get(sessionId)?.updatedAt ?? 0,
+          isLatest: this.latestSessionId === sessionId,
+        })),
+      );
+    }
+
+    const manifest = await this.readManifest();
+    let fileNames: string[];
+    try {
+      fileNames = await fs.readdir(this.getWorkspaceDataDir());
+    } catch {
+      return [];
+    }
+
+    const sessions: SessionListItem[] = [];
+    for (const fileName of fileNames) {
+      if (!fileName.endsWith('.jsonl')) continue;
+      const sessionId = fileName.slice(0, -'.jsonl'.length);
+      try {
+        const content = await fs.readFile(this.getSessionFilePath(sessionId), 'utf-8');
+        const parsed = this.parseSessionLog(content, sessionId);
+        if (!parsed.messages.length) continue;
+        sessions.push({
+          sessionId,
+          messageCount: parsed.messages.length,
+          updatedAt: parsed.updatedAt,
+          isLatest: manifest?.latestSessionId === sessionId,
+        });
+      } catch {
+        continue;
+      }
+    }
+
+    return this.sortSessionList(sessions);
   }
 
   private getWorkspaceDataDir(): string {
@@ -193,5 +251,57 @@ export class SessionManager {
   private async writeManifest(manifest: SessionManifest): Promise<void> {
     await this.ensureWorkspaceDir();
     await fs.writeFile(this.getManifestFilePath(), JSON.stringify(manifest, null, 2), 'utf-8');
+  }
+
+  private touchSession(sessionId: string, updatedAt: number): void {
+    const existing = this.sessionMetadata.get(sessionId);
+    this.sessionMetadata.set(sessionId, {
+      createdAt: existing?.createdAt ?? updatedAt,
+      updatedAt,
+    });
+    this.latestSessionId = sessionId;
+  }
+
+  private async markLatestSession(sessionId: string): Promise<void> {
+    const updatedAt = Date.now();
+    this.touchSession(sessionId, updatedAt);
+    if (this.mode === 'jsonl') {
+      await this.writeManifest({ latestSessionId: sessionId, updatedAt });
+    }
+  }
+
+  private parseSessionLog(
+    content: string,
+    sessionId: string,
+  ): { messages: Message[]; createdAt?: number; updatedAt: number } {
+    const messages: Message[] = [];
+    let createdAt: number | undefined;
+    let updatedAt = 0;
+
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const entry = JSON.parse(trimmed) as SessionLogEntry;
+        if (entry.sessionId !== sessionId) continue;
+        if (entry.type === 'session_start') {
+          createdAt = entry.createdAt;
+          updatedAt = Math.max(updatedAt, entry.createdAt);
+          continue;
+        }
+        if (entry.type === 'message') {
+          messages.push(entry.message);
+          updatedAt = Math.max(updatedAt, entry.timestamp);
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return { messages, createdAt, updatedAt };
+  }
+
+  private sortSessionList(sessions: SessionListItem[]): SessionListItem[] {
+    return sessions.sort((a, b) => b.updatedAt - a.updatedAt || a.sessionId.localeCompare(b.sessionId));
   }
 }
