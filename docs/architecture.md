@@ -105,6 +105,7 @@ createRuntime()
 当前 interactive slash commands：
 
 - `/exit`、`/quit`、`/q`：退出。
+- `/new`：通过 `RuntimeHost.newSession()` 创建并切换到新会话。
 - `/clear`：将当前会话重置为 system prompt。
 - `/history`：打印当前会话消息数量。
 - `/log`：当前是忽略型占位命令。

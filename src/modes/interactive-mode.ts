@@ -9,6 +9,55 @@ export interface InteractiveModeOptions {
   setToolConfirmationHandler: (handler: (request: ToolConfirmationRequest) => Promise<boolean>) => void;
 }
 
+export type InteractiveCommandResult = 'not_command' | 'continue' | 'exit';
+
+export async function handleInteractiveCommand({
+  userInput,
+  host,
+  writeLine = console.log,
+}: {
+  userInput: string;
+  host: RuntimeHost;
+  writeLine?: (message?: string) => void;
+}): Promise<InteractiveCommandResult> {
+  if (!userInput.startsWith('/')) return 'not_command';
+
+  const cmd = userInput.toLowerCase();
+
+  if (['/exit', '/quit', '/q'].includes(cmd)) {
+    writeLine(`\n${Colors.BRIGHT_YELLOW}👋 Goodbye! Thanks for using Eva AI${Colors.RESET}\n`);
+    return 'exit';
+  }
+
+  if (cmd === '/new') {
+    const previousSessionId = host.sessionId;
+    await host.newSession();
+    writeLine(`${Colors.GREEN}✅ Created new session: ${host.sessionId}${Colors.RESET}`);
+    writeLine(`${Colors.DIM}Previous session: ${previousSessionId}${Colors.RESET}\n`);
+    return 'continue';
+  }
+
+  if (cmd === '/clear') {
+    const old = host.session.messages.length;
+    await host.session.clear();
+    writeLine(`${Colors.GREEN}✅ Cleared ${old - 1} messages, starting new session${Colors.RESET}\n`);
+    return 'continue';
+  }
+
+  if (cmd === '/history') {
+    writeLine(`\n${Colors.BRIGHT_CYAN}Current session message count: ${host.session.messages.length}${Colors.RESET}\n`);
+    return 'continue';
+  }
+
+  if (cmd === '/log' || cmd.startsWith('/log ')) {
+    return 'continue';
+  }
+
+  writeLine(`${Colors.RED}❌ Unknown command: ${userInput}${Colors.RESET}`);
+  writeLine(`${Colors.DIM}Type /help to see available commands${Colors.RESET}\n`);
+  return 'continue';
+}
+
 export async function runInteractiveMode({
   host,
   setToolConfirmationHandler,
@@ -44,32 +93,9 @@ export async function runInteractiveMode({
 
     if (!userInput) continue;
 
-    if (userInput.startsWith('/')) {
-      const cmd = userInput.toLowerCase();
-
-      if (['/exit', '/quit', '/q'].includes(cmd)) {
-        console.log(`\n${Colors.BRIGHT_YELLOW}👋 Goodbye! Thanks for using Eva AI${Colors.RESET}\n`);
-        break;
-      }
-
-      if (cmd === '/clear') {
-        const old = host.session.messages.length;
-        await host.session.clear();
-        console.log(`${Colors.GREEN}✅ Cleared ${old - 1} messages, starting new session${Colors.RESET}\n`);
-        continue;
-      }
-
-      if (cmd === '/history') {
-        console.log(`\n${Colors.BRIGHT_CYAN}Current session message count: ${host.session.messages.length}${Colors.RESET}\n`);
-        continue;
-      }
-
-      if (cmd === '/log' || cmd.startsWith('/log ')) {
-        continue;
-      }
-
-      console.log(`${Colors.RED}❌ Unknown command: ${userInput}${Colors.RESET}`);
-      console.log(`${Colors.DIM}Type /help to see available commands${Colors.RESET}\n`);
+    const commandResult = await handleInteractiveCommand({ userInput, host });
+    if (commandResult === 'exit') break;
+    if (commandResult === 'continue') {
       continue;
     }
 

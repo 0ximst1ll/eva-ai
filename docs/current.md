@@ -28,17 +28,17 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 - 已增加 agent-loop tool-call continuation 测试。
 - 已增加 `RuntimeHost` new/resume/switch 测试。
 - 已增加 abort 与 steering/follow-up queue 测试。
+- 已修正 `config/system_prompt.md`，避免声明 MCP、skills、note、RPC 等尚未实现能力。
+- interactive mode 已实现 `/new`，通过 `RuntimeHost.newSession()` 创建新会话并显示新旧 session id。
 
 ## 进行中
 
-- 稳定 M0 当前基线。
-- 修正 system prompt 中对未实现能力的描述。
+- 推进 P1 会话命令与 diagnostics。
 
 ## 下一步
 
 优先处理 P1：
 
-- 实现 `/new`。
 - 实现 `/resume` 和 `/resume <id>`。
 - 改进 `/history`，显示 session id 和 message count。
 - 实现 `/stats`。
@@ -50,9 +50,8 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 - `logger.ts` 仍是占位文件。
 - `createRuntime()` 职责仍偏多，尚未拆出 `RuntimeServices`。
 - resource loading 目前仅限 system prompt，尚未加载 `AGENTS.md` 等项目上下文。
-- `config/system_prompt.md` 可能仍描述了 MCP/skills 等当前未实现能力，需要修正。
 - note、skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
-- interactive mode 尚未实现 `/new`、`/resume`、`/stats`、`/fork`、`/compact`。
+- interactive mode 尚未实现 `/resume`、`/stats`、`/fork`、`/compact`。
 - RPC mode 尚不存在。
 - session history 仍是 flat JSONL，尚未升级为 session tree。
 - tool result budget、超大输出持久化、完整 permission pipeline 尚未实现。
