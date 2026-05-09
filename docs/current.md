@@ -41,9 +41,12 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 - interactive mode 已实现 `/diagnostics`，用于查看完整 runtime diagnostics。
 - 已新增 `RuntimeServices`，承载 workspace 绑定的 config、provider、tools、session manager 和 diagnostics。
 - `createRuntime()` 已改为基于 `RuntimeServices` 创建当前 `AgentSession`。
+- 已新增轻量 `ResourceLoader`，承载 system prompt 和 `AGENTS.md` 项目上下文加载。
+- `RuntimeServices` 已暴露 `resourceLoader`。
 - 已增加 runtime diagnostics 回归测试。
 - 已增加 diagnostics 渲染和 `/diagnostics` 命令测试。
 - 已增加 `RuntimeServices` 回归测试。
+- 已增加 `ResourceLoader` 回归测试。
 
 ## 进行中
 
@@ -53,8 +56,8 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 
 优先处理 M2：
 
-- 提交 diagnostics 展示策略与 `RuntimeServices` 最小骨架改动。
-- 下一步引入轻量 Resource Loader，先承载 system prompt，再接入 `AGENTS.md` 项目上下文。
+- 提交轻量 `ResourceLoader` 改动。
+- 下一步决定是否将 `AGENTS.md` 注入模型上下文，或先实现 resource reload。
 
 ## 后续重点计划
 
@@ -68,8 +71,8 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 ## 已知问题
 
 - `logger.ts` 仍是占位文件。
-- `RuntimeServices` 仍是最小骨架，尚未拆出完整 Resource Loader。
-- resource loading 目前仅限 system prompt，尚未加载 `AGENTS.md` 等项目上下文。
+- `ResourceLoader` 仍是最小骨架，尚未支持 reload、预算控制或 prompt 注入。
+- `AGENTS.md` 已加载为 project context，但尚未注入模型上下文。
 - note、skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
 - interactive mode 尚未实现 `/fork`、`/compact`。
 - 当前 `max_steps` 仍作为 agent loop 硬停止条件存在，尚未对齐 `pi-mono` 的自然停止语义。

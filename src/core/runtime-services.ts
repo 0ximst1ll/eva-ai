@@ -8,6 +8,7 @@ import { RetryConfig } from '../retry.js';
 import { LLMProvider } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { loadConfiguredTools, type ToolRegistry } from '../tools/index.js';
+import { createResourceLoader, type ResourceLoader } from './resource-loader.js';
 import { SessionManager } from './session-manager.js';
 
 export type SessionMode = 'memory' | 'jsonl';
@@ -33,6 +34,7 @@ export interface RuntimeServices {
   configPath: string;
   llmClient: LLMClient;
   retryConfig: RetryConfig;
+  resourceLoader: ResourceLoader;
   systemPrompt: string;
   systemPromptPath: string | null;
   tools: Tool[];
@@ -83,75 +85,6 @@ function createRetryConfig(config: ConfigData): RetryConfig {
     maxDelay: config.llm.retry.maxDelay,
     exponentialBase: config.llm.retry.exponentialBase,
   });
-}
-
-function loadSystemPrompt(config: ConfigData): {
-  systemPrompt: string;
-  systemPromptPath: string | null;
-  diagnostic: RuntimeDiagnostic;
-} {
-  const systemPromptPath = Config.findConfigFile(config.agent.systemPromptPath);
-  if (systemPromptPath && fs.existsSync(systemPromptPath)) {
-    return {
-      systemPrompt: fs.readFileSync(systemPromptPath, 'utf-8'),
-      systemPromptPath,
-      diagnostic: createDiagnostic({
-        source: 'resource',
-        level: 'info',
-        code: 'system_prompt_loaded',
-        message: `Loaded system prompt (from: ${systemPromptPath})`,
-        details: { systemPromptPath },
-      }),
-    };
-  }
-
-  return {
-    systemPrompt: 'You are Eva AI, an intelligent assistant that can help users complete various tasks.',
-    systemPromptPath: null,
-    diagnostic: createDiagnostic({
-      source: 'resource',
-      level: 'warning',
-      code: 'system_prompt_missing',
-      message: 'System prompt not found, using default',
-      details: { configuredPath: config.agent.systemPromptPath },
-    }),
-  };
-}
-
-function collectResourceDiagnostics(config: ConfigData): RuntimeDiagnostic[] {
-  const diagnostics: RuntimeDiagnostic[] = [];
-
-  if (config.tools.enableNote) {
-    diagnostics.push(createDiagnostic({
-      source: 'resource',
-      level: 'warning',
-      code: 'note_resource_not_loaded',
-      message: 'Note resource is configured but not loaded yet',
-      details: { enableNote: config.tools.enableNote },
-    }));
-  }
-
-  if (config.tools.enableSkills) {
-    diagnostics.push(createDiagnostic({
-      source: 'resource',
-      level: 'warning',
-      code: 'skills_resource_not_loaded',
-      message: 'Skills are configured but the skills loader is not implemented yet',
-      details: { enableSkills: config.tools.enableSkills, skillsDir: config.tools.skillsDir },
-    }));
-  }
-
-  if (config.tools.enableMcp) {
-    diagnostics.push(createDiagnostic({
-      source: 'resource',
-      level: 'warning',
-      code: 'mcp_resource_not_loaded',
-      message: 'MCP is configured but the MCP loader is not implemented yet',
-      details: { enableMcp: config.tools.enableMcp, mcpConfigPath: config.tools.mcpConfigPath },
-    }));
-  }
-
-  return diagnostics;
 }
 
 export async function createRuntimeServices(options: CreateRuntimeServicesOptions): Promise<RuntimeServices> {
@@ -211,9 +144,8 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     }));
   }
 
-  const { systemPrompt, systemPromptPath, diagnostic } = loadSystemPrompt(config);
-  diagnostics.push(diagnostic);
-  diagnostics.push(...collectResourceDiagnostics(config));
+  const resourceLoader = createResourceLoader({ workspaceDir, config });
+  diagnostics.push(...resourceLoader.diagnostics);
 
   let tools: Tool[];
   let toolRegistry: ToolRegistry | null = null;
@@ -256,8 +188,9 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     configPath,
     llmClient,
     retryConfig,
-    systemPrompt,
-    systemPromptPath,
+    resourceLoader,
+    systemPrompt: resourceLoader.systemPrompt,
+    systemPromptPath: resourceLoader.systemPromptPath,
     tools,
     toolRegistry,
     sessionManager,

@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前还没有实现计划中的 `RuntimeServices`、resource loader、RPC mode、session tree、MCP loader 和 skills system。部分配置字段已经为这些方向预留，但它们目前还不是运行时能力。
+项目目前已经有 `RuntimeServices` 和轻量 `ResourceLoader`。完整 RPC mode、session tree、MCP loader 和 skills system 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -23,6 +23,7 @@ createRuntime()
   |-- createRuntimeServices()
   |     |-- Config
   |     |-- LLMClient
+  |     |-- ResourceLoader
   |     |-- loadConfiguredTools() -> ToolRegistry -> Tool[]
   |     `-- SessionManager
   `-- AgentSession
@@ -66,7 +67,7 @@ createRuntime()
 - 通过 `Config.fromYaml()` 解析 YAML；
 - 校验 provider 是否为 `anthropic`、`openai` 或 `google`；
 - 创建 retry 配置，并接入 provider diagnostic；
-- 通过 `Config.findConfigFile(config.agent.systemPromptPath)` 加载 system prompt；
+- 通过 `createResourceLoader()` 加载 system prompt 和项目上下文资源；
 - 通过 `loadConfiguredTools()` 加载内置工具；
 - 创建 `SessionManager`，默认使用 `jsonl` 模式；
 - 返回统一 diagnostics。
@@ -89,7 +90,7 @@ createRuntime()
 
 启动时 diagnostics 默认只展示 warning/error 和少量关键 info，避免普通 info 淹没终端。完整 diagnostics 可通过 interactive mode 的 `/diagnostics` 查看。
 
-当前 resource diagnostics 会报告 system prompt 加载状态，以及 note、skills、MCP 已配置但尚未接入 loader 的情况。
+当前 resource diagnostics 会报告 system prompt 加载状态、`AGENTS.md` 项目上下文加载状态，以及 note、skills、MCP 已配置但尚未接入 loader 的情况。
 
 `RuntimeHost` 包装当前 active runtime，并暴露：
 
@@ -124,6 +125,19 @@ createRuntime()
 - `enable_mcp`
 - `mcp_config_path`
 - `tools.mcp`
+
+## Resources
+
+`src/core/resource-loader.ts` 当前是轻量资源加载器。
+
+它负责：
+
+- 加载 system prompt；
+- 在 system prompt 缺失时返回默认 system prompt 和 warning diagnostic；
+- 加载 workspace 根目录下的 `AGENTS.md` 作为 project context；
+- 对 note、skills、MCP 已配置但尚未实现 loader 的情况返回 warning diagnostics。
+
+当前 `AGENTS.md` 只作为 `runtime.services.resourceLoader.projectContext` 暴露，还没有注入模型上下文。后续 project context 注入应通过 Resource Loader 和 context budget 统一处理。
 
 ## LLM 层
 
