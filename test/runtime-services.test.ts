@@ -47,6 +47,8 @@ test('createRuntimeServices builds workspace-bound services without creating an 
     assert.equal(services.toolRegistry, null);
     assert.ok(services.resourceLoader);
     assert.equal(services.resourceLoader.projectContext.length, 0);
+    assert.ok(services.contextBuilder);
+    assert.equal(services.contextBuilder.projectContext.length, 0);
     assert.ok(services.sessionManager);
     assert.ok(services.llmClient);
     assert.ok(services.diagnostics.some((diagnostic) => diagnostic.code === 'config_loaded'));

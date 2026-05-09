@@ -62,12 +62,13 @@ test('createRuntime returns unified diagnostics for config, provider, tools, ses
 
     assert.deepEqual(
       new Set(runtime.diagnostics.map((diagnostic) => diagnostic.source)),
-      new Set(['config', 'provider', 'resource', 'tools', 'session']),
+      new Set(['config', 'provider', 'resource', 'context', 'tools', 'session']),
     );
 
     assert.equal(findDiagnostic(runtime.diagnostics, 'config_loaded').level, 'info');
     assert.equal(findDiagnostic(runtime.diagnostics, 'provider_configured').source, 'provider');
     assert.equal(findDiagnostic(runtime.diagnostics, 'system_prompt_missing').level, 'warning');
+    assert.equal(findDiagnostic(runtime.diagnostics, 'context_builder_ready').source, 'context');
     assert.equal(findDiagnostic(runtime.diagnostics, 'custom_tools_loaded').source, 'tools');
     assert.equal(findDiagnostic(runtime.diagnostics, 'session_created').source, 'session');
   } finally {

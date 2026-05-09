@@ -1,4 +1,4 @@
-export type RuntimeDiagnosticSource = 'config' | 'provider' | 'tools' | 'session' | 'resource';
+export type RuntimeDiagnosticSource = 'config' | 'provider' | 'tools' | 'session' | 'resource' | 'context';
 export type RuntimeDiagnosticLevel = 'info' | 'warning' | 'error';
 
 export interface RuntimeDiagnostic {

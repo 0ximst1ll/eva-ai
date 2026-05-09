@@ -109,6 +109,8 @@ Eva AI 的主 agent loop 参考 `pi-mono`，后续应保持同样的自然停止
 - MCP config；
 - reload diagnostics。
 
+Resource loading 只负责发现和读取资源，不负责决定这些资源如何进入模型上下文。`AGENTS.md` / `CLAUDE.md` 等项目上下文应由后续 Context Builder 在每次 LLM call 前构造请求视图时注入，而不是永久写入 session history。
+
 ## 参考 claude-code 的设计
 
 `claude-code` 的价值在于 harness 工程深度。Eva AI 应选择性吸收能提升真实编码体验的机制。
@@ -196,6 +198,50 @@ MCP 不应阻塞首轮提示。
 - 完整历史必须继续保留在 session log 中，只改变发送给模型的上下文视图；
 - 后续再补齐 tool result micro-compaction、大输出持久化和 post-compact resource budgets。
 
+### Context Builder / Context Manager 分工
+
+Eva AI 的上下文治理分两层推进：
+
+- `ContextBuilder`：无状态构造器。每次 LLM call 前，把当前 session messages、system prompt、project context 和 runtime context 组合成发送给 provider 的 request messages。
+- `ContextManager`：有状态管理器。后续负责 token budget、manual/auto compaction、summary、post-compact resource reinjection 和 context diagnostics。
+
+第一阶段只实现 `ContextBuilder`，避免过早引入完整 Claude Code 式 context engine。
+
+`ContextBuilder` 的目标行为：
+
+- 不修改 `SessionManager` 中的真实 session history；
+- 不把 `AGENTS.md` 持久化为普通 user message；
+- 保留当前 system prompt 兼容路径；
+- 在请求模型前临时注入 project context；
+- assistant/tool result 仍写回原始 session messages，而不是写回 request messages；
+- 为后续 budget 和 diagnostics 返回结构化 metadata。
+
+推荐第一版请求视图：
+
+```text
+system: Eva base system prompt
+
+user: <project_context>
+Contents of AGENTS.md:
+...
+</project_context>
+
+user/assistant/tool: durable session history
+```
+
+这借鉴 `claude-code` 的 user context 注入方式，同时保留 `pi-mono` 风格的简洁 agent loop。
+
+`ContextManager` 后续再承接：
+
+- token accounting；
+- project context budget；
+- session summary；
+- manual `/compact`；
+- automatic threshold compaction；
+- prompt-too-long recovery；
+- post-compact project context / skills reinjection；
+- context diagnostics。
+
 ## 阶段规划
 
 ### M0：稳定当前基线
@@ -242,14 +288,20 @@ MCP 不应阻塞首轮提示。
 
 - 对齐 `pi-mono` 的 agent-loop 自然停止语义；
 - 将当前 `max_steps` 从 interactive core loop 的默认硬限制迁出，保留为 print/headless/RPC 可选 guard 的设计方向；
+- 增加 `ContextBuilder` 最小版，构造 LLM request messages；
+- 将 `AGENTS.md` 作为 transient project context 注入请求视图；
+- 确保 project context 不写回 session log；
+- 增加 context diagnostics 最小输出，说明 project context 是否被注入；
 - 持久化 assistant usage，提供 token accounting fallback；
 - 增加 flat JSONL 兼容的 compaction entry；
-- 增加 `buildContextMessages()`，从 session log 构造模型上下文；
+- 将 `ContextBuilder` 演进为可预算的 context rebuild 入口；
 - 支持手动 `/compact`。
 
 验收标准：
 
 - interactive 会话不再把固定 100 steps 当作长任务上限；
+- LLM mock 能观察到 `AGENTS.md` project context；
+- `SessionManager` 中不会持久化 transient project context；
 - compact 后 session 可以继续 resume；
 - 完整历史仍保留在 session log 中；
 - context rebuild 可测试且确定；
@@ -264,6 +316,7 @@ MCP 不应阻塞首轮提示。
 - 引入 `RuntimeServices`。
 - 将 cwd 绑定的 config、resources、tools、sessions、diagnostics 移入 services。
 - 加载 system prompt、项目上下文、skills metadata、MCP config。
+- 将资源加载和上下文构造分离：`ResourceLoader` 只读资源，`ContextBuilder` 决定请求注入。
 - 支持 reload。
 
 验收标准：

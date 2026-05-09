@@ -8,6 +8,7 @@ import { RetryConfig } from '../retry.js';
 import { LLMProvider } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { loadConfiguredTools, type ToolRegistry } from '../tools/index.js';
+import { createContextBuilder, type ContextBuilder } from './context-builder.js';
 import { createResourceLoader, type ResourceLoader } from './resource-loader.js';
 import { SessionManager } from './session-manager.js';
 
@@ -35,6 +36,7 @@ export interface RuntimeServices {
   llmClient: LLMClient;
   retryConfig: RetryConfig;
   resourceLoader: ResourceLoader;
+  contextBuilder: ContextBuilder;
   systemPrompt: string;
   systemPromptPath: string | null;
   tools: Tool[];
@@ -146,6 +148,19 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
 
   const resourceLoader = createResourceLoader({ workspaceDir, config });
   diagnostics.push(...resourceLoader.diagnostics);
+  const contextBuilder = createContextBuilder({
+    projectContext: resourceLoader.projectContext,
+  });
+  diagnostics.push(createDiagnostic({
+    source: 'context',
+    level: 'info',
+    code: 'context_builder_ready',
+    message: `Context builder ready (${resourceLoader.projectContext.length} project context resource(s))`,
+    details: {
+      projectContextCount: resourceLoader.projectContext.length,
+      projectContextNames: resourceLoader.projectContext.map((resource) => resource.name),
+    },
+  }));
 
   let tools: Tool[];
   let toolRegistry: ToolRegistry | null = null;
@@ -189,6 +204,7 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     llmClient,
     retryConfig,
     resourceLoader,
+    contextBuilder,
     systemPrompt: resourceLoader.systemPrompt,
     systemPromptPath: resourceLoader.systemPromptPath,
     tools,

@@ -2,6 +2,7 @@ import type { LLMClient } from '../llm/llm-client.js';
 import type { AgentSessionEvent, Message } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { Agent } from './agent.js';
+import type { ContextBuilder } from './context-builder.js';
 import type {
   AfterToolCallContext,
   AfterToolCallResult,
@@ -26,6 +27,7 @@ export class AgentSession {
     tools,
     maxSteps = 50,
     toolExecution,
+    contextBuilder,
     beforeToolCall,
     afterToolCall,
     sessionManager,
@@ -36,6 +38,7 @@ export class AgentSession {
     tools: Tool[];
     maxSteps?: number;
     toolExecution?: ToolExecutionMode;
+    contextBuilder?: ContextBuilder;
     beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) =>
       BeforeToolCallResult | Promise<BeforeToolCallResult | undefined> | undefined;
     afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) =>
@@ -52,6 +55,7 @@ export class AgentSession {
       tools,
       maxSteps,
       toolExecution,
+      contextBuilder,
       beforeToolCall,
       afterToolCall,
       messages: this.sessionManager.getMessages(sessionId),

@@ -2,6 +2,7 @@ import type { LLMClient } from '../llm/llm-client.js';
 import { RetryExhaustedError } from '../retry.js';
 import type { LLMResponse, Message, ToolCall, ToolExecutionResult } from '../schema.js';
 import type { Tool } from '../tools/base.js';
+import type { ContextBuilder } from './context-builder.js';
 
 export type ToolExecutionMode = 'parallel' | 'sequential';
 
@@ -51,7 +52,9 @@ export interface AgentLoopConfig {
   llmClient: LLMClient;
   tools: Tool[];
   maxSteps: number;
+  systemPrompt?: string;
   messages: Message[];
+  contextBuilder?: ContextBuilder;
   signal?: AbortSignal;
   emit?: AgentLoopEventSink;
   toolExecution?: ToolExecutionMode;
@@ -243,6 +246,12 @@ function abortResult(messages: Message[], finalContent: string, apiTotalTokens: 
   return { messages, finalContent, apiTotalTokens };
 }
 
+function getSystemPromptForContext(config: AgentLoopConfig, messages: Message[]): string {
+  if (config.systemPrompt !== undefined) return config.systemPrompt;
+  const systemMessage = messages.find((message) => message.role === 'system');
+  return systemMessage?.content ?? '';
+}
+
 export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopResult> {
   const runStart = Date.now();
   const messages = [...config.messages];
@@ -285,9 +294,15 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
 
       let response: LLMResponse;
       try {
+        const requestMessages = config.contextBuilder
+          ? config.contextBuilder.build({
+            systemPrompt: getSystemPromptForContext(config, messages),
+            messages,
+          }).messages
+          : messages;
         response = await generateResponseWithStreaming({
           llmClient: config.llmClient,
-          messages,
+          messages: requestMessages,
           tools: config.tools,
           emit: config.emit,
         });

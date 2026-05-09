@@ -1,6 +1,7 @@
 import type { LLMClient } from '../llm/llm-client.js';
 import type { Message } from '../schema.js';
 import type { Tool } from '../tools/base.js';
+import type { ContextBuilder } from './context-builder.js';
 import {
   type AfterToolCallContext,
   type AfterToolCallResult,
@@ -63,6 +64,7 @@ export interface AgentOptions {
   systemPrompt: string;
   tools: Tool[];
   messages?: Message[];
+  contextBuilder?: ContextBuilder;
   maxSteps?: number;
   steeringMode?: QueueMode;
   followUpMode?: QueueMode;
@@ -82,6 +84,7 @@ export class Agent {
   private _state: AgentState;
   private maxSteps: number;
   private toolExecution?: ToolExecutionMode;
+  private contextBuilder?: ContextBuilder;
   private beforeToolCall?: AgentOptions['beforeToolCall'];
   private afterToolCall?: AgentOptions['afterToolCall'];
 
@@ -93,6 +96,7 @@ export class Agent {
     this.steeringQueue = new PendingMessageQueue(options.steeringMode ?? 'one-at-a-time');
     this.followUpQueue = new PendingMessageQueue(options.followUpMode ?? 'one-at-a-time');
     this.toolExecution = options.toolExecution;
+    this.contextBuilder = options.contextBuilder;
     this.beforeToolCall = options.beforeToolCall;
     this.afterToolCall = options.afterToolCall;
     this._state = {
@@ -212,7 +216,9 @@ export class Agent {
       llmClient: this.llmClient,
       tools: this._state.tools,
       maxSteps: this.maxSteps,
+      systemPrompt: this._state.systemPrompt,
       messages: this._state.messages,
+      contextBuilder: this.contextBuilder,
       signal,
       emit: (event) => this.processEvent(event, signal),
       getSteeringMessages: () => this.steeringQueue.drain(),

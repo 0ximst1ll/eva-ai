@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices` 和轻量 `ResourceLoader`。完整 RPC mode、session tree、MCP loader 和 skills system 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader` 和最小 `ContextBuilder`。完整 RPC mode、session tree、MCP loader、skills system 和 ContextManager 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -24,6 +24,7 @@ createRuntime()
   |     |-- Config
   |     |-- LLMClient
   |     |-- ResourceLoader
+  |     |-- ContextBuilder
   |     |-- loadConfiguredTools() -> ToolRegistry -> Tool[]
   |     `-- SessionManager
   `-- AgentSession
@@ -33,6 +34,7 @@ createRuntime()
         |
         v
       runAgentLoop()
+        |-- ContextBuilder.build()
         |-- LLMClient.generateStream()
         `-- Tool.execute()
 ```
@@ -68,6 +70,7 @@ createRuntime()
 - 校验 provider 是否为 `anthropic`、`openai` 或 `google`；
 - 创建 retry 配置，并接入 provider diagnostic；
 - 通过 `createResourceLoader()` 加载 system prompt 和项目上下文资源；
+- 通过 `createContextBuilder()` 创建 LLM request messages 构造器；
 - 通过 `loadConfiguredTools()` 加载内置工具；
 - 创建 `SessionManager`，默认使用 `jsonl` 模式；
 - 返回统一 diagnostics。
@@ -80,17 +83,17 @@ createRuntime()
 
 当前 runtime diagnostics 使用统一结构：
 
-- `source`：`config`、`provider`、`tools`、`session`、`resource`。
+- `source`：`config`、`provider`、`tools`、`session`、`resource`、`context`。
 - `level`：`info`、`warning`、`error`。
 - `code`：稳定机器可读标识。
 - `message`：面向 CLI 的简短说明。
 - `details`：可选结构化上下文。
 
-`createRuntimeServices()` 负责收集 config/provider/resource/session-manager diagnostics；`createRuntime()` 追加当前 session 选择/创建 diagnostics；`loadConfiguredTools()` 返回 tools diagnostics；mode 层通过 `renderRuntimeDiagnostics()` 只负责展示。
+`createRuntimeServices()` 负责收集 config/provider/resource/context/session-manager diagnostics；`createRuntime()` 追加当前 session 选择/创建 diagnostics；`loadConfiguredTools()` 返回 tools diagnostics；mode 层通过 `renderRuntimeDiagnostics()` 只负责展示。
 
 启动时 diagnostics 默认只展示 warning/error 和少量关键 info，避免普通 info 淹没终端。完整 diagnostics 可通过 interactive mode 的 `/diagnostics` 查看。
 
-当前 resource diagnostics 会报告 system prompt 加载状态、`AGENTS.md` 项目上下文加载状态，以及 note、skills、MCP 已配置但尚未接入 loader 的情况。
+当前 resource diagnostics 会报告 system prompt 加载状态、`AGENTS.md` 项目上下文加载状态，以及 note、skills、MCP 已配置但尚未接入 loader 的情况。context diagnostics 会报告 ContextBuilder 的基础装配状态。
 
 `RuntimeHost` 包装当前 active runtime，并暴露：
 
@@ -137,7 +140,33 @@ createRuntime()
 - 加载 workspace 根目录下的 `AGENTS.md` 作为 project context；
 - 对 note、skills、MCP 已配置但尚未实现 loader 的情况返回 warning diagnostics。
 
-当前 `AGENTS.md` 只作为 `runtime.services.resourceLoader.projectContext` 暴露，还没有注入模型上下文。后续 project context 注入应通过 Resource Loader 和 context budget 统一处理。
+当前 `AGENTS.md` 作为 `runtime.services.resourceLoader.projectContext` 暴露，并由 `ContextBuilder` 在每次 LLM call 前临时注入 request messages。它不会写回 `SessionManager` 的 durable session history。
+
+## Context Builder
+
+`src/core/context-builder.ts` 当前是无状态 request messages 构造器。
+
+它负责：
+
+- 接收 system prompt、durable session messages 和 project context；
+- 在第一条 system message 后插入 transient project context user message；
+- 在没有 system message 时使用当前 system prompt 补一条 system message；
+- 返回用于本次 LLM call 的 request messages；
+- 返回 context diagnostics metadata。
+
+当前注入格式：
+
+```text
+<project_context>
+
+Contents of AGENTS.md:
+
+...
+
+</project_context>
+```
+
+`ContextBuilder` 不负责 token budget、compaction、summary 或 post-compact reinjection。这些仍属于后续 ContextManager 范围。
 
 ## LLM 层
 
@@ -166,7 +195,8 @@ createRuntime()
 主要职责：
 
 - 发射 `agent_start`、`turn_start`、`message_start`、`assistant_message`、`tool_result`、`agent_end` 等生命周期事件；
-- 调用 `llmClient.generateStream(messages, tools)`；
+- 通过 `ContextBuilder` 从 durable messages 构造本次 LLM request messages；
+- 调用 `llmClient.generateStream(requestMessages, tools)`；
 - 将 assistant message 追加到工作消息列表；
 - 执行 LLM 返回的 tool calls；
 - 追加 tool result messages；

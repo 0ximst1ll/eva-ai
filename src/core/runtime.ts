@@ -113,6 +113,7 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
     tools,
     toolRegistry,
     sessionManager,
+    contextBuilder,
   } = services;
 
   let sessionId: string;
@@ -176,6 +177,7 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
     systemPrompt,
     tools,
     maxSteps: config.agent.maxSteps,
+    contextBuilder,
     beforeToolCall: createToolGovernanceHook(config, options),
     sessionManager,
     sessionId,

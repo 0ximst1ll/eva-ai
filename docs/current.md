@@ -4,7 +4,7 @@
 
 Eva AI 当前处于 M0：稳定当前基线阶段。
 
-当前目标是先确认 runtime/session/mode 的核心路径可靠，再继续推进 resource loader、RPC、session tree、MCP、skills 等更大的系统能力。
+当前目标是先确认 runtime/session/mode 的核心路径可靠，再继续推进 resource loader、ContextBuilder、RPC、session tree、MCP、skills 等更大的系统能力。
 
 ## 已完成
 
@@ -43,27 +43,34 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 - `createRuntime()` 已改为基于 `RuntimeServices` 创建当前 `AgentSession`。
 - 已新增轻量 `ResourceLoader`，承载 system prompt 和 `AGENTS.md` 项目上下文加载。
 - `RuntimeServices` 已暴露 `resourceLoader`。
+- 已新增最小 `ContextBuilder`，在 LLM call 前构造 request messages。
+- `AGENTS.md` 已作为 transient project context 注入模型请求，不写回 session history。
+- `RuntimeServices` 已暴露 `contextBuilder`，并增加 context diagnostics。
 - 已增加 runtime diagnostics 回归测试。
 - 已增加 diagnostics 渲染和 `/diagnostics` 命令测试。
 - 已增加 `RuntimeServices` 回归测试。
 - 已增加 `ResourceLoader` 回归测试。
+- 已增加 `ContextBuilder`、agent-loop transient context 和 AgentSession 持久化边界回归测试。
 
 ## 进行中
 
 - 推进 M2 `RuntimeServices` 与 Resource Loader。
+- ContextBuilder 最小闭环已完成，继续评估 context diagnostics 展示、budget 和 reload 的优先级。
 
 ## 下一步
 
-优先处理 M2：
+优先处理 ContextBuilder 后续收敛：
 
-- 提交轻量 `ResourceLoader` 改动。
-- 下一步决定是否将 `AGENTS.md` 注入模型上下文，或先实现 resource reload。
+- 决定是否先做 context diagnostics 展示，或先做 project context budget。
+- 后续再补 manual `/compact` 和 ContextManager。
 
 ## 后续重点计划
 
 - 长任务上下文治理已拆成 `docs/planning.md` 中的 M1.x。
 - M1.x 不一定紧接当前 P1 执行，但进入明确路线图。
 - M1.x 的方向是对齐 `pi-mono` 的 agent-loop 自然停止语义，不再把固定 `max_steps` 作为 interactive 长任务硬上限。
+- ContextBuilder 是 M1.x 的前置最小闭环，用来把资源加载和模型请求上下文构造分开。
+- ContextManager 后续负责 token budget、summary、manual/auto compaction、prompt-too-long recovery 和 post-compact reinjection。
 - 当前 `max_steps` 后续应迁移为 print/headless/RPC 场景下的可选 runaway guard。
 - 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 建立最小闭环。
 - 完整 auto-compaction、prompt-too-long recovery、tool result micro-compaction 和 post-compact resource budgets 放入后续 Context Management 增强。
@@ -71,8 +78,8 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 ## 已知问题
 
 - `logger.ts` 仍是占位文件。
-- `ResourceLoader` 仍是最小骨架，尚未支持 reload、预算控制或 prompt 注入。
-- `AGENTS.md` 已加载为 project context，但尚未注入模型上下文。
+- `ResourceLoader` 仍是最小骨架，尚未支持 reload 或预算控制。
+- `ContextBuilder` 仍是最小骨架，尚未支持 context budget、summary、compaction reinjection 或 provider token estimation。
 - note、skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
 - interactive mode 尚未实现 `/fork`、`/compact`。
 - 当前 `max_steps` 仍作为 agent loop 硬停止条件存在，尚未对齐 `pi-mono` 的自然停止语义。
