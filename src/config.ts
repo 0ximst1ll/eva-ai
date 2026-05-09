@@ -31,7 +31,6 @@ export interface MCPConfigData {
 export interface ToolsConfigData {
   enableFileTools: boolean;
   enableBash: boolean;
-  enableNote: boolean;
   enableSkills: boolean;
   skillsDir: string;
   enableMcp: boolean;
@@ -48,6 +47,7 @@ export interface AgentConfigData {
   maxSteps: number;
   workspaceDir: string;
   systemPromptPath: string;
+  projectContextMaxChars: number;
 }
 
 export interface ConfigData {
@@ -65,6 +65,7 @@ interface RawYaml {
   max_steps?: number;
   workspace_dir?: string;
   system_prompt_path?: string;
+  project_context_max_chars?: number;
   retry?: {
     enabled?: boolean;
     max_retries?: number;
@@ -75,7 +76,6 @@ interface RawYaml {
   tools?: {
     enable_file_tools?: boolean;
     enable_bash?: boolean;
-    enable_note?: boolean;
     enable_skills?: boolean;
     skills_dir?: string;
     enable_mcp?: boolean;
@@ -155,11 +155,11 @@ export class Config {
         maxSteps: raw.max_steps ?? 50,
         workspaceDir: raw.workspace_dir ?? './workspace',
         systemPromptPath: raw.system_prompt_path ?? 'system_prompt.md',
+        projectContextMaxChars: raw.project_context_max_chars ?? 20000,
       },
       tools: {
         enableFileTools: tools.enable_file_tools ?? true,
         enableBash: tools.enable_bash ?? true,
-        enableNote: tools.enable_note ?? true,
         enableSkills: tools.enable_skills ?? true,
         skillsDir: tools.skills_dir ?? './skills',
         enableMcp: tools.enable_mcp ?? true,

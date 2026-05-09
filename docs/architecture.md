@@ -93,7 +93,7 @@ createRuntime()
 
 启动时 diagnostics 默认只展示 warning/error 和少量关键 info，避免普通 info 淹没终端。完整 diagnostics 可通过 interactive mode 的 `/diagnostics` 查看。
 
-当前 resource diagnostics 会报告 system prompt 加载状态、`AGENTS.md` 项目上下文加载状态，以及 note、skills、MCP 已配置但尚未接入 loader 的情况。context diagnostics 会报告 ContextBuilder 的基础装配状态。
+当前 resource diagnostics 会报告 system prompt 加载状态、`AGENTS.md` 项目上下文加载状态，以及 skills、MCP 已配置但尚未接入 loader 的情况。context diagnostics 会报告 ContextBuilder 的基础装配状态。
 
 `RuntimeHost` 包装当前 active runtime，并暴露：
 
@@ -117,12 +117,11 @@ createRuntime()
 当前重要字段：
 
 - LLM：`api_key`、`api_base`、`model`、`provider`、`retry`。
-- Agent：`max_steps`、`workspace_dir`、`system_prompt_path`。
+- Agent：`max_steps`、`workspace_dir`、`system_prompt_path`、`project_context_max_chars`。
 - Tools：`enable_file_tools`、`enable_bash`、`enabled_tools`、`disabled_tools`、`disabled_categories`、`require_confirmation`、`confirm_risk_levels`。
 
 已解析但尚未接入 loader 的预留字段：
 
-- `enable_note`
 - `enable_skills`
 - `skills_dir`
 - `enable_mcp`
@@ -138,7 +137,7 @@ createRuntime()
 - 加载 system prompt；
 - 在 system prompt 缺失时返回默认 system prompt 和 warning diagnostic；
 - 加载 workspace 根目录下的 `AGENTS.md` 作为 project context；
-- 对 note、skills、MCP 已配置但尚未实现 loader 的情况返回 warning diagnostics。
+- 对 skills、MCP 已配置但尚未实现 loader 的情况返回 warning diagnostics。
 
 当前 `AGENTS.md` 作为 `runtime.services.resourceLoader.projectContext` 暴露，并由 `ContextBuilder` 在每次 LLM call 前临时注入 request messages。它不会写回 `SessionManager` 的 durable session history。
 
@@ -151,8 +150,12 @@ createRuntime()
 - 接收 system prompt、durable session messages 和 project context；
 - 在第一条 system message 后插入 transient project context user message；
 - 在没有 system message 时使用当前 system prompt 补一条 system message；
+- 按 `project_context_max_chars` 控制 project context 注入字符数，默认 20000；
+- 超预算时截断 project context，并保留截断说明和 closing tag；
+- 如果预算小到无法容纳 project context framing，则跳过注入并记录原因；
 - 返回用于本次 LLM call 的 request messages；
-- 返回 context diagnostics metadata。
+- 返回 context diagnostics metadata；
+- 记录最近一次 context build 摘要。
 
 当前注入格式：
 
@@ -166,7 +169,12 @@ Contents of AGENTS.md:
 </project_context>
 ```
 
-`ContextBuilder` 不负责 token budget、compaction、summary 或 post-compact reinjection。这些仍属于后续 ContextManager 范围。
+`ContextBuilder` 只负责 project context 字符预算，不负责完整 token budget、compaction、summary 或 post-compact reinjection。这些仍属于后续 ContextManager 范围。
+
+interactive mode 当前会展示 ContextBuilder 状态：
+
+- `/stats`：显示 project context 数量和最近一次 context build 状态；
+- `/diagnostics`：显示 project context 资源名称、路径、字符数和最近一次 build 状态。
 
 ## LLM 层
 

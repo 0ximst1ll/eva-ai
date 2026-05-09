@@ -213,6 +213,7 @@ Eva AI 的上下文治理分两层推进：
 - 不把 `AGENTS.md` 持久化为普通 user message；
 - 保留当前 system prompt 兼容路径；
 - 在请求模型前临时注入 project context；
+- 对 project context 应用轻量字符预算，避免 `AGENTS.md` 无限制膨胀请求；
 - assistant/tool result 仍写回原始 session messages，而不是写回 request messages；
 - 为后续 budget 和 diagnostics 返回结构化 metadata。
 
@@ -292,6 +293,7 @@ user/assistant/tool: durable session history
 - 将 `AGENTS.md` 作为 transient project context 注入请求视图；
 - 确保 project context 不写回 session log；
 - 增加 context diagnostics 最小输出，说明 project context 是否被注入；
+- 增加 project context 字符预算；
 - 持久化 assistant usage，提供 token accounting fallback；
 - 增加 flat JSONL 兼容的 compaction entry；
 - 将 `ContextBuilder` 演进为可预算的 context rebuild 入口；

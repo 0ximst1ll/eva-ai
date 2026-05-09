@@ -18,7 +18,6 @@ async function writeConfig(dir: string): Promise<string> {
       'tools:',
       '  enable_file_tools: false',
       '  enable_bash: false',
-      '  enable_note: false',
       '  enable_skills: false',
       '  enable_mcp: false',
       '  require_confirmation: false',
@@ -49,6 +48,7 @@ test('createRuntimeServices builds workspace-bound services without creating an 
     assert.equal(services.resourceLoader.projectContext.length, 0);
     assert.ok(services.contextBuilder);
     assert.equal(services.contextBuilder.projectContext.length, 0);
+    assert.equal(services.contextBuilder.projectContextMaxChars, 20000);
     assert.ok(services.sessionManager);
     assert.ok(services.llmClient);
     assert.ok(services.diagnostics.some((diagnostic) => diagnostic.code === 'config_loaded'));

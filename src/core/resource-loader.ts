@@ -103,16 +103,6 @@ function loadProjectContext(workspaceDir: string): {
 function collectUnimplementedResourceDiagnostics(config: ConfigData): RuntimeDiagnostic[] {
   const diagnostics: RuntimeDiagnostic[] = [];
 
-  if (config.tools.enableNote) {
-    diagnostics.push(createDiagnostic({
-      source: 'resource',
-      level: 'warning',
-      code: 'note_resource_not_loaded',
-      message: 'Note resource is configured but not loaded yet',
-      details: { enableNote: config.tools.enableNote },
-    }));
-  }
-
   if (config.tools.enableSkills) {
     diagnostics.push(createDiagnostic({
       source: 'resource',

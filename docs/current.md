@@ -28,7 +28,7 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 - 已增加 agent-loop tool-call continuation 测试。
 - 已增加 `RuntimeHost` new/resume/switch 测试。
 - 已增加 abort 与 steering/follow-up queue 测试。
-- 已修正 `config/system_prompt.md`，避免声明 MCP、skills、note、RPC 等尚未实现能力。
+- 已修正 `config/system_prompt.md`，避免声明 MCP、skills、RPC 等尚未实现能力。
 - interactive mode 已实现 `/new`，通过 `RuntimeHost.newSession()` 创建新会话并显示新旧 session id。
 - interactive mode 已实现 `/resume` 和 `/resume <id>`，通过 `RuntimeHost` 恢复 latest session 或切换到指定 session。
 - interactive mode 已改进 `/history`，显示当前 session id 和 message count。
@@ -46,6 +46,11 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 - 已新增最小 `ContextBuilder`，在 LLM call 前构造 request messages。
 - `AGENTS.md` 已作为 transient project context 注入模型请求，不写回 session history。
 - `RuntimeServices` 已暴露 `contextBuilder`，并增加 context diagnostics。
+- `ContextBuilder` 已记录最近一次 context build 摘要。
+- `ContextBuilder` 已支持 `project_context_max_chars` 字符预算，默认 20000。
+- 超出预算的 project context 会被截断；预算过小时会跳过注入并记录原因。
+- interactive mode 的 `/stats` 和 `/diagnostics` 已展示 project context 数量、来源和最近一次 build 状态。
+- note tool 相关配置字段、resource warning 和 tool category 已移除。
 - 已增加 runtime diagnostics 回归测试。
 - 已增加 diagnostics 渲染和 `/diagnostics` 命令测试。
 - 已增加 `RuntimeServices` 回归测试。
@@ -55,13 +60,13 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 ## 进行中
 
 - 推进 M2 `RuntimeServices` 与 Resource Loader。
-- ContextBuilder 最小闭环已完成，继续评估 context diagnostics 展示、budget 和 reload 的优先级。
+- ContextBuilder 最小闭环、diagnostics 展示和 project context budget 已完成，继续评估 resource reload 的优先级。
 
 ## 下一步
 
 优先处理 ContextBuilder 后续收敛：
 
-- 决定是否先做 context diagnostics 展示，或先做 project context budget。
+- 评估是否先做 resource reload，或进入 manual `/compact` 和 ContextManager。
 - 后续再补 manual `/compact` 和 ContextManager。
 
 ## 后续重点计划
@@ -79,8 +84,8 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 
 - `logger.ts` 仍是占位文件。
 - `ResourceLoader` 仍是最小骨架，尚未支持 reload 或预算控制。
-- `ContextBuilder` 仍是最小骨架，尚未支持 context budget、summary、compaction reinjection 或 provider token estimation。
-- note、skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
+- `ContextBuilder` 仍是最小骨架，尚未支持完整 token budget、summary、compaction reinjection 或 provider token estimation。
+- skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
 - interactive mode 尚未实现 `/fork`、`/compact`。
 - 当前 `max_steps` 仍作为 agent loop 硬停止条件存在，尚未对齐 `pi-mono` 的自然停止语义。
 - RPC mode 尚不存在。

@@ -150,6 +150,7 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
   diagnostics.push(...resourceLoader.diagnostics);
   const contextBuilder = createContextBuilder({
     projectContext: resourceLoader.projectContext,
+    projectContextMaxChars: config.agent.projectContextMaxChars,
   });
   diagnostics.push(createDiagnostic({
     source: 'context',
@@ -158,7 +159,12 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     message: `Context builder ready (${resourceLoader.projectContext.length} project context resource(s))`,
     details: {
       projectContextCount: resourceLoader.projectContext.length,
-      projectContextNames: resourceLoader.projectContext.map((resource) => resource.name),
+      projectContextResources: resourceLoader.projectContext.map((resource) => ({
+        name: resource.name,
+        path: resource.path,
+        contentLength: resource.content.length,
+      })),
+      projectContextMaxChars: config.agent.projectContextMaxChars,
     },
   }));
 

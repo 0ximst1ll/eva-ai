@@ -37,6 +37,7 @@ retry:
 max_steps: 100  # Maximum execution steps
 workspace_dir: "./workspace"  # Working directory
 system_prompt_path: "system_prompt.md"  # System prompt file (same config directory)
+project_context_max_chars: 20000  # Maximum project context characters injected into each LLM request
 
 # ===== Tools Configuration =====
 tools:
@@ -49,14 +50,12 @@ tools:
   enabled_tools: []
   # disabled_tools removes specific tools after loading, e.g. ['bash', 'write_file'].
   disabled_tools: []
-  # disabled_categories removes tool categories after loading: read, write, bash, mcp, skill, note.
+  # disabled_categories removes tool categories after loading: read, write, bash, mcp, skill.
   disabled_categories: []
   # If true, tools with requiresConfirmation=true or matching confirm_risk_levels ask before execution.
   require_confirmation: true
   confirm_risk_levels: ['high']
 
-  enable_note: true        # Session note tool (SessionNoteTool)
-  
   # Claude Skills
   enable_skills: true      # Enable Skills
   skills_dir: "./skills"   # Skills directory path

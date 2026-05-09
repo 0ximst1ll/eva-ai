@@ -9,11 +9,9 @@ import type { RuntimeDiagnostic } from '../src/diagnostics.js';
 async function writeConfig(
   dir: string,
   {
-    enableNote = false,
     enableSkills = false,
     enableMcp = false,
   }: {
-    enableNote?: boolean;
     enableSkills?: boolean;
     enableMcp?: boolean;
   } = {},
@@ -31,7 +29,6 @@ async function writeConfig(
       'tools:',
       '  enable_file_tools: false',
       '  enable_bash: false',
-      `  enable_note: ${enableNote}`,
       `  enable_skills: ${enableSkills}`,
       `  enable_mcp: ${enableMcp}`,
       '  require_confirmation: false',
@@ -76,12 +73,11 @@ test('createRuntime returns unified diagnostics for config, provider, tools, ses
   }
 });
 
-test('createRuntime reports configured resources that are not loaded yet', async () => {
+test('createRuntime reports configured extension resources that are not loaded yet', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-diagnostics-'));
 
   try {
     const configPath = await writeConfig(tempDir, {
-      enableNote: true,
       enableSkills: true,
       enableMcp: true,
     });
@@ -93,7 +89,6 @@ test('createRuntime reports configured resources that are not loaded yet', async
       tools: [],
     });
 
-    assert.equal(findDiagnostic(runtime.diagnostics, 'note_resource_not_loaded').source, 'resource');
     assert.equal(findDiagnostic(runtime.diagnostics, 'skills_resource_not_loaded').level, 'warning');
     assert.equal(findDiagnostic(runtime.diagnostics, 'mcp_resource_not_loaded').type, 'warning');
   } finally {

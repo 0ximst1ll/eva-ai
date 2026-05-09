@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createContextBuilder } from '../src/core/context-builder.js';
 import { RuntimeSessionNotFoundError } from '../src/core/runtime.js';
 import type { RuntimeHost } from '../src/core/runtime-host.js';
 import { handleInteractiveCommand } from '../src/modes/interactive-mode.js';
@@ -135,6 +136,15 @@ test('/history prints current session id and message count', async () => {
 
 test('/stats prints session and runtime details', async () => {
   const output: string[] = [];
+  const contextBuilder = createContextBuilder({
+    projectContext: [{
+      type: 'project_context',
+      name: 'AGENTS.md',
+      path: '/workspace/AGENTS.md',
+      content: '# Project Instructions\n',
+    }],
+    projectContextMaxChars: 20000,
+  });
   const host = {
     get sessionId() {
       return 'session-stats';
@@ -157,6 +167,9 @@ test('/stats prints session and runtime details', async () => {
           },
         },
         tools: [{ name: 'read_file' }, { name: 'bash' }],
+        services: {
+          contextBuilder,
+        },
       };
     },
   } as unknown as RuntimeHost;
@@ -175,6 +188,8 @@ test('/stats prints session and runtime details', async () => {
   assert.match(text, /Provider:.*anthropic/);
   assert.match(text, /Model:.*MiniMax-M2\.5/);
   assert.match(text, /Tools:.*2/);
+  assert.match(text, /Project context:.*1/);
+  assert.match(text, /Context build:.*not built yet/);
 });
 
 test('/sessions prints workspace session list and marks the current session', async () => {
@@ -246,6 +261,19 @@ test('/sessions reports when the workspace has no sessions', async () => {
 
 test('/diagnostics prints full runtime diagnostics', async () => {
   const output: string[] = [];
+  const contextBuilder = createContextBuilder({
+    projectContext: [{
+      type: 'project_context',
+      name: 'AGENTS.md',
+      path: '/workspace/AGENTS.md',
+      content: '# Project Instructions\n',
+    }],
+    projectContextMaxChars: 20000,
+  });
+  contextBuilder.build({
+    systemPrompt: 'system',
+    messages: [{ role: 'system', content: 'system' }],
+  });
   const host = {
     get runtime() {
       return {
@@ -265,6 +293,9 @@ test('/diagnostics prints full runtime diagnostics', async () => {
             message: 'System prompt not found',
           },
         ],
+        services: {
+          contextBuilder,
+        },
       };
     },
   } as unknown as RuntimeHost;
@@ -280,6 +311,10 @@ test('/diagnostics prints full runtime diagnostics', async () => {
   assert.match(text, /Runtime diagnostics:/);
   assert.match(text, /\[info\] config:config_loaded Loaded config/);
   assert.match(text, /\[warning\] resource:system_prompt_missing System prompt not found/);
+  assert.match(text, /Context:/);
+  assert.match(text, /AGENTS\.md path=\/workspace\/AGENTS\.md chars=23/);
+  assert.match(text, /Budget: 20000 chars/);
+  assert.match(text, /Last build: injected 1 resource\(s\).*chars=85\/20000/);
 });
 
 test('non-slash input is not handled as an interactive command', async () => {

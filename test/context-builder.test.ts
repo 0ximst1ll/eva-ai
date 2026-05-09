@@ -32,6 +32,8 @@ test('ContextBuilder injects project context after the system message', () => {
   assert.deepEqual(result.messages[2], durableMessages[1]);
   assert.deepEqual(durableMessages.map((message) => message.content), ['system', 'hello']);
   assert.equal(result.diagnostics[0]?.code, 'project_context_injected');
+  assert.equal(result.summary.injected, true);
+  assert.deepEqual(builder.latestBuild, result.summary);
 });
 
 test('ContextBuilder returns a shallow message copy when project context is empty', () => {
@@ -49,4 +51,45 @@ test('ContextBuilder returns a shallow message copy when project context is empt
   assert.notEqual(result.messages, durableMessages);
   assert.deepEqual(result.messages, durableMessages);
   assert.equal(result.diagnostics[0]?.code, 'project_context_empty');
+  assert.equal(result.summary.injected, false);
+  assert.deepEqual(builder.latestBuild, result.summary);
+});
+
+test('ContextBuilder truncates project context to the configured budget', () => {
+  const builder = createContextBuilder({
+    projectContext: [{
+      ...agentsResource,
+      content: 'A'.repeat(200),
+    }],
+    projectContextMaxChars: 120,
+  });
+
+  const result = builder.build({
+    systemPrompt: 'system',
+    messages: [{ role: 'system', content: 'system' }],
+  });
+
+  assert.equal(result.summary.injected, true);
+  assert.equal(result.summary.projectContextTruncated, true);
+  assert.equal(result.summary.projectContextMaxChars, 120);
+  assert.equal(result.messages[1]?.content.length, 120);
+  assert.match(result.messages[1]?.content ?? '', /Project context truncated to fit budget/);
+  assert.equal(result.diagnostics[0]?.code, 'project_context_truncated');
+});
+
+test('ContextBuilder skips project context when the budget cannot fit framing', () => {
+  const builder = createContextBuilder({
+    projectContext: [agentsResource],
+    projectContextMaxChars: 10,
+  });
+
+  const result = builder.build({
+    systemPrompt: 'system',
+    messages: [{ role: 'system', content: 'system' }],
+  });
+
+  assert.equal(result.summary.injected, false);
+  assert.equal(result.summary.projectContextSkippedReason, 'budget_exhausted');
+  assert.deepEqual(result.messages.map((message) => message.content), ['system']);
+  assert.equal(result.diagnostics[0]?.code, 'project_context_skipped_budget');
 });

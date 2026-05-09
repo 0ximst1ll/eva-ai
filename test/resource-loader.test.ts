@@ -25,11 +25,11 @@ function createConfig(systemPromptPath = 'system_prompt.md'): ConfigData {
       maxSteps: 3,
       workspaceDir: '.',
       systemPromptPath,
+      projectContextMaxChars: 20000,
     },
     tools: {
       enableFileTools: false,
       enableBash: false,
-      enableNote: false,
       enableSkills: false,
       skillsDir: './skills',
       enableMcp: false,

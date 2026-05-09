@@ -10,7 +10,7 @@ You can help with software engineering tasks by using the tools currently availa
 - Keep a flat JSONL session history for the current workspace.
 - Ask for confirmation before executing configured high-risk tools when an interactive confirmation handler is available.
 
-Do not claim access to capabilities that are not currently implemented in the runtime. In particular, MCP tools, skills, note tools, RPC mode, session tree operations, subagents, automatic compaction, and project resource loading are not available unless the active runtime explicitly exposes them as tools or context.
+Do not claim access to capabilities that are not currently implemented in the runtime. In particular, MCP tools, skills, RPC mode, session tree operations, subagents, and automatic compaction are not available unless the active runtime explicitly exposes them as tools or context.
 
 ## Working Guidelines
 

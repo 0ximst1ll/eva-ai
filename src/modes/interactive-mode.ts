@@ -1,5 +1,6 @@
 import * as readline from 'node:readline';
 import { RuntimeSessionNotFoundError, type ToolConfirmationRequest } from '../core/runtime.js';
+import type { ContextBuilder } from '../core/context-builder.js';
 import type { RuntimeHost } from '../core/runtime-host.js';
 import { Colors } from '../utils/terminal.js';
 import { createCliRenderer, createToolConfirmationPrompt, formatRuntimeDiagnostic } from './cli-ui.js';
@@ -10,6 +11,41 @@ export interface InteractiveModeOptions {
 }
 
 export type InteractiveCommandResult = 'not_command' | 'continue' | 'exit';
+
+function getContextBuilder(host: RuntimeHost): ContextBuilder | undefined {
+  return host.runtime.services?.contextBuilder;
+}
+
+function formatContextBuildStatus(contextBuilder: ContextBuilder): string {
+  const latestBuild = contextBuilder.latestBuild;
+  if (!latestBuild) return 'not built yet';
+  if (!latestBuild.injected) {
+    const reason = latestBuild.projectContextSkippedReason
+      ? `, reason=${latestBuild.projectContextSkippedReason}`
+      : '';
+    return `not injected${reason}, request messages=${latestBuild.requestMessageCount}, budget=${latestBuild.projectContextMaxChars}`;
+  }
+  const status = [
+    `injected ${latestBuild.projectContextCount} resource(s)`,
+    `request messages=${latestBuild.requestMessageCount}`,
+    `chars=${latestBuild.projectContextContentLength}/${latestBuild.projectContextMaxChars}`,
+  ];
+  if (latestBuild.projectContextTruncated) status.push('truncated');
+  return status.join(', ');
+}
+
+function writeContextDiagnostics(
+  contextBuilder: ContextBuilder,
+  writeLine: (message?: string) => void,
+): void {
+  writeLine(`${Colors.BRIGHT_CYAN}Context:${Colors.RESET}`);
+  writeLine(`  Project context resources: ${contextBuilder.projectContext.length}`);
+  for (const resource of contextBuilder.projectContext) {
+    writeLine(`  - ${resource.name} path=${resource.path} chars=${resource.content.length}`);
+  }
+  writeLine(`  Budget: ${contextBuilder.projectContextMaxChars} chars`);
+  writeLine(`  Last build: ${formatContextBuildStatus(contextBuilder)}`);
+}
 
 export async function handleInteractiveCommand({
   userInput,
@@ -78,7 +114,13 @@ export async function handleInteractiveCommand({
     writeLine(`${Colors.BRIGHT_CYAN}API total tokens:${Colors.RESET} ${host.session.apiTotalTokens}`);
     writeLine(`${Colors.BRIGHT_CYAN}Provider:${Colors.RESET} ${host.runtime.config.llm.provider}`);
     writeLine(`${Colors.BRIGHT_CYAN}Model:${Colors.RESET} ${host.runtime.config.llm.model}`);
-    writeLine(`${Colors.BRIGHT_CYAN}Tools:${Colors.RESET} ${host.runtime.tools.length}\n`);
+    writeLine(`${Colors.BRIGHT_CYAN}Tools:${Colors.RESET} ${host.runtime.tools.length}`);
+    const contextBuilder = getContextBuilder(host);
+    if (contextBuilder) {
+      writeLine(`${Colors.BRIGHT_CYAN}Project context:${Colors.RESET} ${contextBuilder.projectContext.length}`);
+      writeLine(`${Colors.BRIGHT_CYAN}Context build:${Colors.RESET} ${formatContextBuildStatus(contextBuilder)}`);
+    }
+    writeLine();
     return 'continue';
   }
 
@@ -97,6 +139,11 @@ export async function handleInteractiveCommand({
             ? Colors.YELLOW
             : Colors.DIM;
       writeLine(`${color}${formatRuntimeDiagnostic(diagnostic)}${Colors.RESET}`);
+    }
+    const contextBuilder = getContextBuilder(host);
+    if (contextBuilder) {
+      writeLine();
+      writeContextDiagnostics(contextBuilder, writeLine);
     }
     writeLine();
     return 'continue';

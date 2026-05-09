@@ -12,7 +12,7 @@ export interface ToolResult {
 // JSON Schema object type (what the LLM sees for parameters)
 export type JsonSchema = Record<string, unknown>;
 
-export type ToolCategory = 'read' | 'write' | 'bash' | 'mcp' | 'skill' | 'note';
+export type ToolCategory = 'read' | 'write' | 'bash' | 'mcp' | 'skill';
 export type ToolRiskLevel = 'low' | 'medium' | 'high';
 export type ToolSource = 'builtin' | 'mcp' | 'skill';
 
