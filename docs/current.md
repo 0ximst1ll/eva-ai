@@ -4,7 +4,7 @@
 
 Eva AI 当前处于 M0：稳定当前基线阶段。
 
-当前目标是先确认 runtime/session/mode 的核心路径可靠，再继续推进 `RuntimeServices`、resource loader、RPC、session tree、MCP、skills 等更大的系统能力。
+当前目标是先确认 runtime/session/mode 的核心路径可靠，再继续推进 resource loader、RPC、session tree、MCP、skills 等更大的系统能力。
 
 ## 已完成
 
@@ -17,7 +17,7 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
   - `AgentSession`
   - `Agent`
   - `runAgentLoop()`
-- 已明确当前未实现范围，避免把 MCP、skills、RPC、session tree、`RuntimeServices` 等路线图能力误写成已实现能力。
+- 已明确当前未实现范围，避免把 MCP、skills、RPC、session tree 等路线图能力误写成已实现能力。
 - 已新增 `docs/planning.md`，记录 Eva AI 的项目目标和参考策略。
 - 当前 interactive 和 print modes 已共享 `RuntimeHost` 与同一套 runtime/session 路径。
 - 当前已有 JSONL session persistence、builtin file/search/bash tools、tool registry、高风险工具 confirmation hook、abort 和 queue 基础能力。
@@ -37,17 +37,24 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 - runtime diagnostics 已统一为 `source`、`level`、`code`、`message`、`details` 结构。
 - `createRuntime()` 已收集 config、provider、resource、session diagnostics。
 - `loadConfiguredTools()` 已返回统一 tools diagnostics。
+- 启动 diagnostics 默认过滤普通 `info`，保留 warning/error 和关键 info。
+- interactive mode 已实现 `/diagnostics`，用于查看完整 runtime diagnostics。
+- 已新增 `RuntimeServices`，承载 workspace 绑定的 config、provider、tools、session manager 和 diagnostics。
+- `createRuntime()` 已改为基于 `RuntimeServices` 创建当前 `AgentSession`。
 - 已增加 runtime diagnostics 回归测试。
+- 已增加 diagnostics 渲染和 `/diagnostics` 命令测试。
+- 已增加 `RuntimeServices` 回归测试。
 
 ## 进行中
 
-- 收尾 P1 会话命令与 diagnostics。
+- 推进 M2 `RuntimeServices` 与 Resource Loader。
 
 ## 下一步
 
-优先处理 P1：
+优先处理 M2：
 
-- 复核 diagnostics 渲染体验，并决定是否补充 `/diagnostics` 或启动摘要过滤。
+- 提交 diagnostics 展示策略与 `RuntimeServices` 最小骨架改动。
+- 下一步引入轻量 Resource Loader，先承载 system prompt，再接入 `AGENTS.md` 项目上下文。
 
 ## 后续重点计划
 
@@ -61,7 +68,7 @@ Eva AI 当前处于 M0：稳定当前基线阶段。
 ## 已知问题
 
 - `logger.ts` 仍是占位文件。
-- `createRuntime()` 职责仍偏多，尚未拆出 `RuntimeServices`。
+- `RuntimeServices` 仍是最小骨架，尚未拆出完整 Resource Loader。
 - resource loading 目前仅限 system prompt，尚未加载 `AGENTS.md` 等项目上下文。
 - note、skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
 - interactive mode 尚未实现 `/fork`、`/compact`。

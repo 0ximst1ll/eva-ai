@@ -244,6 +244,44 @@ test('/sessions reports when the workspace has no sessions', async () => {
   assert.match(output.join('\n'), /No sessions found/);
 });
 
+test('/diagnostics prints full runtime diagnostics', async () => {
+  const output: string[] = [];
+  const host = {
+    get runtime() {
+      return {
+        diagnostics: [
+          {
+            source: 'config',
+            level: 'info',
+            type: 'info',
+            code: 'config_loaded',
+            message: 'Loaded config',
+          },
+          {
+            source: 'resource',
+            level: 'warning',
+            type: 'warning',
+            code: 'system_prompt_missing',
+            message: 'System prompt not found',
+          },
+        ],
+      };
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/diagnostics',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+  const text = output.join('\n');
+
+  assert.equal(result, 'continue');
+  assert.match(text, /Runtime diagnostics:/);
+  assert.match(text, /\[info\] config:config_loaded Loaded config/);
+  assert.match(text, /\[warning\] resource:system_prompt_missing System prompt not found/);
+});
+
 test('non-slash input is not handled as an interactive command', async () => {
   const result = await handleInteractiveCommand({
     userInput: 'hello',

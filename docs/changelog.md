@@ -8,6 +8,7 @@
 8. RuntimeHost 基础层
 9. mode 分层（interactive / print）
 10. Runtime diagnostics 收敛
+11. RuntimeServices 最小骨架
 
 
 
@@ -568,6 +569,8 @@ cli.ts
 
 mode 层继续通过 `renderRuntimeDiagnostics()` 渲染，不直接参与 runtime 状态判断。
 
+启动时默认过滤普通 `info` diagnostics，仅显示 warning/error 和少量关键 info。interactive mode 提供 `/diagnostics`，用于查看完整结构化 diagnostics。
+
 ---
 
 ### 带来的具体好处
@@ -595,6 +598,8 @@ RPC 不适合打印彩色启动日志，但可以直接把同一组 diagnostics 
 - 新增 runtime diagnostics 回归测试
 - 覆盖 `config`、`provider`、`tools`、`session`、`resource` 五类 source
 - 覆盖已配置但尚未加载的 note、skills、MCP resource warnings
+- 覆盖启动 diagnostics 过滤策略
+- 覆盖 `/diagnostics` 完整输出
 - `npm run typecheck`
 - `npm test`
 
@@ -602,8 +607,6 @@ RPC 不适合打印彩色启动日志，但可以直接把同一组 diagnostics 
 
 ### 仍待完成
 
-- 决定启动时是否过滤部分低价值 `info` diagnostics
-- 评估是否新增 `/diagnostics` 命令展示完整结构化状态
 - 后续 `RuntimeServices` 接入后，把 diagnostics 收集从 `createRuntime()` 进一步下沉到 services
 
 ---
@@ -611,3 +614,104 @@ RPC 不适合打印彩色启动日志，但可以直接把同一组 diagnostics 
 ### 一句话总结
 
 > Runtime diagnostics 从“启动时顺手打印的提示”升级为“runtime 装配状态的结构化边界”；这为 RuntimeServices、resource loader 和 RPC 输出打好了基础。
+
+## RuntimeServices 最小骨架
+
+这次升级把 workspace 绑定的运行时服务从 `createRuntime()` 中拆出，新增 `src/core/runtime-services.ts`。目标是对齐 `pi-mono` 的 services/session creation 分层：先创建 cwd/workspace 绑定 services，再基于 services 创建当前 `AgentSession`。
+
+---
+
+### 重构前（createRuntime 继续变大）
+
+`createRuntime()` 同时负责：
+
+- 加载 config
+- 解析 provider
+- 创建 retry config
+- 创建 `LLMClient`
+- 加载 system prompt
+- 加载 tools
+- 创建 `SessionManager`
+- 选择或创建 session
+- 创建 `AgentSession`
+- 收集 diagnostics
+
+继续接 resource loader、project context、skills、MCP、context management 时，这个函数会重新变成组合根大杂烩。
+
+---
+
+### 重构后（services 与 session 创建分离）
+
+新增：
+
+`createRuntimeServices()`
+- 创建 workspace 绑定 services
+- 返回 config、provider、LLM client、retry、system prompt、tools、session manager 和 diagnostics
+- 不创建 `AgentSession`
+- 不选择具体 session
+
+`createRuntime()`
+- 调用 `createRuntimeServices()`
+- 选择或创建当前 session
+- 创建带工具治理 hook 的 `AgentSession`
+- 将 services 暴露为 `runtime.services`
+
+当前结构变为：
+
+```text
+RuntimeHost
+  |
+  v
+createRuntime()
+  |-- createRuntimeServices()
+  |     |-- config/provider/retry
+  |     |-- resources(system prompt placeholder)
+  |     |-- tools
+  |     `-- sessionManager
+  `-- AgentSession
+```
+
+---
+
+### 带来的具体好处
+
+**① createRuntime 职责收缩**
+
+`createRuntime()` 不再负责所有 workspace 绑定资源发现和服务创建，只负责把 services 变成当前可运行 session。
+
+**② Resource Loader 有明确落点**
+
+下一步可以在 `RuntimeServices` 内引入轻量 resource loader，先承载 system prompt，再接入 `AGENTS.md` 等项目上下文。
+
+**③ Context Management 的前置边界更清晰**
+
+后续 `/compact`、context rebuild、post-compact resource reinjection 不需要直接从 mode 或 session 中查找 config/system prompt/project context，而是通过 services/resource loader 获取。
+
+**④ 更接近 pi-mono 的演进路径**
+
+Eva 现在具备了 `services creation -> session creation -> runtime host` 的基本结构，后续可以逐步扩展，而不是复制 `pi-mono` 的完整复杂度。
+
+---
+
+### 已验证
+
+- 新增 `RuntimeServices` 回归测试
+- RuntimeHost new/resume/switch 测试保持通过
+- runtime diagnostics 测试保持通过
+- `npm run typecheck`
+- `npm test`
+
+---
+
+### 仍待完成
+
+- 引入真正的 Resource Loader
+- 把 system prompt 加载从 services 内部 helper 迁入 Resource Loader
+- 加载 `AGENTS.md` 项目上下文
+- 支持 resource reload
+
+---
+
+### 一句话总结
+
+> RuntimeServices 把 Eva 的 workspace 绑定服务从 session 创建里抽出来，建立了后续 Resource Loader、context management 和 RPC diagnostics 的承载边界。

@@ -2,7 +2,7 @@ import * as readline from 'node:readline';
 import { RuntimeSessionNotFoundError, type ToolConfirmationRequest } from '../core/runtime.js';
 import type { RuntimeHost } from '../core/runtime-host.js';
 import { Colors } from '../utils/terminal.js';
-import { createCliRenderer, createToolConfirmationPrompt } from './cli-ui.js';
+import { createCliRenderer, createToolConfirmationPrompt, formatRuntimeDiagnostic } from './cli-ui.js';
 
 export interface InteractiveModeOptions {
   host: RuntimeHost;
@@ -79,6 +79,26 @@ export async function handleInteractiveCommand({
     writeLine(`${Colors.BRIGHT_CYAN}Provider:${Colors.RESET} ${host.runtime.config.llm.provider}`);
     writeLine(`${Colors.BRIGHT_CYAN}Model:${Colors.RESET} ${host.runtime.config.llm.model}`);
     writeLine(`${Colors.BRIGHT_CYAN}Tools:${Colors.RESET} ${host.runtime.tools.length}\n`);
+    return 'continue';
+  }
+
+  if (cmd === '/diagnostics') {
+    const diagnostics = host.runtime.diagnostics;
+    writeLine(`\n${Colors.BRIGHT_CYAN}Runtime diagnostics:${Colors.RESET}`);
+    if (!diagnostics.length) {
+      writeLine(`${Colors.DIM}No diagnostics recorded.${Colors.RESET}\n`);
+      return 'continue';
+    }
+    for (const diagnostic of diagnostics) {
+      const color =
+        diagnostic.level === 'error'
+          ? Colors.RED
+          : diagnostic.level === 'warning'
+            ? Colors.YELLOW
+            : Colors.DIM;
+      writeLine(`${color}${formatRuntimeDiagnostic(diagnostic)}${Colors.RESET}`);
+    }
+    writeLine();
     return 'continue';
   }
 

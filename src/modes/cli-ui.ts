@@ -96,8 +96,26 @@ export function createCliRenderer() {
   };
 }
 
-export function renderRuntimeDiagnostics(diagnostics: RuntimeDiagnostic[]): void {
+export interface RenderRuntimeDiagnosticsOptions {
+  verbose?: boolean;
+}
+
+const DEFAULT_VISIBLE_INFO_CODES = new Set(['retry_enabled', 'system_prompt_loaded']);
+
+export function formatRuntimeDiagnostic(diagnostic: RuntimeDiagnostic): string {
+  return `[${diagnostic.level}] ${diagnostic.source}:${diagnostic.code} ${diagnostic.message}`;
+}
+
+export function renderRuntimeDiagnostics(
+  diagnostics: RuntimeDiagnostic[],
+  options: RenderRuntimeDiagnosticsOptions = {},
+): void {
+  const verbose = options.verbose === true;
   for (const diagnostic of diagnostics) {
+    if (!verbose && diagnostic.level === 'info' && !DEFAULT_VISIBLE_INFO_CODES.has(diagnostic.code)) {
+      continue;
+    }
+
     if (diagnostic.code === 'retry_enabled' || diagnostic.code === 'system_prompt_loaded') {
       console.log(`${Colors.GREEN}✅ ${diagnostic.message}${Colors.RESET}`);
       continue;
