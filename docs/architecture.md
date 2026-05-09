@@ -8,67 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前还没有实现计划中的完整 resource loader、RPC mode、session tree、MCP loader 和 skills system。部分配置字段已经为这些方向预留，但它们目前还不是运行时能力。
-
-## 目录结构
-
-```text
-.
-├── config/
-│   ├── config.yaml             # 本地运行配置，通常是用户私有配置
-│   ├── config-example.yaml     # 带注释的配置示例
-│   ├── mcp-example.json        # 未来 MCP 配置示例
-│   └── system_prompt.md        # 通过配置路径加载的默认 system prompt
-├── docs/
-│   ├── architecture.md         # 当前架构快照
-│   ├── planning.md             # 项目目标、参考策略和阶段规划
-│   ├── current.md              # 当前任务状态快照
-│   └── changelog.md            # 重大架构更新记录
-├── src/
-│   ├── cli.ts                  # 进程入口：创建 host，选择运行 mode
-│   ├── agent.ts                # legacy 兼容外壳
-│   ├── config.ts               # YAML 配置加载与默认值
-│   ├── logger.ts               # 占位文件
-│   ├── retry.ts                # RetryConfig、withRetry、RetryExhaustedError
-│   ├── schema.ts               # message、LLM、tool、event 共享类型
-│   ├── core/
-│   │   ├── runtime-services.ts # workspace 绑定的 config/provider/tools/session/diagnostics 服务集合
-│   │   ├── runtime.ts          # 基于 services 创建当前 AgentSession
-│   │   ├── runtime-host.ts     # 当前 runtime 持有者；new/resume/switch session
-│   │   ├── agent-session.ts    # Agent 事件与 SessionManager 之间的桥接层
-│   │   ├── agent.ts            # 有状态 Agent 包装器，负责队列和 abort
-│   │   ├── agent-loop.ts       # LLM/tool 循环与事件发射
-│   │   └── session-manager.ts  # memory/jsonl 会话持久化
-│   ├── modes/
-│   │   ├── index.ts            # mode/UI 导出
-│   │   ├── interactive-mode.ts # readline 循环与 slash commands
-│   │   ├── print-mode.ts       # 单次任务执行模式
-│   │   └── cli-ui.ts           # 终端渲染与工具确认提示
-│   ├── llm/
-│   │   ├── base.ts             # provider adapter 基类
-│   │   ├── llm-client.ts       # provider 门面与 MiniMax API base 规范化
-│   │   ├── anthropic-client.ts
-│   │   ├── openai-client.ts
-│   │   └── google-client.ts
-│   ├── tools/
-│   │   ├── index.ts            # ToolRegistry 与内置工具加载
-│   │   ├── base.ts             # Tool、ToolDefinition、metadata、schema 转换
-│   │   ├── bash.ts             # bash、bash_output、bash_kill
-│   │   ├── read.ts             # read_file
-│   │   ├── write.ts            # write_file
-│   │   ├── edit.ts             # edit_file
-│   │   ├── find.ts             # find_files
-│   │   ├── grep.ts             # grep_files
-│   │   ├── ls.ts               # list_files
-│   │   ├── file-mutation-queue.ts
-│   │   ├── path-utils.ts       # workspace 路径解析与边界检查
-│   │   ├── truncate.ts
-│   │   └── tool-definition-wrapper.ts
-│   └── utils/
-│       └── terminal.ts         # 颜色与终端显示宽度工具
-├── package.json
-└── AGENTS.md                   # AI 编码行为规则
-```
+项目目前还没有实现计划中的 `RuntimeServices`、resource loader、RPC mode、session tree、MCP loader 和 skills system。部分配置字段已经为这些方向预留，但它们目前还不是运行时能力。
 
 ## 分层结构
 
