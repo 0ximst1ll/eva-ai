@@ -128,6 +128,14 @@ export class Agent {
     this._state.tools = tools.slice();
   }
 
+  setSystemPrompt(systemPrompt: string): void {
+    this._state.systemPrompt = systemPrompt;
+  }
+
+  setContextBuilder(contextBuilder: ContextBuilder | undefined): void {
+    this.contextBuilder = contextBuilder;
+  }
+
   setMaxSteps(maxSteps: number): void {
     this.maxSteps = maxSteps;
   }

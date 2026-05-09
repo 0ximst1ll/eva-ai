@@ -43,6 +43,15 @@ export interface RuntimeServices {
   toolRegistry: ToolRegistry | null;
   sessionManager: SessionManager;
   diagnostics: RuntimeDiagnostic[];
+  reloadResources(): RuntimeResourceReloadResult;
+}
+
+export interface RuntimeResourceReloadResult {
+  resourceLoader: ResourceLoader;
+  contextBuilder: ContextBuilder;
+  systemPrompt: string;
+  systemPromptPath: string | null;
+  diagnostics: RuntimeDiagnostic[];
 }
 
 export class RuntimeConfigNotFoundError extends Error {
@@ -87,6 +96,74 @@ function createRetryConfig(config: ConfigData): RetryConfig {
     maxDelay: config.llm.retry.maxDelay,
     exponentialBase: config.llm.retry.exponentialBase,
   });
+}
+
+function createContextReadyDiagnostic(resourceLoader: ResourceLoader, config: ConfigData, code: string): RuntimeDiagnostic {
+  return createDiagnostic({
+    source: 'context',
+    level: 'info',
+    code,
+    message: `Context builder ready (${resourceLoader.projectContext.length} project context resource(s))`,
+    details: {
+      projectContextCount: resourceLoader.projectContext.length,
+      projectContextResources: resourceLoader.projectContext.map((resource) => ({
+        name: resource.name,
+        path: resource.path,
+        contentLength: resource.content.length,
+      })),
+      projectContextMaxChars: config.agent.projectContextMaxChars,
+    },
+  });
+}
+
+function createRuntimeResourceSet(
+  workspaceDir: string,
+  config: ConfigData,
+  contextReadyCode = 'context_builder_ready',
+): RuntimeResourceReloadResult {
+  const resourceLoader = createResourceLoader({ workspaceDir, config });
+  const contextBuilder = createContextBuilder({
+    projectContext: resourceLoader.projectContext,
+    projectContextMaxChars: config.agent.projectContextMaxChars,
+  });
+  const diagnostics = [
+    ...resourceLoader.diagnostics,
+    createContextReadyDiagnostic(resourceLoader, config, contextReadyCode),
+  ];
+
+  return {
+    resourceLoader,
+    contextBuilder,
+    systemPrompt: resourceLoader.systemPrompt,
+    systemPromptPath: resourceLoader.systemPromptPath,
+    diagnostics,
+  };
+}
+
+export function reloadRuntimeServicesResources(services: RuntimeServices): RuntimeResourceReloadResult {
+  const result = createRuntimeResourceSet(services.workspaceDir, services.config, 'context_builder_reloaded');
+  const reloadDiagnostic = createDiagnostic({
+    source: 'resource',
+    level: 'info',
+    code: 'resources_reloaded',
+    message: 'Runtime resources reloaded',
+    details: {
+      projectContextCount: result.resourceLoader.projectContext.length,
+      systemPromptPath: result.systemPromptPath,
+    },
+  });
+  const diagnostics = [reloadDiagnostic, ...result.diagnostics];
+
+  services.resourceLoader = result.resourceLoader;
+  services.contextBuilder = result.contextBuilder;
+  services.systemPrompt = result.systemPrompt;
+  services.systemPromptPath = result.systemPromptPath;
+  services.diagnostics.push(...diagnostics);
+
+  return {
+    ...result,
+    diagnostics,
+  };
 }
 
 export async function createRuntimeServices(options: CreateRuntimeServicesOptions): Promise<RuntimeServices> {
@@ -146,27 +223,8 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     }));
   }
 
-  const resourceLoader = createResourceLoader({ workspaceDir, config });
-  diagnostics.push(...resourceLoader.diagnostics);
-  const contextBuilder = createContextBuilder({
-    projectContext: resourceLoader.projectContext,
-    projectContextMaxChars: config.agent.projectContextMaxChars,
-  });
-  diagnostics.push(createDiagnostic({
-    source: 'context',
-    level: 'info',
-    code: 'context_builder_ready',
-    message: `Context builder ready (${resourceLoader.projectContext.length} project context resource(s))`,
-    details: {
-      projectContextCount: resourceLoader.projectContext.length,
-      projectContextResources: resourceLoader.projectContext.map((resource) => ({
-        name: resource.name,
-        path: resource.path,
-        contentLength: resource.content.length,
-      })),
-      projectContextMaxChars: config.agent.projectContextMaxChars,
-    },
-  }));
+  const resourceSet = createRuntimeResourceSet(workspaceDir, config);
+  diagnostics.push(...resourceSet.diagnostics);
 
   let tools: Tool[];
   let toolRegistry: ToolRegistry | null = null;
@@ -203,19 +261,23 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     },
   }));
 
-  return {
+  const services: RuntimeServices = {
     workspaceDir,
     config,
     configPath,
     llmClient,
     retryConfig,
-    resourceLoader,
-    contextBuilder,
-    systemPrompt: resourceLoader.systemPrompt,
-    systemPromptPath: resourceLoader.systemPromptPath,
+    resourceLoader: resourceSet.resourceLoader,
+    contextBuilder: resourceSet.contextBuilder,
+    systemPrompt: resourceSet.systemPrompt,
+    systemPromptPath: resourceSet.systemPromptPath,
     tools,
     toolRegistry,
     sessionManager,
     diagnostics,
+    reloadResources(): RuntimeResourceReloadResult {
+      return reloadRuntimeServicesResources(services);
+    },
   };
+  return services;
 }

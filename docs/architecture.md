@@ -56,6 +56,7 @@ createRuntime()
 - `/history`：打印当前 session id 和消息数量。
 - `/stats`：打印当前 session、message count、token usage、provider、model 和 tool count。
 - `/diagnostics`：打印当前 runtime 的完整 diagnostics。
+- `/reload`：重新加载 runtime resources，并保持当前 session 不变。
 - `/sessions`：列出当前 workspace 下的 sessions，并标记当前 active session 和 latest session。
 - `/log`：当前是忽略型占位命令。
 
@@ -74,12 +75,14 @@ createRuntime()
 - 通过 `loadConfiguredTools()` 加载内置工具；
 - 创建 `SessionManager`，默认使用 `jsonl` 模式；
 - 返回统一 diagnostics。
+- 支持 reload resources，重新加载 system prompt 和 project context，并重建 `ContextBuilder`。
 
 `createRuntime()` 负责：
 
 - 选择或创建 session；
 - 创建带工具治理 hook 的 `AgentSession`。
 - 将 `RuntimeServices` 暴露为 `runtime.services`。
+- 支持 `reloadResources()`，在不切换当前 session 的情况下同步新的 resources 和 context builder。
 
 当前 runtime diagnostics 使用统一结构：
 
@@ -100,6 +103,7 @@ createRuntime()
 - `newSession()`；
 - `resumeLatestSession()`；
 - `switchSession(sessionId)`；
+- `reloadResources()`；
 - `runtime`、`session`、`sessionId` getter。
 
 当 mode 需要改变会话生命周期时，应该通过 `RuntimeHost` 这个边界完成，不应该直接重新装配 runtime 内部对象。
@@ -140,6 +144,8 @@ createRuntime()
 - 对 skills、MCP 已配置但尚未实现 loader 的情况返回 warning diagnostics。
 
 当前 `AGENTS.md` 作为 `runtime.services.resourceLoader.projectContext` 暴露，并由 `ContextBuilder` 在每次 LLM call 前临时注入 request messages。它不会写回 `SessionManager` 的 durable session history。
+
+`RuntimeServices.reloadResources()` 会重新创建 `ResourceLoader` 和 `ContextBuilder`。当前 `AgentSession` 会继续保留原 session history，但下一次 LLM request 会使用 reload 后的 system prompt 和 project context。
 
 ## Context Builder
 

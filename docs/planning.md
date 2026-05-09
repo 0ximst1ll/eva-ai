@@ -326,6 +326,7 @@ user/assistant/tool: durable session history
 - mode 不知道资源发现细节。
 - resource diagnostics 默认非致命。
 - builtin tool loading 与 resource loading 保持分离。
+- reload 后当前 session 保持不变，下一次 LLM request 使用新的 request-time context。
 
 ### M3：Headless RPC
 

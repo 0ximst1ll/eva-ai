@@ -57,3 +57,31 @@ test('createRuntimeServices builds workspace-bound services without creating an 
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test('RuntimeServices reloadResources reloads project context without recreating sessions', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-services-'));
+
+  try {
+    await fs.writeFile(path.join(tempDir, 'AGENTS.md'), 'old instructions', 'utf-8');
+    const configPath = await writeConfig(tempDir);
+    const services = await createRuntimeServices({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'memory',
+      tools: [],
+    });
+
+    assert.match(services.contextBuilder.projectContext[0]?.content ?? '', /old instructions/);
+
+    await fs.writeFile(path.join(tempDir, 'AGENTS.md'), 'new instructions', 'utf-8');
+    const previousSessionManager = services.sessionManager;
+    const result = services.reloadResources();
+
+    assert.equal(services.sessionManager, previousSessionManager);
+    assert.equal(result.resourceLoader.projectContext[0]?.content, 'new instructions');
+    assert.equal(services.contextBuilder.projectContext[0]?.content, 'new instructions');
+    assert.ok(services.diagnostics.some((diagnostic) => diagnostic.code === 'resources_reloaded'));
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});

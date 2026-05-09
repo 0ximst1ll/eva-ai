@@ -149,6 +149,15 @@ export async function handleInteractiveCommand({
     return 'continue';
   }
 
+  if (cmd === '/reload') {
+    const result = await host.reloadResources();
+    writeLine(`${Colors.GREEN}✅ Reloaded runtime resources${Colors.RESET}`);
+    writeLine(`${Colors.BRIGHT_CYAN}Project context:${Colors.RESET} ${result.resourceLoader.projectContext.length}`);
+    writeLine(`${Colors.BRIGHT_CYAN}System prompt:${Colors.RESET} ${result.systemPromptPath ?? 'default'}`);
+    writeLine();
+    return 'continue';
+  }
+
   if (cmd === '/sessions') {
     const sessions = await host.runtime.sessionManager.listSessions();
     if (!sessions.length) {

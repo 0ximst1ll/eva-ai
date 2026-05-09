@@ -110,7 +110,7 @@ function formatProjectContext(resources: ProjectContextResource[], maxChars: num
 
 function withSystemMessage(messages: Message[], systemPrompt: string): Message[] {
   const [first, ...rest] = messages;
-  if (first?.role === 'system') return [first, ...rest];
+  if (first?.role === 'system') return [{ role: 'system', content: systemPrompt }, ...rest];
   return [{ role: 'system', content: systemPrompt }, ...messages];
 }
 

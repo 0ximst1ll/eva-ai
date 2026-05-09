@@ -56,3 +56,56 @@ test('AgentSession keeps transient project context out of session history', asyn
     ['system', 'run', 'done'],
   );
 });
+
+test('AgentSession uses reloaded context resources on the next run', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system-old', 'session-1');
+  const llm = new ScriptedLLM([
+    { content: 'first', finish_reason: 'stop' },
+    { content: 'second', finish_reason: 'stop' },
+  ]);
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system-old',
+    tools: [],
+    maxSteps: 3,
+    contextBuilder: createContextBuilder({
+      projectContext: [{
+        type: 'project_context',
+        name: 'AGENTS.md',
+        path: '/workspace/AGENTS.md',
+        content: 'old instructions',
+      }],
+    }),
+    sessionManager,
+    sessionId,
+  });
+
+  await session.addUserMessage('first run');
+  assert.equal(await session.run(), 'first');
+
+  session.updateRuntimeResources({
+    systemPrompt: 'system-new',
+    contextBuilder: createContextBuilder({
+      projectContext: [{
+        type: 'project_context',
+        name: 'AGENTS.md',
+        path: '/workspace/AGENTS.md',
+        content: 'new instructions',
+      }],
+    }),
+  });
+  await session.addUserMessage('second run');
+  assert.equal(await session.run(), 'second');
+
+  assert.equal(llm.calls[1]?.[0]?.content, 'system-new');
+  assert.match(llm.calls[1]?.[1]?.content ?? '', /new instructions/);
+  assert.doesNotMatch(llm.calls[1]?.[1]?.content ?? '', /old instructions/);
+  assert.deepEqual(
+    sessionManager.getMessages(sessionId).map((message) => message.content),
+    ['system-old', 'first run', 'first', 'second run', 'second'],
+  );
+});

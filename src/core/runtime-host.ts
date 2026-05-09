@@ -2,6 +2,7 @@ import {
   createRuntime,
   type CreateRuntimeOptions,
   type Runtime,
+  type RuntimeResourceReloadResult,
   RuntimeSessionNotFoundError,
 } from './runtime.js';
 import type { AgentSession } from './agent-session.js';
@@ -73,5 +74,9 @@ export class RuntimeHost {
 
     this.currentRuntime = runtime;
     return this.currentRuntime;
+  }
+
+  async reloadResources(): Promise<RuntimeResourceReloadResult> {
+    return this.currentRuntime.reloadResources();
   }
 }

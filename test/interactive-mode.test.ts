@@ -317,6 +317,41 @@ test('/diagnostics prints full runtime diagnostics', async () => {
   assert.match(text, /Last build: injected 1 resource\(s\).*chars=85\/20000/);
 });
 
+test('/reload reloads runtime resources through RuntimeHost', async () => {
+  const output: string[] = [];
+  let reloadCalls = 0;
+  const host = {
+    async reloadResources() {
+      reloadCalls += 1;
+      return {
+        resourceLoader: {
+          projectContext: [
+            {
+              name: 'AGENTS.md',
+              path: '/workspace/AGENTS.md',
+              content: '# Project Instructions\n',
+            },
+          ],
+        },
+        systemPromptPath: '/workspace/system_prompt.md',
+      };
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/reload',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+  const text = output.join('\n');
+
+  assert.equal(result, 'continue');
+  assert.equal(reloadCalls, 1);
+  assert.match(text, /Reloaded runtime resources/);
+  assert.match(text, /Project context:.*1/);
+  assert.match(text, /System prompt:.*system_prompt\.md/);
+});
+
 test('non-slash input is not handled as an interactive command', async () => {
   const result = await handleInteractiveCommand({
     userInput: 'hello',

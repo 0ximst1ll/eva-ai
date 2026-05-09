@@ -10,6 +10,7 @@ import { SessionManager } from './session-manager.js';
 import {
   createRuntimeServices,
   type CreateRuntimeServicesOptions,
+  type RuntimeResourceReloadResult,
   type RuntimeServices,
 } from './runtime-services.js';
 
@@ -18,6 +19,7 @@ export {
   RuntimeConfigNotFoundError,
   UnsupportedProviderError,
   type RuntimeRetryEvent,
+  type RuntimeResourceReloadResult,
   type RuntimeServices,
   type SessionMode,
 } from './runtime-services.js';
@@ -50,6 +52,7 @@ export interface Runtime {
   session: AgentSession;
   diagnostics: RuntimeDiagnostic[];
   services: RuntimeServices;
+  reloadResources(): Promise<RuntimeResourceReloadResult>;
 }
 
 export class RuntimeSessionNotFoundError extends Error {
@@ -183,7 +186,7 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
     sessionId,
   });
 
-  return {
+  const runtime: Runtime = {
     config,
     configPath,
     llmClient,
@@ -197,5 +200,17 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
     session,
     diagnostics,
     services,
+    async reloadResources(): Promise<RuntimeResourceReloadResult> {
+      const result = services.reloadResources();
+      runtime.systemPrompt = result.systemPrompt;
+      runtime.systemPromptPath = result.systemPromptPath;
+      runtime.diagnostics.push(...result.diagnostics);
+      session.updateRuntimeResources({
+        systemPrompt: result.systemPrompt,
+        contextBuilder: result.contextBuilder,
+      });
+      return result;
+    },
   };
+  return runtime;
 }

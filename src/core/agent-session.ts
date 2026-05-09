@@ -16,8 +16,8 @@ import { SessionManager } from './session-manager.js';
 export class AgentSession {
   private readonly agent: Agent;
   private readonly sessionManager: SessionManager;
+  private _systemPrompt: string;
   readonly sessionId: string;
-  readonly systemPrompt: string;
 
   apiTotalTokens = 0;
 
@@ -46,7 +46,7 @@ export class AgentSession {
     sessionManager: SessionManager;
     sessionId: string;
   }) {
-    this.systemPrompt = systemPrompt;
+    this._systemPrompt = systemPrompt;
     this.sessionManager = sessionManager;
     this.sessionId = sessionId;
     this.agent = new Agent({
@@ -66,6 +66,22 @@ export class AgentSession {
     return this.sessionManager.getMessages(this.sessionId);
   }
 
+  get systemPrompt(): string {
+    return this._systemPrompt;
+  }
+
+  updateRuntimeResources({
+    systemPrompt,
+    contextBuilder,
+  }: {
+    systemPrompt: string;
+    contextBuilder?: ContextBuilder;
+  }): void {
+    this._systemPrompt = systemPrompt;
+    this.agent.setSystemPrompt(systemPrompt);
+    this.agent.setContextBuilder(contextBuilder);
+  }
+
   async addUserMessage(content: string): Promise<void> {
     const message = { role: 'user', content } satisfies Message;
     await this.sessionManager.appendMessage(this.sessionId, message);
@@ -73,7 +89,7 @@ export class AgentSession {
   }
 
   async clear(): Promise<void> {
-    await this.sessionManager.resetSession(this.sessionId, this.systemPrompt);
+    await this.sessionManager.resetSession(this.sessionId, this._systemPrompt);
     this.agent.reset(this.sessionManager.getMessages(this.sessionId));
   }
 

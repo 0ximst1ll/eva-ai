@@ -57,3 +57,28 @@ test('RuntimeHost creates, resumes, and switches sessions through the runtime bo
   }
 });
 
+test('RuntimeHost reloadResources keeps the active session and reloads AGENTS.md', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-'));
+
+  try {
+    await fs.writeFile(path.join(tempDir, 'AGENTS.md'), 'old instructions', 'utf-8');
+    const configPath = await writeConfig(tempDir);
+    const host = await RuntimeHost.create({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'memory',
+      createNewSession: true,
+      tools: [],
+    });
+    const sessionId = host.sessionId;
+
+    await fs.writeFile(path.join(tempDir, 'AGENTS.md'), 'new instructions', 'utf-8');
+    const result = await host.reloadResources();
+
+    assert.equal(host.sessionId, sessionId);
+    assert.equal(result.resourceLoader.projectContext[0]?.content, 'new instructions');
+    assert.equal(host.runtime.services.contextBuilder.projectContext[0]?.content, 'new instructions');
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
