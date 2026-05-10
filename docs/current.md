@@ -2,9 +2,9 @@
 
 ## 当前状态（2026-05-10）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架，以及 manual `/compact` 最小闭环，正在推进 M1.x 长任务执行语义调整。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架，以及 manual `/compact` 最小闭环，正在推进 M1.x 上下文状态可观测性。
 
-当前任务已完成默认 `max_steps` 硬限制移除：interactive 和 print/headless 默认都不再被固定 step guard 截断；只有显式配置 `max_steps` 时才启用单次 run guard。
+当前任务是实现 ContextManager diagnostics 最小版：不引入完整 ContextManager，只把当前 step guard、manual compaction 和 active context 状态展示到 `/stats` 与 `/diagnostics`。
 
 ## 已完成
 
@@ -30,15 +30,19 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - 配置未显式设置 `max_steps` 时默认无上限。
 - CLI 在 interactive mode 下创建 runtime 时会传入 `maxSteps: null`，覆盖任何显式配置。
 - print/headless mode 只有显式配置 `max_steps` 时才启用单次 run guard。
+- `SessionManager` 已暴露最近一次 compaction metadata。
+- `AgentSession` 已暴露有效 step guard 和 compaction 状态。
+- `/stats` 已展示 step guard 与 compaction 简要状态。
+- `/diagnostics` 已展示 active messages、step guard、compaction metadata 和 ContextBuilder 状态。
 - note tool 相关配置字段、resource warning 和 tool category 已移除。
 
 ## 进行中
 
-- `max_steps` 语义调整已完成，正在准备验证与提交。
+- Context diagnostics 最小展示已完成，正在准备验证与提交。
 
 ## 下一步
 
-- 评估是否继续补 ContextManager diagnostics，或进入 token accounting。
+- 补齐 Context diagnostics 测试并验证。
 - 后续再实现 token accounting、auto compaction、prompt-too-long recovery 和 post-compact resource budget。
 
 ## 后续重点计划

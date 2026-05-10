@@ -8,6 +8,7 @@ import { SessionManager } from '../src/core/session-manager.js';
 test('SessionManager stores and resets memory sessions', async () => {
   const manager = new SessionManager({ workspaceDir: '/workspace', mode: 'memory' });
   const sessionId = await manager.createSession('system');
+  assert.deepEqual(manager.getCompactionInfo(sessionId), { compacted: false });
 
   await manager.appendMessage(sessionId, { role: 'user', content: 'hello' });
   assert.deepEqual(manager.getMessages(sessionId), [
@@ -17,6 +18,7 @@ test('SessionManager stores and resets memory sessions', async () => {
 
   await manager.resetSession(sessionId, 'reset system');
   assert.deepEqual(manager.getMessages(sessionId), [{ role: 'system', content: 'reset system' }]);
+  assert.deepEqual(manager.getCompactionInfo(sessionId), { compacted: false });
   assert.deepEqual(
     (await manager.listSessions()).map((session) => ({
       sessionId: session.sessionId,
@@ -101,6 +103,16 @@ test('SessionManager appends compaction entries and rebuilds compacted context',
     );
     assert.equal(result.messagesBefore, 7);
     assert.equal(result.messagesAfter, 4);
+    assert.deepEqual(first.getCompactionInfo(sessionId), {
+      compacted: true,
+      timestamp: first.getCompactionInfo(sessionId).timestamp,
+      summaryLength: 24,
+      firstKeptMessageIndex: 5,
+      messagesBefore: 7,
+      messagesAfter: 4,
+      customInstructions: undefined,
+    });
+    assert.ok(first.getCompactionInfo(sessionId).timestamp);
 
     const workspaceKey = encodeURIComponent(path.resolve(workspaceDir));
     const rawLog = await fs.readFile(
@@ -113,6 +125,7 @@ test('SessionManager appends compaction entries and rebuilds compacted context',
     const second = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
     assert.equal(await second.loadSession(sessionId), true);
     assert.deepEqual(second.getMessages(sessionId), first.getMessages(sessionId));
+    assert.deepEqual(second.getCompactionInfo(sessionId), first.getCompactionInfo(sessionId));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

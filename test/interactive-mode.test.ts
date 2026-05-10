@@ -152,6 +152,8 @@ test('/stats prints session and runtime details', async () => {
     get session() {
       return {
         apiTotalTokens: 123,
+        maxSteps: null,
+        compaction: { compacted: false },
         messages: [
           { role: 'system', content: 'system' },
           { role: 'user', content: 'hello' },
@@ -188,8 +190,56 @@ test('/stats prints session and runtime details', async () => {
   assert.match(text, /Provider:.*anthropic/);
   assert.match(text, /Model:.*MiniMax-M2\.5/);
   assert.match(text, /Tools:.*2/);
+  assert.match(text, /Step guard:.*disabled/);
+  assert.match(text, /Compaction:.*none/);
   assert.match(text, /Project context:.*1/);
   assert.match(text, /Context build:.*not built yet/);
+});
+
+test('/stats prints compacted context details', async () => {
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-compacted';
+    },
+    get session() {
+      return {
+        apiTotalTokens: 0,
+        maxSteps: 12,
+        compaction: {
+          compacted: true,
+          summaryLength: 42,
+          messagesBefore: 10,
+          messagesAfter: 5,
+          firstKeptMessageIndex: 6,
+        },
+        messages: [{ role: 'system', content: 'system' }],
+      };
+    },
+    get runtime() {
+      return {
+        config: {
+          llm: {
+            provider: 'anthropic',
+            model: 'MiniMax-M2.5',
+          },
+        },
+        tools: [],
+        services: {},
+      };
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/stats',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+  const text = output.join('\n');
+
+  assert.equal(result, 'continue');
+  assert.match(text, /Step guard:.*max_steps=12/);
+  assert.match(text, /Compaction:.*compacted messages 10 -> 5, summary chars=42/);
 });
 
 test('/sessions prints workspace session list and marks the current session', async () => {
@@ -275,6 +325,25 @@ test('/diagnostics prints full runtime diagnostics', async () => {
     messages: [{ role: 'system', content: 'system' }],
   });
   const host = {
+    get session() {
+      return {
+        maxSteps: null,
+        compaction: {
+          compacted: true,
+          timestamp: Date.parse('2026-05-10T00:00:00.000Z'),
+          summaryLength: 40,
+          firstKeptMessageIndex: 4,
+          messagesBefore: 9,
+          messagesAfter: 5,
+          customInstructions: 'focus',
+        },
+        messages: [
+          { role: 'system', content: 'system' },
+          { role: 'user', content: 'summary' },
+          { role: 'user', content: 'next' },
+        ],
+      };
+    },
     get runtime() {
       return {
         diagnostics: [
@@ -312,6 +381,12 @@ test('/diagnostics prints full runtime diagnostics', async () => {
   assert.match(text, /\[info\] config:config_loaded Loaded config/);
   assert.match(text, /\[warning\] resource:system_prompt_missing System prompt not found/);
   assert.match(text, /Context:/);
+  assert.match(text, /Active messages: 3/);
+  assert.match(text, /Step guard: disabled/);
+  assert.match(text, /Compaction: compacted messages 9 -> 5, summary chars=40/);
+  assert.match(text, /First kept message index: 4/);
+  assert.match(text, /Compacted at: 2026-05-10T00:00:00\.000Z/);
+  assert.match(text, /Custom instructions: yes/);
   assert.match(text, /AGENTS\.md path=\/workspace\/AGENTS\.md chars=23/);
   assert.match(text, /Budget: 20000 chars/);
   assert.match(text, /Last build: injected 1 resource\(s\).*chars=85\/20000/);

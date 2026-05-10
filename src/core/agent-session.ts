@@ -16,13 +16,14 @@ import type {
   BeforeToolCallResult,
   ToolExecutionMode,
 } from './agent-loop.js';
-import { SessionManager } from './session-manager.js';
+import { SessionManager, type SessionCompactionInfo } from './session-manager.js';
 
 export class AgentSession {
   private readonly agent: Agent;
   private readonly llmClient: LLMClient;
   private readonly sessionManager: SessionManager;
   private _systemPrompt: string;
+  private readonly _maxSteps?: number | null;
   readonly sessionId: string;
 
   apiTotalTokens = 0;
@@ -55,6 +56,7 @@ export class AgentSession {
     this._systemPrompt = systemPrompt;
     this.llmClient = llmClient;
     this.sessionManager = sessionManager;
+    this._maxSteps = maxSteps;
     this.sessionId = sessionId;
     this.agent = new Agent({
       llmClient,
@@ -75,6 +77,14 @@ export class AgentSession {
 
   get systemPrompt(): string {
     return this._systemPrompt;
+  }
+
+  get maxSteps(): number | null | undefined {
+    return this._maxSteps;
+  }
+
+  get compaction(): SessionCompactionInfo {
+    return this.sessionManager.getCompactionInfo(this.sessionId);
   }
 
   updateRuntimeResources({

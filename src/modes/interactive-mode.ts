@@ -34,11 +34,30 @@ function formatContextBuildStatus(contextBuilder: ContextBuilder): string {
   return status.join(', ');
 }
 
+function formatStepGuard(maxSteps: number | null | undefined): string {
+  return maxSteps ? `max_steps=${maxSteps}` : 'disabled';
+}
+
+function formatCompactionStatus(compaction: RuntimeHost['session']['compaction']): string {
+  if (!compaction.compacted) return 'none';
+  return `compacted messages ${compaction.messagesBefore} -> ${compaction.messagesAfter}, summary chars=${compaction.summaryLength}`;
+}
+
 function writeContextDiagnostics(
   contextBuilder: ContextBuilder,
+  host: RuntimeHost,
   writeLine: (message?: string) => void,
 ): void {
+  const compaction = host.session.compaction;
   writeLine(`${Colors.BRIGHT_CYAN}Context:${Colors.RESET}`);
+  writeLine(`  Active messages: ${host.session.messages.length}`);
+  writeLine(`  Step guard: ${formatStepGuard(host.session.maxSteps)}`);
+  writeLine(`  Compaction: ${formatCompactionStatus(compaction)}`);
+  if (compaction.compacted) {
+    writeLine(`  - First kept message index: ${compaction.firstKeptMessageIndex}`);
+    writeLine(`  - Compacted at: ${compaction.timestamp ? new Date(compaction.timestamp).toISOString() : 'unknown'}`);
+    writeLine(`  - Custom instructions: ${compaction.customInstructions ? 'yes' : 'no'}`);
+  }
   writeLine(`  Project context resources: ${contextBuilder.projectContext.length}`);
   for (const resource of contextBuilder.projectContext) {
     writeLine(`  - ${resource.name} path=${resource.path} chars=${resource.content.length}`);
@@ -133,6 +152,8 @@ export async function handleInteractiveCommand({
     writeLine(`${Colors.BRIGHT_CYAN}Provider:${Colors.RESET} ${host.runtime.config.llm.provider}`);
     writeLine(`${Colors.BRIGHT_CYAN}Model:${Colors.RESET} ${host.runtime.config.llm.model}`);
     writeLine(`${Colors.BRIGHT_CYAN}Tools:${Colors.RESET} ${host.runtime.tools.length}`);
+    writeLine(`${Colors.BRIGHT_CYAN}Step guard:${Colors.RESET} ${formatStepGuard(host.session.maxSteps)}`);
+    writeLine(`${Colors.BRIGHT_CYAN}Compaction:${Colors.RESET} ${formatCompactionStatus(host.session.compaction)}`);
     const contextBuilder = getContextBuilder(host);
     if (contextBuilder) {
       writeLine(`${Colors.BRIGHT_CYAN}Project context:${Colors.RESET} ${contextBuilder.projectContext.length}`);
@@ -161,7 +182,7 @@ export async function handleInteractiveCommand({
     const contextBuilder = getContextBuilder(host);
     if (contextBuilder) {
       writeLine();
-      writeContextDiagnostics(contextBuilder, writeLine);
+      writeContextDiagnostics(contextBuilder, host, writeLine);
     }
     writeLine();
     return 'continue';

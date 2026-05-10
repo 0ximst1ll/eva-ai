@@ -48,6 +48,16 @@ interface SessionMetadata {
   updatedAt: number;
 }
 
+export interface SessionCompactionInfo {
+  compacted: boolean;
+  timestamp?: number;
+  summaryLength?: number;
+  firstKeptMessageIndex?: number;
+  messagesBefore?: number;
+  messagesAfter?: number;
+  customInstructions?: string;
+}
+
 export interface SessionListItem {
   sessionId: string;
   messageCount: number;
@@ -62,6 +72,7 @@ export class SessionManager {
   private readonly workspaceKey: string;
   private readonly sessions = new Map<string, Message[]>();
   private readonly sessionMetadata = new Map<string, SessionMetadata>();
+  private readonly sessionCompactions = new Map<string, SessionCompactionInfo>();
   private latestSessionId?: string;
 
   constructor({
@@ -85,6 +96,7 @@ export class SessionManager {
     const initialMessages: Message[] = [{ role: 'system', content: systemPrompt }];
     this.sessions.set(id, initialMessages);
     this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
+    this.sessionCompactions.delete(id);
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
@@ -129,6 +141,7 @@ export class SessionManager {
         createdAt: parsed.createdAt ?? parsed.updatedAt,
         updatedAt: parsed.updatedAt,
       });
+      this.sessionCompactions.set(sessionId, parsed.compaction);
       await this.markLatestSession(sessionId);
       return true;
     } catch {
@@ -138,6 +151,10 @@ export class SessionManager {
 
   getMessages(sessionId: string): Message[] {
     return [...(this.sessions.get(sessionId) ?? [])];
+  }
+
+  getCompactionInfo(sessionId: string): SessionCompactionInfo {
+    return this.sessionCompactions.get(sessionId) ?? { compacted: false };
   }
 
   async appendMessage(sessionId: string, message: Message): Promise<void> {
@@ -195,6 +212,15 @@ export class SessionManager {
     };
 
     this.sessions.set(sessionId, compactedMessages);
+    this.sessionCompactions.set(sessionId, {
+      compacted: true,
+      timestamp: now,
+      summaryLength: summary.length,
+      firstKeptMessageIndex,
+      messagesBefore: result.messagesBefore,
+      messagesAfter: result.messagesAfter,
+      customInstructions,
+    });
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -218,6 +244,7 @@ export class SessionManager {
     const now = Date.now();
     const resetMessages: Message[] = [{ role: 'system', content: systemPrompt }];
     this.sessions.set(sessionId, resetMessages);
+    this.sessionCompactions.delete(sessionId);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -342,10 +369,11 @@ export class SessionManager {
   private parseSessionLog(
     content: string,
     sessionId: string,
-  ): { messages: Message[]; createdAt?: number; updatedAt: number } {
+  ): { messages: Message[]; createdAt?: number; updatedAt: number; compaction: SessionCompactionInfo } {
     const messages: Message[] = [];
     let createdAt: number | undefined;
     let updatedAt = 0;
+    let compaction: SessionCompactionInfo = { compacted: false };
 
     for (const line of content.split('\n')) {
       const trimmed = line.trim();
@@ -374,13 +402,22 @@ export class SessionManager {
             }),
           );
           updatedAt = Math.max(updatedAt, entry.timestamp);
+          compaction = {
+            compacted: true,
+            timestamp: entry.timestamp,
+            summaryLength: entry.summary.length,
+            firstKeptMessageIndex: entry.firstKeptMessageIndex,
+            messagesBefore: entry.messagesBefore,
+            messagesAfter: entry.messagesAfter,
+            customInstructions: entry.customInstructions,
+          };
         }
       } catch {
         continue;
       }
     }
 
-    return { messages, createdAt, updatedAt };
+    return { messages, createdAt, updatedAt, compaction };
   }
 
   private sortSessionList(sessions: SessionListItem[]): SessionListItem[] {

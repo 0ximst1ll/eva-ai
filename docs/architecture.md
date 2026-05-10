@@ -181,8 +181,8 @@ Contents of AGENTS.md:
 
 interactive mode 当前会展示 ContextBuilder 状态：
 
-- `/stats`：显示 project context 数量和最近一次 context build 状态；
-- `/diagnostics`：显示 project context 资源名称、路径、字符数和最近一次 build 状态。
+- `/stats`：显示 step guard、compaction 简要状态、project context 数量和最近一次 context build 状态；
+- `/diagnostics`：显示 active messages、step guard、compaction metadata、project context 资源名称、路径、字符数和最近一次 build 状态。
 
 ## LLM 层
 
@@ -262,6 +262,8 @@ interactive mode 当前会展示 ContextBuilder 状态：
 - tool result messages 通过 `tool_result` 事件持久化；
 - manual compact 会先调用 LLM 生成摘要，成功后追加 `compaction` entry，并将当前活动上下文重建为 system prompt、summary 和最近保留消息；
 - compaction 失败时不会写入 `compaction` entry，也不会修改当前 session messages；
+- `compaction` getter 暴露最近一次 compaction metadata，用于 `/stats` 和 `/diagnostics`；
+- `maxSteps` getter 暴露当前 session 的有效 step guard，`null` / `undefined` 表示无固定上限；
 - legacy UI events 会转发给 mode renderer。
 
 ## Sessions
@@ -279,6 +281,7 @@ JSONL 模式下：
 - manual compact 会追加 `compaction` entry，包含 summary、`firstKeptMessageIndex`、压缩前后 message 数和可选 custom instructions；
 - `manifest.json` 记录 `latestSessionId`。
 - `listSessions()` 可列出当前 workspace 下的 session id、message count、updatedAt 和 latest 标记。
+- `getCompactionInfo()` 返回当前 session 最近一次 compaction metadata；如果尚未 compact，则返回 `compacted: false`。
 
 当前 session model 仍是扁平结构。它支持 flat JSONL 兼容的 compaction entry 和基于最新 compaction 的 context rebuild；还不支持 parent/child entries、fork、import/export，也不支持从 session tree 做确定性 context rebuild。
 
