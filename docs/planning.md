@@ -27,6 +27,138 @@ Eva AI 不应该在 `pi-mono` 和 `claude-code` 之间二选一。
 - 治理层逐步引入 `claude-code` 风格的权限管线、恢复体系和上下文管理。
 - 节奏上遵循“先骨架、后能力、再治理”。
 
+## 架构域划分
+
+架构域用于描述 Eva AI 长期应保持稳定的边界；阶段规划用于描述这些边界按什么顺序落地。二者不合并，避免把时间线误读成最终模块边界。
+
+### 1. Agent Runtime
+
+目标：建立所有运行模式共享的 agent 执行核心。
+
+范围：
+
+- `agent-loop`：LLM turn、tool execution、event emission、abort handling。
+- `Agent`：有状态 wrapper，管理 messages、tools、队列、active run。
+- `AgentSession`：连接 Agent、session persistence、tool governance 和 UI-facing events。
+- `RuntimeHost` / `RuntimeServices`：管理当前 runtime、cwd 绑定服务、session 切换与 reload。
+
+参考策略：
+
+- 结构边界优先参考 `pi-mono` 的 `agent` / `AgentSessionRuntime` / `AgentSessionServices`。
+- 事件和 hook 点保留足够扩展性，但不提前复制 `claude-code` 的复杂运行时。
+
+### 2. Session / Recovery
+
+目标：让会话不只是消息数组，而是可恢复、可分支、可重建的运行记录。
+
+范围：
+
+- JSONL session entry model。
+- session tree、active leaf、fork、clone、import/export。
+- resume、session metadata、compaction entry、future sidecar metadata。
+- 可恢复运行现场，包括 transcript、agent metadata、file history、todo/memory/subagent metadata。
+
+参考策略：
+
+- 优先学习 `pi-mono` 的 append-only session tree 和 path-aware context rebuild。
+- 选择性吸收 `claude-code` 的 transcript、compact boundary、file history 和恢复工程经验。
+
+### 3. Context Management
+
+目标：让发送给模型的上下文成为可解释、可预算、可恢复的 request view。
+
+范围：
+
+- `ContextBuilder`：无状态构造 request messages。
+- `ContextManager`：后续承接 token budget、manual/auto compaction、summary、prompt-too-long recovery。
+- project context / skills / tool result budgets。
+- context diagnostics、usage accounting、post-compact reinjection。
+
+参考策略：
+
+- 第一阶段保持 `pi-mono` 风格的简洁 transform/context rebuild。
+- 后续吸收 `claude-code` 的 token estimation、microcompact、auto compact 和 prompt-too-long recovery。
+
+### 4. Tool System
+
+目标：让工具定义、执行、结果和测试注入具备真实编码负载下的可预测性。
+
+范围：
+
+- tool registry、builtin tools、MCP/custom tools ownership。
+- read-only 并发、write/bash 串行、tool result ordering。
+- per-tool / aggregate result budget、oversized output persistence。
+- operations injection、edit diff、tool rendering metadata。
+
+参考策略：
+
+- 保留 `pi-mono` 简洁的 tool definition / tool execution hook。
+- 吸收 `claude-code` 的 tool orchestration、streaming tool execution、result budget 和大输出保护。
+
+### 5. Permission / Safety
+
+目标：所有高风险操作经过统一、可解释、可测试的权限决策路径。
+
+范围：
+
+- permission rules：allow、deny、ask。
+- permission modes：default、plan、accept-edits、bypass、dont-ask。
+- interactive confirmation、headless/RPC fail-closed。
+- bash/file safety、sandbox hook points、permission diagnostics。
+
+参考策略：
+
+- 先实现 deterministic rules 和 mode，再预留 classifier slot。
+- 不在基础权限管线成熟前引入自动审批。
+
+### 6. Resources / MCP / Skills / Extensions
+
+目标：把外部资源和扩展能力从 builtin tools 中解耦出来，并支持渐进加载。
+
+范围：
+
+- system prompt、`AGENTS.md` / `CLAUDE.md` project context、prompt templates。
+- skills metadata、progressive disclosure。
+- MCP config、server lifecycle、tools/resources/prompts。
+- extension hook skeleton、reload、diagnostics。
+
+参考策略：
+
+- 资源发现和读取参考 `pi-mono` 的 ResourceLoader。
+- MCP/skills 的 lifecycle、dedupe、approval 和超时降级吸收 `claude-code` 的工程实践。
+
+### 7. Modes / Interfaces
+
+目标：interactive、print/headless、RPC/SDK、未来 TUI 共享同一 runtime/session 核心。
+
+范围：
+
+- interactive CLI。
+- print/headless single-run。
+- JSONL RPC / SDK embedding。
+- future TUI 和更丰富 UI。
+
+参考策略：
+
+- mode 层只负责 I/O 和展示，不直接装配 config、resources、tools、sessions。
+- 所有模式通过 `RuntimeHost` / `AgentSession` 进入核心路径。
+
+### 8. Provider / Config / Observability
+
+目标：让 provider 差异、配置、诊断和运行数据可观测但不污染核心业务边界。
+
+范围：
+
+- provider adapters 和 streaming event normalization。
+- config/settings、model selection、retry。
+- diagnostics、usage/cost/timing、startup/runtime reporting。
+- telemetry/logging hook points。
+
+参考策略：
+
+- provider 差异留在 `llm` 层。
+- diagnostics 在 core 收集，在 mode 层展示。
+
 ## 参考 pi-mono 的设计
 
 `pi-mono` 的价值在于内核边界清晰。Eva AI 应优先学习它的结构，而不是复制实现细节。
@@ -249,6 +381,12 @@ user/assistant/tool: durable session history
 
 目标：确认当前 runtime/session/mode 路径可靠。
 
+涉及架构域：
+
+- Agent Runtime
+- Modes / Interfaces
+- Provider / Config / Observability
+
 范围：
 
 - 建立真实 `test` 和 `typecheck` script。
@@ -265,6 +403,13 @@ user/assistant/tool: durable session history
 ### M1：补齐会话命令与 Diagnostics
 
 目标：让当前 Agent 日常可用，减少隐式状态。
+
+涉及架构域：
+
+- Agent Runtime
+- Session / Recovery
+- Modes / Interfaces
+- Provider / Config / Observability
 
 范围：
 
@@ -284,6 +429,13 @@ user/assistant/tool: durable session history
 ### M1.x：长任务上下文最小闭环
 
 目标：在不提前引入完整 session tree 的前提下，解除 interactive 长任务被固定 step guard 和完整历史上下文拖住的问题。
+
+涉及架构域：
+
+- Agent Runtime
+- Session / Recovery
+- Context Management
+- Provider / Config / Observability
 
 范围：
 
@@ -313,6 +465,13 @@ user/assistant/tool: durable session history
 
 目标：停止继续扩大 `createRuntime()` 的职责。
 
+涉及架构域：
+
+- Agent Runtime
+- Tool System
+- Resources / MCP / Skills / Extensions
+- Provider / Config / Observability
+
 范围：
 
 - 引入 `RuntimeServices`。
@@ -331,6 +490,12 @@ user/assistant/tool: durable session history
 ### M3：Headless RPC
 
 目标：让 Eva AI 可被外部程序嵌入，而不新增第二套 agent 实现。
+
+涉及架构域：
+
+- Agent Runtime
+- Session / Recovery
+- Modes / Interfaces
 
 范围：
 
@@ -351,6 +516,11 @@ user/assistant/tool: durable session history
 
 目标：从 flat transcript 过渡到可恢复 agent state。
 
+涉及架构域：
+
+- Session / Recovery
+- Context Management
+
 范围：
 
 - session entry schema。
@@ -370,6 +540,12 @@ user/assistant/tool: durable session history
 ### M5：Tool Harness Hardening
 
 目标：让工具执行在真实编码工作负载下可预测。
+
+涉及架构域：
+
+- Tool System
+- Context Management
+- Permission / Safety
 
 范围：
 
@@ -392,6 +568,12 @@ user/assistant/tool: durable session history
 
 目标：从高风险确认升级为权限管线。
 
+涉及架构域：
+
+- Permission / Safety
+- Tool System
+- Modes / Interfaces
+
 范围：
 
 - rules：allow/deny/ask。
@@ -410,6 +592,13 @@ user/assistant/tool: durable session history
 ### M7：MCP、Skills 与 Extensions
 
 目标：接入外部能力，但不阻塞启动，不污染 builtin tools。
+
+涉及架构域：
+
+- Resources / MCP / Skills / Extensions
+- Tool System
+- Permission / Safety
+- Provider / Config / Observability
 
 范围：
 
@@ -430,6 +619,13 @@ user/assistant/tool: durable session history
 
 目标：在 M1.x 最小闭环基础上，把长会话上下文管理补齐到更完整的 harness 能力。
 
+涉及架构域：
+
+- Context Management
+- Session / Recovery
+- Tool System
+- Provider / Config / Observability
+
 范围：
 
 - automatic threshold compaction。
@@ -448,6 +644,12 @@ user/assistant/tool: durable session history
 ### M9：体验与长期运行
 
 目标：在 harness 稳定后增强日常使用体验。
+
+涉及架构域：
+
+- Modes / Interfaces
+- Provider / Config / Observability
+- Session / Recovery
 
 范围：
 

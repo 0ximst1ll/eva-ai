@@ -2,9 +2,9 @@
 
 ## 当前状态（2026-05-10）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示，以及 assistant usage 持久化最小闭环。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环，以及规划文档中的长期架构域视图整理。
 
-当前任务已完成：不引入完整 ContextManager，只记录 provider 返回的 usage，让 session reload 后仍能恢复 token usage，并在 `/stats` 与 `/diagnostics` 中展示。
+当前任务已完成：`docs/planning.md` 已单独列出 Eva AI 的长期架构域，并在 M0-M9 阶段规划中标注每个阶段涉及的架构域。
 
 ## 已完成
 
@@ -45,7 +45,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 下一步
 
-- 开始 provider token estimation 或 ContextManager 最小骨架，用于支撑后续 context budget。
+- 完成规划文档整理后，继续评估 provider token estimation 或 ContextManager 最小骨架。
 - 后续再实现 auto compaction、prompt-too-long recovery 和 post-compact resource budget。
 
 ## 后续重点计划
