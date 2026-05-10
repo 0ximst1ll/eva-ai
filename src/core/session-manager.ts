@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Message } from '../schema.js';
+import type { Message, TokenUsage } from '../schema.js';
 import {
   chooseFirstKeptMessageIndex,
   rebuildCompactedMessages,
@@ -41,7 +41,17 @@ interface CompactionEntry {
   customInstructions?: string;
 }
 
-type SessionLogEntry = SessionStartEntry | MessageEntry | CompactionEntry;
+export type SessionUsageSource = 'assistant' | 'compaction';
+
+interface UsageEntry {
+  type: 'usage';
+  sessionId: string;
+  timestamp: number;
+  source: SessionUsageSource;
+  usage: TokenUsage;
+}
+
+type SessionLogEntry = SessionStartEntry | MessageEntry | CompactionEntry | UsageEntry;
 
 interface SessionMetadata {
   createdAt: number;
@@ -56,6 +66,14 @@ export interface SessionCompactionInfo {
   messagesBefore?: number;
   messagesAfter?: number;
   customInstructions?: string;
+}
+
+export interface SessionUsageInfo {
+  count: number;
+  total: TokenUsage;
+  latest?: TokenUsage;
+  latestTimestamp?: number;
+  latestSource?: SessionUsageSource;
 }
 
 export interface SessionListItem {
@@ -73,6 +91,7 @@ export class SessionManager {
   private readonly sessions = new Map<string, Message[]>();
   private readonly sessionMetadata = new Map<string, SessionMetadata>();
   private readonly sessionCompactions = new Map<string, SessionCompactionInfo>();
+  private readonly sessionUsage = new Map<string, SessionUsageInfo>();
   private latestSessionId?: string;
 
   constructor({
@@ -97,6 +116,7 @@ export class SessionManager {
     this.sessions.set(id, initialMessages);
     this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
     this.sessionCompactions.delete(id);
+    this.sessionUsage.delete(id);
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
@@ -142,6 +162,7 @@ export class SessionManager {
         updatedAt: parsed.updatedAt,
       });
       this.sessionCompactions.set(sessionId, parsed.compaction);
+      this.sessionUsage.set(sessionId, parsed.usage);
       await this.markLatestSession(sessionId);
       return true;
     } catch {
@@ -155,6 +176,10 @@ export class SessionManager {
 
   getCompactionInfo(sessionId: string): SessionCompactionInfo {
     return this.sessionCompactions.get(sessionId) ?? { compacted: false };
+  }
+
+  getUsageInfo(sessionId: string): SessionUsageInfo {
+    return this.sessionUsage.get(sessionId) ?? createEmptyUsageInfo();
   }
 
   async appendMessage(sessionId: string, message: Message): Promise<void> {
@@ -173,6 +198,38 @@ export class SessionManager {
         sessionId,
         timestamp: now,
         message,
+      });
+      await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
+    }
+  }
+
+  async appendUsage({
+    sessionId,
+    usage,
+    source = 'assistant',
+  }: {
+    sessionId: string;
+    usage: TokenUsage;
+    source?: SessionUsageSource;
+  }): Promise<void> {
+    if (!this.sessions.has(sessionId)) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const now = Date.now();
+    this.sessionUsage.set(
+      sessionId,
+      addUsage(this.getUsageInfo(sessionId), usage, now, source),
+    );
+    this.touchSession(sessionId, now);
+
+    if (this.mode === 'jsonl') {
+      await this.appendEntry({
+        type: 'usage',
+        sessionId,
+        timestamp: now,
+        source,
+        usage,
       });
       await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
@@ -245,6 +302,7 @@ export class SessionManager {
     const resetMessages: Message[] = [{ role: 'system', content: systemPrompt }];
     this.sessions.set(sessionId, resetMessages);
     this.sessionCompactions.delete(sessionId);
+    this.sessionUsage.delete(sessionId);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -369,11 +427,18 @@ export class SessionManager {
   private parseSessionLog(
     content: string,
     sessionId: string,
-  ): { messages: Message[]; createdAt?: number; updatedAt: number; compaction: SessionCompactionInfo } {
+  ): {
+    messages: Message[];
+    createdAt?: number;
+    updatedAt: number;
+    compaction: SessionCompactionInfo;
+    usage: SessionUsageInfo;
+  } {
     const messages: Message[] = [];
     let createdAt: number | undefined;
     let updatedAt = 0;
     let compaction: SessionCompactionInfo = { compacted: false };
+    let usage = createEmptyUsageInfo();
 
     for (const line of content.split('\n')) {
       const trimmed = line.trim();
@@ -411,16 +476,51 @@ export class SessionManager {
             messagesAfter: entry.messagesAfter,
             customInstructions: entry.customInstructions,
           };
+          continue;
+        }
+        if (entry.type === 'usage') {
+          updatedAt = Math.max(updatedAt, entry.timestamp);
+          usage = addUsage(usage, entry.usage, entry.timestamp, entry.source);
         }
       } catch {
         continue;
       }
     }
 
-    return { messages, createdAt, updatedAt, compaction };
+    return { messages, createdAt, updatedAt, compaction, usage };
   }
 
   private sortSessionList(sessions: SessionListItem[]): SessionListItem[] {
     return sessions.sort((a, b) => b.updatedAt - a.updatedAt || a.sessionId.localeCompare(b.sessionId));
   }
+}
+
+function createEmptyUsageInfo(): SessionUsageInfo {
+  return {
+    count: 0,
+    total: {
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0,
+    },
+  };
+}
+
+function addUsage(
+  current: SessionUsageInfo,
+  usage: TokenUsage,
+  timestamp: number,
+  source: SessionUsageSource,
+): SessionUsageInfo {
+  return {
+    count: current.count + 1,
+    total: {
+      prompt_tokens: current.total.prompt_tokens + usage.prompt_tokens,
+      completion_tokens: current.total.completion_tokens + usage.completion_tokens,
+      total_tokens: current.total.total_tokens + usage.total_tokens,
+    },
+    latest: { ...usage },
+    latestTimestamp: timestamp,
+    latestSource: source,
+  };
 }

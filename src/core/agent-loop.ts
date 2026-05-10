@@ -322,7 +322,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         return { messages, finalContent: message, apiTotalTokens };
       }
 
-      if (response.usage) apiTotalTokens = response.usage.total_tokens;
+      if (response.usage) apiTotalTokens += response.usage.total_tokens;
       finalContent = response.content;
 
       const assistantMessage = {

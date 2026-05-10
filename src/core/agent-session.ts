@@ -16,7 +16,7 @@ import type {
   BeforeToolCallResult,
   ToolExecutionMode,
 } from './agent-loop.js';
-import { SessionManager, type SessionCompactionInfo } from './session-manager.js';
+import { SessionManager, type SessionCompactionInfo, type SessionUsageInfo } from './session-manager.js';
 
 export class AgentSession {
   private readonly agent: Agent;
@@ -69,6 +69,7 @@ export class AgentSession {
       afterToolCall,
       messages: this.sessionManager.getMessages(sessionId),
     });
+    this.apiTotalTokens = this.sessionManager.getUsageInfo(sessionId).total.total_tokens;
   }
 
   get messages(): Message[] {
@@ -85,6 +86,10 @@ export class AgentSession {
 
   get compaction(): SessionCompactionInfo {
     return this.sessionManager.getCompactionInfo(this.sessionId);
+  }
+
+  get usage(): SessionUsageInfo {
+    return this.sessionManager.getUsageInfo(this.sessionId);
   }
 
   updateRuntimeResources({
@@ -129,8 +134,13 @@ export class AgentSession {
 
     this.agent.setMessages(this.sessionManager.getMessages(this.sessionId));
     if (response.usage) {
-      this.agent.apiTotalTokens += response.usage.total_tokens;
-      this.apiTotalTokens = this.agent.apiTotalTokens;
+      await this.sessionManager.appendUsage({
+        sessionId: this.sessionId,
+        usage: response.usage,
+        source: 'compaction',
+      });
+      this.apiTotalTokens = this.sessionManager.getUsageInfo(this.sessionId).total.total_tokens;
+      this.agent.apiTotalTokens = this.apiTotalTokens;
     }
     return result;
   }
@@ -156,7 +166,8 @@ export class AgentSession {
 
     try {
       const result = await this.agent.continue({ signal });
-      this.apiTotalTokens = this.agent.apiTotalTokens;
+      this.apiTotalTokens = this.sessionManager.getUsageInfo(this.sessionId).total.total_tokens;
+      this.agent.apiTotalTokens = this.apiTotalTokens;
       return result;
     } finally {
       unsubscribe();
@@ -185,6 +196,18 @@ export class AgentSession {
         tool_call_id: event.result.toolCallId,
         name: event.result.toolName,
       });
+      return;
+    }
+
+    if (event.type === 'message_end') {
+      if (event.response.usage) {
+        await this.sessionManager.appendUsage({
+          sessionId: this.sessionId,
+          usage: event.response.usage,
+          source: 'assistant',
+        });
+      }
+      onEvent?.(event);
       return;
     }
 

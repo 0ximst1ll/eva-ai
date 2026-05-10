@@ -35,7 +35,11 @@ test('AgentSession keeps transient project context out of session history', asyn
   });
   const sessionId = await sessionManager.createSession('system', 'session-1');
   const llm = new ScriptedLLM([
-    { content: 'done', finish_reason: 'stop' },
+    {
+      content: 'done',
+      finish_reason: 'stop',
+      usage: { prompt_tokens: 7, completion_tokens: 2, total_tokens: 9 },
+    },
   ]);
   const contextBuilder = createContextBuilder({
     projectContext: [{
@@ -63,6 +67,22 @@ test('AgentSession keeps transient project context out of session history', asyn
     sessionManager.getMessages(sessionId).map((message) => message.content),
     ['system', 'run', 'done'],
   );
+  assert.deepEqual(session.usage, {
+    count: 1,
+    total: {
+      prompt_tokens: 7,
+      completion_tokens: 2,
+      total_tokens: 9,
+    },
+    latest: {
+      prompt_tokens: 7,
+      completion_tokens: 2,
+      total_tokens: 9,
+    },
+    latestTimestamp: session.usage.latestTimestamp,
+    latestSource: 'assistant',
+  });
+  assert.equal(session.apiTotalTokens, 9);
 });
 
 test('AgentSession compacts history into a summary message and keeps recent context', async () => {
@@ -100,6 +120,8 @@ test('AgentSession compacts history into a summary message and keeps recent cont
   assert.match(messages[1]?.content ?? '', /The user completed the first task/);
   assert.match(llm.generateCalls[0]?.[1]?.content ?? '', /focus on remaining work/);
   assert.equal(session.apiTotalTokens, 15);
+  assert.equal(session.usage.count, 1);
+  assert.equal(session.usage.latestSource, 'compaction');
 });
 
 test('AgentSession leaves session history unchanged when compaction fails', async () => {

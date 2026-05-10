@@ -9,16 +9,51 @@ test('SessionManager stores and resets memory sessions', async () => {
   const manager = new SessionManager({ workspaceDir: '/workspace', mode: 'memory' });
   const sessionId = await manager.createSession('system');
   assert.deepEqual(manager.getCompactionInfo(sessionId), { compacted: false });
+  assert.deepEqual(manager.getUsageInfo(sessionId), {
+    count: 0,
+    total: {
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0,
+    },
+  });
 
   await manager.appendMessage(sessionId, { role: 'user', content: 'hello' });
+  await manager.appendUsage({
+    sessionId,
+    usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
+  });
   assert.deepEqual(manager.getMessages(sessionId), [
     { role: 'system', content: 'system' },
     { role: 'user', content: 'hello' },
   ]);
+  assert.deepEqual(manager.getUsageInfo(sessionId), {
+    count: 1,
+    total: {
+      prompt_tokens: 4,
+      completion_tokens: 2,
+      total_tokens: 6,
+    },
+    latest: {
+      prompt_tokens: 4,
+      completion_tokens: 2,
+      total_tokens: 6,
+    },
+    latestTimestamp: manager.getUsageInfo(sessionId).latestTimestamp,
+    latestSource: 'assistant',
+  });
 
   await manager.resetSession(sessionId, 'reset system');
   assert.deepEqual(manager.getMessages(sessionId), [{ role: 'system', content: 'reset system' }]);
   assert.deepEqual(manager.getCompactionInfo(sessionId), { compacted: false });
+  assert.deepEqual(manager.getUsageInfo(sessionId), {
+    count: 0,
+    total: {
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0,
+    },
+  });
   assert.deepEqual(
     (await manager.listSessions()).map((session) => ({
       sessionId: session.sessionId,
@@ -40,6 +75,14 @@ test('SessionManager persists and reloads jsonl sessions', async () => {
     const sessionId = await first.createSession('system', 'session-a');
     await first.appendMessage(sessionId, { role: 'user', content: 'hello' });
     await first.appendMessage(sessionId, { role: 'assistant', content: 'hi' });
+    await first.appendUsage({
+      sessionId,
+      usage: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 },
+    });
+    await first.appendUsage({
+      sessionId,
+      usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+    });
     const secondSessionId = await first.createSession('other system', 'session-b');
     await first.appendMessage(secondSessionId, { role: 'user', content: 'other' });
 
@@ -54,18 +97,44 @@ test('SessionManager persists and reloads jsonl sessions', async () => {
     assert.ok((sessionA?.updatedAt ?? 0) > 0);
     assert.ok((sessionB?.updatedAt ?? 0) > 0);
 
-    const second = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
-    assert.equal(await second.loadLatestSession(), secondSessionId);
-    assert.deepEqual(second.getMessages(secondSessionId), [
+    const latest = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    assert.equal(await latest.loadLatestSession(), secondSessionId);
+    assert.deepEqual(latest.getMessages(secondSessionId), [
       { role: 'system', content: 'other system' },
       { role: 'user', content: 'other' },
     ]);
+
+    const second = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    assert.equal(await second.loadSession(sessionId), true);
+    assert.deepEqual(second.getUsageInfo(sessionId), {
+      count: 2,
+      total: {
+        prompt_tokens: 18,
+        completion_tokens: 7,
+        total_tokens: 25,
+      },
+      latest: {
+        prompt_tokens: 8,
+        completion_tokens: 4,
+        total_tokens: 12,
+      },
+      latestTimestamp: second.getUsageInfo(sessionId).latestTimestamp,
+      latestSource: 'assistant',
+    });
 
     await second.resetSession(sessionId, 'new system');
 
     const third = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
     assert.equal(await third.loadSession(sessionId), true);
     assert.deepEqual(third.getMessages(sessionId), [{ role: 'system', content: 'new system' }]);
+    assert.deepEqual(third.getUsageInfo(sessionId), {
+      count: 0,
+      total: {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+      },
+    });
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

@@ -43,12 +43,36 @@ function formatCompactionStatus(compaction: RuntimeHost['session']['compaction']
   return `compacted messages ${compaction.messagesBefore} -> ${compaction.messagesAfter}, summary chars=${compaction.summaryLength}`;
 }
 
+function formatUsageStatus(usage: RuntimeHost['session']['usage']): string {
+  if (!usage.count) return 'unknown';
+  return [
+    `calls=${usage.count}`,
+    `prompt=${usage.total.prompt_tokens}`,
+    `completion=${usage.total.completion_tokens}`,
+    `total=${usage.total.total_tokens}`,
+  ].join(', ');
+}
+
+function formatLatestUsageStatus(usage: RuntimeHost['session']['usage']): string {
+  if (!usage.latest) return 'unknown';
+  const timestamp = usage.latestTimestamp ? new Date(usage.latestTimestamp).toISOString() : 'unknown';
+  const source = usage.latestSource ?? 'unknown';
+  return [
+    `source=${source}`,
+    `prompt=${usage.latest.prompt_tokens}`,
+    `completion=${usage.latest.completion_tokens}`,
+    `total=${usage.latest.total_tokens}`,
+    `at=${timestamp}`,
+  ].join(', ');
+}
+
 function writeContextDiagnostics(
   contextBuilder: ContextBuilder,
   host: RuntimeHost,
   writeLine: (message?: string) => void,
 ): void {
   const compaction = host.session.compaction;
+  const usage = host.session.usage;
   writeLine(`${Colors.BRIGHT_CYAN}Context:${Colors.RESET}`);
   writeLine(`  Active messages: ${host.session.messages.length}`);
   writeLine(`  Step guard: ${formatStepGuard(host.session.maxSteps)}`);
@@ -58,6 +82,8 @@ function writeContextDiagnostics(
     writeLine(`  - Compacted at: ${compaction.timestamp ? new Date(compaction.timestamp).toISOString() : 'unknown'}`);
     writeLine(`  - Custom instructions: ${compaction.customInstructions ? 'yes' : 'no'}`);
   }
+  writeLine(`  Token usage: ${formatUsageStatus(usage)}`);
+  writeLine(`  Latest usage: ${formatLatestUsageStatus(usage)}`);
   writeLine(`  Project context resources: ${contextBuilder.projectContext.length}`);
   for (const resource of contextBuilder.projectContext) {
     writeLine(`  - ${resource.name} path=${resource.path} chars=${resource.content.length}`);
@@ -154,6 +180,8 @@ export async function handleInteractiveCommand({
     writeLine(`${Colors.BRIGHT_CYAN}Tools:${Colors.RESET} ${host.runtime.tools.length}`);
     writeLine(`${Colors.BRIGHT_CYAN}Step guard:${Colors.RESET} ${formatStepGuard(host.session.maxSteps)}`);
     writeLine(`${Colors.BRIGHT_CYAN}Compaction:${Colors.RESET} ${formatCompactionStatus(host.session.compaction)}`);
+    writeLine(`${Colors.BRIGHT_CYAN}Token usage:${Colors.RESET} ${formatUsageStatus(host.session.usage)}`);
+    writeLine(`${Colors.BRIGHT_CYAN}Latest usage:${Colors.RESET} ${formatLatestUsageStatus(host.session.usage)}`);
     const contextBuilder = getContextBuilder(host);
     if (contextBuilder) {
       writeLine(`${Colors.BRIGHT_CYAN}Project context:${Colors.RESET} ${contextBuilder.projectContext.length}`);

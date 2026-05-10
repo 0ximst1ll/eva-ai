@@ -154,6 +154,21 @@ test('/stats prints session and runtime details', async () => {
         apiTotalTokens: 123,
         maxSteps: null,
         compaction: { compacted: false },
+        usage: {
+          count: 2,
+          total: {
+            prompt_tokens: 80,
+            completion_tokens: 43,
+            total_tokens: 123,
+          },
+          latest: {
+            prompt_tokens: 30,
+            completion_tokens: 20,
+            total_tokens: 50,
+          },
+          latestTimestamp: Date.parse('2026-05-10T00:00:00.000Z'),
+          latestSource: 'assistant',
+        },
         messages: [
           { role: 'system', content: 'system' },
           { role: 'user', content: 'hello' },
@@ -192,6 +207,8 @@ test('/stats prints session and runtime details', async () => {
   assert.match(text, /Tools:.*2/);
   assert.match(text, /Step guard:.*disabled/);
   assert.match(text, /Compaction:.*none/);
+  assert.match(text, /Token usage:.*calls=2, prompt=80, completion=43, total=123/);
+  assert.match(text, /Latest usage:.*source=assistant, prompt=30, completion=20, total=50, at=2026-05-10T00:00:00\.000Z/);
   assert.match(text, /Project context:.*1/);
   assert.match(text, /Context build:.*not built yet/);
 });
@@ -212,6 +229,14 @@ test('/stats prints compacted context details', async () => {
           messagesBefore: 10,
           messagesAfter: 5,
           firstKeptMessageIndex: 6,
+        },
+        usage: {
+          count: 0,
+          total: {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+          },
         },
         messages: [{ role: 'system', content: 'system' }],
       };
@@ -337,6 +362,21 @@ test('/diagnostics prints full runtime diagnostics', async () => {
           messagesAfter: 5,
           customInstructions: 'focus',
         },
+        usage: {
+          count: 1,
+          total: {
+            prompt_tokens: 100,
+            completion_tokens: 25,
+            total_tokens: 125,
+          },
+          latest: {
+            prompt_tokens: 100,
+            completion_tokens: 25,
+            total_tokens: 125,
+          },
+          latestTimestamp: Date.parse('2026-05-10T00:01:00.000Z'),
+          latestSource: 'compaction',
+        },
         messages: [
           { role: 'system', content: 'system' },
           { role: 'user', content: 'summary' },
@@ -387,6 +427,8 @@ test('/diagnostics prints full runtime diagnostics', async () => {
   assert.match(text, /First kept message index: 4/);
   assert.match(text, /Compacted at: 2026-05-10T00:00:00\.000Z/);
   assert.match(text, /Custom instructions: yes/);
+  assert.match(text, /Token usage: calls=1, prompt=100, completion=25, total=125/);
+  assert.match(text, /Latest usage: source=compaction, prompt=100, completion=25, total=125, at=2026-05-10T00:01:00\.000Z/);
   assert.match(text, /AGENTS\.md path=\/workspace\/AGENTS\.md chars=23/);
   assert.match(text, /Budget: 20000 chars/);
   assert.match(text, /Last build: injected 1 resource\(s\).*chars=85\/20000/);

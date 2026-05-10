@@ -2,9 +2,9 @@
 
 ## 当前状态（2026-05-10）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架，以及 manual `/compact` 最小闭环，正在推进 M1.x 上下文状态可观测性。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示，以及 assistant usage 持久化最小闭环。
 
-当前任务是实现 ContextManager diagnostics 最小版：不引入完整 ContextManager，只把当前 step guard、manual compaction 和 active context 状态展示到 `/stats` 与 `/diagnostics`。
+当前任务已完成：不引入完整 ContextManager，只记录 provider 返回的 usage，让 session reload 后仍能恢复 token usage，并在 `/stats` 与 `/diagnostics` 中展示。
 
 ## 已完成
 
@@ -34,16 +34,19 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - `AgentSession` 已暴露有效 step guard 和 compaction 状态。
 - `/stats` 已展示 step guard 与 compaction 简要状态。
 - `/diagnostics` 已展示 active messages、step guard、compaction metadata 和 ContextBuilder 状态。
+- `SessionManager` 已支持独立 `usage` entry，并能在 reload session 后恢复累计 usage 与最近一次 usage。
+- `AgentSession` 已暴露 usage 状态，并会持久化 assistant response usage 和 compact LLM usage。
+- `/stats` 与 `/diagnostics` 已展示 token usage、最近一次 usage 来源和时间。
 - note tool 相关配置字段、resource warning 和 tool category 已移除。
 
 ## 进行中
 
-- Context diagnostics 最小展示已完成，正在准备验证与提交。
+- 暂无正在实施的开发任务。
 
 ## 下一步
 
-- 补齐 Context diagnostics 测试并验证。
-- 后续再实现 token accounting、auto compaction、prompt-too-long recovery 和 post-compact resource budget。
+- 开始 provider token estimation 或 ContextManager 最小骨架，用于支撑后续 context budget。
+- 后续再实现 auto compaction、prompt-too-long recovery 和 post-compact resource budget。
 
 ## 后续重点计划
 

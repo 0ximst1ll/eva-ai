@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder` 和 manual `/compact`。完整 RPC mode、session tree、MCP loader、skills system、自动 compaction 和完整 ContextManager 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、自动 compaction 和完整 ContextManager 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -181,8 +181,8 @@ Contents of AGENTS.md:
 
 interactive mode 当前会展示 ContextBuilder 状态：
 
-- `/stats`：显示 step guard、compaction 简要状态、project context 数量和最近一次 context build 状态；
-- `/diagnostics`：显示 active messages、step guard、compaction metadata、project context 资源名称、路径、字符数和最近一次 build 状态。
+- `/stats`：显示 step guard、compaction 简要状态、token usage、project context 数量和最近一次 context build 状态；
+- `/diagnostics`：显示 active messages、step guard、compaction metadata、token usage、project context 资源名称、路径、字符数和最近一次 build 状态。
 
 ## LLM 层
 
@@ -260,9 +260,12 @@ interactive mode 当前会展示 ContextBuilder 状态：
 - user messages 在 run 开始前追加；
 - assistant messages 通过 `assistant_message` 事件持久化；
 - tool result messages 通过 `tool_result` 事件持久化；
+- assistant response usage 通过 `message_end.response.usage` 持久化为独立 `usage` entry，不写入 durable messages；
 - manual compact 会先调用 LLM 生成摘要，成功后追加 `compaction` entry，并将当前活动上下文重建为 system prompt、summary 和最近保留消息；
+- compact LLM 调用返回的 usage 会以 `compaction` source 写入 `usage` entry；
 - compaction 失败时不会写入 `compaction` entry，也不会修改当前 session messages；
 - `compaction` getter 暴露最近一次 compaction metadata，用于 `/stats` 和 `/diagnostics`；
+- `usage` getter 暴露累计 usage、最近一次 usage、来源和时间；没有 provider usage 时返回 count 为 0 的空状态；
 - `maxSteps` getter 暴露当前 session 的有效 step guard，`null` / `undefined` 表示无固定上限；
 - legacy UI events 会转发给 mode renderer。
 
@@ -279,9 +282,11 @@ JSONL 模式下：
 - 创建或 reset session 时写入 `session_start`；
 - 每条 message 都写成一个 `message` entry；
 - manual compact 会追加 `compaction` entry，包含 summary、`firstKeptMessageIndex`、压缩前后 message 数和可选 custom instructions；
+- provider 返回的 token usage 会追加 `usage` entry，包含 source、timestamp 和 prompt/completion/total token 数；
 - `manifest.json` 记录 `latestSessionId`。
 - `listSessions()` 可列出当前 workspace 下的 session id、message count、updatedAt 和 latest 标记。
 - `getCompactionInfo()` 返回当前 session 最近一次 compaction metadata；如果尚未 compact，则返回 `compacted: false`。
+- `getUsageInfo()` 返回当前 session 累计 usage 和最近一次 usage；usage entries 不影响 message count，也不会进入 LLM request messages。
 
 当前 session model 仍是扁平结构。它支持 flat JSONL 兼容的 compaction entry 和基于最新 compaction 的 context rebuild；还不支持 parent/child entries、fork、import/export，也不支持从 session tree 做确定性 context rebuild。
 
@@ -353,9 +358,10 @@ runAgentLoop()
   |     `-- afterToolCall hook
   |
   |-- append assistant/tool messages
+  |-- append usage entry when provider returns usage
   |
   v
-AgentSession 持久化已发射的 assistant/tool messages
+AgentSession 持久化已发射的 assistant/tool messages 和 usage metadata
 ```
 
 ## 当前未接入范围
