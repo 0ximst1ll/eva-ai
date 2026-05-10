@@ -10,11 +10,12 @@ import { Colors } from './utils/terminal.js';
 
 let askToolConfirmation: ((request: ToolConfirmationRequest) => Promise<boolean>) | undefined;
 
-async function createHost(workspaceDir: string): Promise<RuntimeHost | null> {
+async function createHost(workspaceDir: string, maxSteps?: number | null): Promise<RuntimeHost | null> {
 
   try {
     const host = await RuntimeHost.create({
       workspaceDir,
+      maxSteps,
       confirmToolCall: (request) => askToolConfirmation?.(request) ?? false,
       onLlmRetry: ({ error, attempt, nextDelay }) => {
         console.log(`\n${Colors.BRIGHT_YELLOW}⚠️  LLM call failed (attempt ${attempt}): ${error.message}${Colors.RESET}`);
@@ -47,11 +48,11 @@ async function createHost(workspaceDir: string): Promise<RuntimeHost | null> {
 const workspaceDir = process.cwd();
 fs.mkdirSync(workspaceDir, { recursive: true });
 
-const host = await createHost(workspaceDir);
+const task = process.argv.slice(2).join(' ').trim();
+const host = await createHost(workspaceDir, task ? undefined : null);
 if (host) {
   renderRuntimeDiagnostics(host.runtime.diagnostics);
 
-  const task = process.argv.slice(2).join(' ').trim();
   if (task) {
     await runPrintMode({ host, task });
   } else {

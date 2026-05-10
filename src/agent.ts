@@ -21,14 +21,14 @@ export class Agent {
         llmClient,
         systemPrompt,
         tools,
-        maxSteps = 50,
+        maxSteps,
         workspaceDir = './workspace',
         tokenLimit = 80000,
     }: {
         llmClient: LLMClient;
         systemPrompt: string;
         tools: Tool[];
-        maxSteps?: number;
+        maxSteps?: number | null;
         workspaceDir?: string;
         tokenLimit?: number;
     }) {

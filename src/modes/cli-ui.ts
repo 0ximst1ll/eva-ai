@@ -20,7 +20,8 @@ export function createCliRenderer() {
   return (event: AgentSessionEvent): void => {
     if (event.type === 'message_start') {
       state = { printedThinkingHeader: false, printedAssistantHeader: false };
-      const stepText = `${Colors.BOLD}${Colors.BRIGHT_CYAN}💭 Step ${event.step}/${event.maxSteps}${Colors.RESET}`;
+      const stepLabel = event.maxSteps ? `Step ${event.step}/${event.maxSteps}` : `Step ${event.step}`;
+      const stepText = `${Colors.BOLD}${Colors.BRIGHT_CYAN}💭 ${stepLabel}${Colors.RESET}`;
       const stepWidth = calculateDisplayWidth(stepText);
       const padding = Math.max(0, BOX_WIDTH - 1 - stepWidth);
       console.log(`\n${Colors.DIM}╭${'─'.repeat(BOX_WIDTH)}╮${Colors.RESET}`);

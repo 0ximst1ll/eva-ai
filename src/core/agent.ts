@@ -65,7 +65,7 @@ export interface AgentOptions {
   tools: Tool[];
   messages?: Message[];
   contextBuilder?: ContextBuilder;
-  maxSteps?: number;
+  maxSteps?: number | null;
   steeringMode?: QueueMode;
   followUpMode?: QueueMode;
   toolExecution?: ToolExecutionMode;
@@ -82,7 +82,7 @@ export class Agent {
   private readonly followUpQueue: PendingMessageQueue;
   private activeRun?: ActiveRun;
   private _state: AgentState;
-  private maxSteps: number;
+  private maxSteps?: number | null;
   private toolExecution?: ToolExecutionMode;
   private contextBuilder?: ContextBuilder;
   private beforeToolCall?: AgentOptions['beforeToolCall'];
@@ -92,7 +92,7 @@ export class Agent {
 
   constructor(options: AgentOptions) {
     this.llmClient = options.llmClient;
-    this.maxSteps = options.maxSteps ?? 50;
+    this.maxSteps = options.maxSteps;
     this.steeringQueue = new PendingMessageQueue(options.steeringMode ?? 'one-at-a-time');
     this.followUpQueue = new PendingMessageQueue(options.followUpMode ?? 'one-at-a-time');
     this.toolExecution = options.toolExecution;
@@ -136,7 +136,7 @@ export class Agent {
     this.contextBuilder = contextBuilder;
   }
 
-  setMaxSteps(maxSteps: number): void {
+  setMaxSteps(maxSteps?: number | null): void {
     this.maxSteps = maxSteps;
   }
 

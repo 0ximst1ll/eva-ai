@@ -44,6 +44,7 @@ createRuntime()
 - `src/cli.ts` 将 workspace 解析为 `process.cwd()`，创建 `RuntimeHost`，渲染启动 diagnostics，然后选择运行 mode。
 - 如果命令行参数非空，则通过 `runPrintMode()` 执行单次任务后退出。
 - 如果没有命令行参数，则通过 `runInteractiveMode()` 启动 readline 交互循环。
+- CLI 默认不启用固定 step 上限；只有显式配置 `max_steps` 的 print/headless 运行才会启用单次 run guard。
 - mode 层只负责终端输入输出，不直接持有 runtime/session 的内部装配逻辑。
 - `src/modes/cli-ui.ts` 负责渲染 `AgentSessionEvent`，并在 interactive mode 中提供工具确认提示。
 
@@ -217,7 +218,9 @@ interactive mode 当前会展示 ContextBuilder 状态：
 - 追加 tool result messages；
 - 只要模型继续返回 tool calls，就继续循环；
 - 通过 callback 接收 steering/follow-up 队列消息；
-- 在 abort、达到 max steps 或 LLM 调用失败时停止。
+- 在 abort、显式 max steps guard 触发或 LLM 调用失败时停止。
+
+`maxSteps` 在 agent-loop 层是可选 guard。`number` 表示启用单次 run 上限，`null` 或 `undefined` 表示不限制。当前配置未显式设置 `max_steps` 时默认无上限；interactive mode 会覆盖为无上限，print/headless 只有在显式配置 `max_steps` 时才启用 guard。
 
 工具执行策略具备基础并发感知：
 

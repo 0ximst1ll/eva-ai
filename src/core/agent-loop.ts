@@ -30,9 +30,9 @@ export type AfterToolCallResult = Partial<Pick<ToolExecutionResult, 'success' | 
 
 export type AgentLoopEvent =
   | { type: 'agent_start' }
-  | { type: 'turn_start'; step: number; maxSteps: number }
+  | { type: 'turn_start'; step: number; maxSteps?: number | null }
   | { type: 'input_message'; message: Message }
-  | { type: 'message_start'; step: number; maxSteps: number }
+  | { type: 'message_start'; step: number; maxSteps?: number | null }
   | { type: 'assistant_message'; message: Extract<Message, { role: 'assistant' }> }
   | { type: 'thinking_delta'; text: string }
   | { type: 'content_delta'; text: string }
@@ -51,7 +51,7 @@ export type AgentLoopEventSink = (event: AgentLoopEvent) => void | Promise<void>
 export interface AgentLoopConfig {
   llmClient: LLMClient;
   tools: Tool[];
-  maxSteps: number;
+  maxSteps?: number | null;
   systemPrompt?: string;
   messages: Message[];
   contextBuilder?: ContextBuilder;
@@ -252,6 +252,10 @@ function getSystemPromptForContext(config: AgentLoopConfig, messages: Message[])
   return systemMessage?.content ?? '';
 }
 
+function hasStepLimit(maxSteps: number | null | undefined): maxSteps is number {
+  return typeof maxSteps === 'number' && Number.isFinite(maxSteps) && maxSteps > 0;
+}
+
 export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopResult> {
   const runStart = Date.now();
   const messages = [...config.messages];
@@ -280,7 +284,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         pendingMessages = [];
       }
 
-      if (step >= config.maxSteps) {
+      if (hasStepLimit(config.maxSteps) && step >= config.maxSteps) {
         const message = `Task couldn't be completed after ${config.maxSteps} steps.`;
         await emit(config.emit, { type: 'error', message });
         await emit(config.emit, { type: 'agent_end', messages, finalContent: message });

@@ -108,3 +108,49 @@ test('runAgentLoop sends transient project context to the LLM without persisting
     ['system', 'run', 'done'],
   );
 });
+
+test('runAgentLoop can run without a max step guard', async () => {
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-1', 'echo')],
+    },
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-2', 'echo')],
+    },
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-3', 'echo')],
+    },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const tool: Tool = {
+    name: 'echo',
+    description: 'Echo text',
+    parameters: { type: 'object' },
+    metadata: {
+      category: 'read',
+      riskLevel: 'low',
+      source: 'builtin',
+      isReadOnly: true,
+      isConcurrencySafe: true,
+    },
+    async execute() {
+      return { success: true, content: 'ok' };
+    },
+  };
+
+  const result = await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [tool],
+    maxSteps: null,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+  });
+
+  assert.equal(result.finalContent, 'done');
+  assert.equal(llm.calls.length, 4);
+});

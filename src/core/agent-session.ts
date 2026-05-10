@@ -31,7 +31,7 @@ export class AgentSession {
     llmClient,
     systemPrompt,
     tools,
-    maxSteps = 50,
+    maxSteps,
     toolExecution,
     contextBuilder,
     beforeToolCall,
@@ -42,7 +42,7 @@ export class AgentSession {
     llmClient: LLMClient;
     systemPrompt: string;
     tools: Tool[];
-    maxSteps?: number;
+    maxSteps?: number | null;
     toolExecution?: ToolExecutionMode;
     contextBuilder?: ContextBuilder;
     beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) =>

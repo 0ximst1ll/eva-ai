@@ -44,7 +44,7 @@ export interface ToolsConfigData {
 }
 
 export interface AgentConfigData {
-  maxSteps: number;
+  maxSteps: number | null;
   workspaceDir: string;
   systemPromptPath: string;
   projectContextMaxChars: number;
@@ -152,7 +152,7 @@ export class Config {
         },
       },
       agent: {
-        maxSteps: raw.max_steps ?? 50,
+        maxSteps: raw.max_steps ?? null,
         workspaceDir: raw.workspace_dir ?? './workspace',
         systemPromptPath: raw.system_prompt_path ?? 'system_prompt.md',
         projectContextMaxChars: raw.project_context_max_chars ?? 20000,

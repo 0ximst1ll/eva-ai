@@ -35,6 +35,7 @@ export interface CreateRuntimeOptions extends CreateRuntimeServicesOptions {
   createNewSession?: boolean;
   sessionId?: string;
   createSessionIfMissing?: boolean;
+  maxSteps?: number | null;
   confirmToolCall?: (request: ToolConfirmationRequest) => boolean | Promise<boolean>;
 }
 
@@ -179,7 +180,7 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
     llmClient,
     systemPrompt,
     tools,
-    maxSteps: config.agent.maxSteps,
+    maxSteps: options.maxSteps === undefined ? config.agent.maxSteps : options.maxSteps,
     contextBuilder,
     beforeToolCall: createToolGovernanceHook(config, options),
     sessionManager,

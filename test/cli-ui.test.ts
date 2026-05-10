@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { RuntimeDiagnostic } from '../src/diagnostics.js';
-import { renderRuntimeDiagnostics } from '../src/modes/cli-ui.js';
+import { createCliRenderer, renderRuntimeDiagnostics } from '../src/modes/cli-ui.js';
 
 function captureConsoleLog(fn: () => void): string[] {
   const original = console.log;
@@ -15,6 +15,26 @@ function captureConsoleLog(fn: () => void): string[] {
     console.log = original;
   }
   return output;
+}
+
+function captureConsoleAndStdout(fn: () => void): string {
+  const originalLog = console.log;
+  const originalWrite = process.stdout.write;
+  const output: string[] = [];
+  console.log = (message?: unknown) => {
+    output.push(String(message ?? ''));
+  };
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    output.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    fn();
+  } finally {
+    console.log = originalLog;
+    process.stdout.write = originalWrite;
+  }
+  return output.join('\n');
 }
 
 test('renderRuntimeDiagnostics filters low-value info diagnostics by default', () => {
@@ -63,4 +83,15 @@ test('renderRuntimeDiagnostics can render all diagnostics in verbose mode', () =
   const output = captureConsoleLog(() => renderRuntimeDiagnostics(diagnostics, { verbose: true })).join('\n');
 
   assert.match(output, /Loaded config/);
+});
+
+test('createCliRenderer prints unbounded steps without a max suffix', () => {
+  const render = createCliRenderer();
+
+  const output = captureConsoleAndStdout(() => {
+    render({ type: 'message_start', step: 2, maxSteps: null });
+  });
+
+  assert.match(output, /Step 2/);
+  assert.doesNotMatch(output, /Step 2\//);
 });
