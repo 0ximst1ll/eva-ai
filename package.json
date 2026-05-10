@@ -14,11 +14,13 @@
     "@anthropic-ai/sdk": "^0.91.0",
     "@google/genai": "^1.50.1",
     "gpt-tokenizer": "^3.4.0",
+    "marked": "^18.0.3",
     "openai": "^6.34.0",
     "yaml": "^2.8.3"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
+    "@types/marked": "^5.0.2",
+    "@types/node": "^25.6.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

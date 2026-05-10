@@ -63,4 +63,6 @@ export const Colors = {
   BG_GREEN: '\x1b[42m',
   BG_YELLOW: '\x1b[43m',
   BG_BLUE: '\x1b[44m',
+  BG_WHITE: '\x1b[47m',
+  BLACK: '\x1b[30m',
 } as const;

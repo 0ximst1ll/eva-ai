@@ -4,7 +4,7 @@
 
 Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示，以及 assistant usage 持久化最小闭环。
 
-当前任务已完成：不引入完整 ContextManager，只记录 provider 返回的 usage，让 session reload 后仍能恢复 token usage，并在 `/stats` 与 `/diagnostics` 中展示。
+当前计划启动 TUI 实现：采用 pi-mono 风格的轻量自研 TUI 方案（差分渲染引擎 + 原生 TypeScript 组件），逐步替换当前 readline interactive mode。
 
 ## 已完成
 
@@ -38,23 +38,51 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - `AgentSession` 已暴露 usage 状态，并会持久化 assistant response usage 和 compact LLM usage。
 - `/stats` 与 `/diagnostics` 已展示 token usage、最近一次 usage 来源和时间。
 - note tool 相关配置字段、resource warning 和 tool category 已移除。
+- TUI 调研已完成：评估了 pi-mono（自研 TS）、claude-code/gemini-cli（Ink fork）、OpenCode（OpenTUI/Zig）、Codex（ratatui/Rust）等方案，确定采用 pi-mono 风格自研路线。
+- **TUI 实现 Phase 0 基础设施已完成**：
+  - 实现了 `src/tui/terminal.ts` (`ProcessTerminal`，控制 raw mode)。
+  - 实现了 `src/tui/tui.ts` 差分渲染引擎。
+  - 实现了 `src/tui/components/text.ts` 和 `editor.ts`。
+  - 实现了 `src/modes/tui-mode.ts` 并连通了 RuntimeHost 和 slash commands。
+  - CLI 已支持 `--tui` 和 `EVA_TUI=1` 启动参数。
+
+- **TUI 实现 Phase 1 流式渲染与 Markdown 已完成**：
+  - 引入了 `marked` 库。
+  - 实现了 `Markdown` 组件，将 AST 转换为 ANSI 着色的文本行。
+  - 实现了 `Loader` 组件，支持 80ms 的 spinner 动画，并主动触发 TUI 重绘。
+  - 实现了 `AssistantMessage` 复合组件，协调 `thinking`、`content` 和 `loader` 的组合渲染，支持流式内容追加。
+  - 在 `tui-mode.ts` 中完成了 `AgentSessionEvent` 到 `AssistantMessage` 的状态映射。
+
+- **TUI 实现 Phase 2 工具执行展示与交互覆盖层（Overlay）已完成**：
+  - 实现了 `ToolExecution` 组件，支持 `[ ] Running...` 动画和 `[v] Result...` 的内联状态切换。
+  - 实现了 `ConfirmationDialog` 确认框组件，可在拦截高风险工具时渲染在当前输出流的最下方。
+  - 结合 `tui-mode.ts` 和 `tui.ts` 底部 diff 清理特性，无需重写复杂的 z-index 绝对定位 Overlay 系统，直接利用组件挂载和卸载实现了无缝的底部确认框拦截。
 
 ## 进行中
 
-- 暂无正在实施的开发任务。
+- TUI 基础设施与核心体验均已完成，准备进入 Phase 3。
 
 ## 下一步
 
-- 开始 provider token estimation 或 ContextManager 最小骨架，用于支撑后续 context budget。
-- 后续再实现 auto compaction、prompt-too-long recovery 和 post-compact resource budget。
+### TUI Phase 3：Editor 完善 + Footer
+
+目标：编辑体验完善。
+
+1. **[已完成]** Editor 升级为多行（word-wrap、左右光标移动）
+2. **[已完成]** 实现 Footer 组件（model、token usage、session info）
+3. **[已完成]** 实现 slash command 自动补全
+4. **[已完成]** 实现 Header 组件
+
+验收：编辑体验流畅，有完整的状态信息展示。
 
 ## 后续重点计划
 
-- 当前 manual `/compact` 只做最小闭环，不实现自动阈值 compaction。
-- ContextManager 后续再承接 token accounting、auto compaction、prompt-too-long recovery、post-compact resource reinjection 和 context diagnostics。
-- 当前 `max_steps` 后续应进一步迁移为 print/headless/RPC 场景下的命名更明确的可选 runaway guard。
-- 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 逐步建立。
-- 完整 session tree、fork、clone 和 path-aware context rebuild 放入后续 session model 阶段。
+- TUI Phase 4：主题系统、代码高亮、diff 展示优化、Kitty keyboard protocol。
+- provider token estimation 或 ContextManager 最小骨架。
+- auto compaction、prompt-too-long recovery 和 post-compact resource budget。
+- MCP loader、skills loader。
+- RPC mode。
+- session tree / fork。
 
 ## 已知问题
 
@@ -67,3 +95,4 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - RPC mode 尚不存在。
 - session history 仍是 flat JSONL，尚未升级为 session tree。
 - tool result budget、超大输出持久化、完整 permission pipeline 尚未实现。
+- `src/tui/` 目录尚不存在，TUI 代码尚未开始编写。

@@ -53,9 +53,11 @@ export class GoogleClient extends LLMClientBase {
     systemInstruction: string | null,
     tools?: Tool[] | null,
   ): Record<string, unknown> {
-    const config: Record<string, unknown> = {
-      thinkingConfig: { includeThoughts: true },
-    };
+    const config: Record<string, unknown> = {};
+
+    if (this.model.includes('thinking')) {
+      config['thinkingConfig'] = { includeThoughts: true };
+    }
 
     if (systemInstruction) {
       config['systemInstruction'] = systemInstruction;

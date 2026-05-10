@@ -5,7 +5,7 @@ import {
   type ToolConfirmationRequest,
 } from './core/runtime.js';
 import { RuntimeHost } from './core/runtime-host.js';
-import { renderRuntimeDiagnostics, runInteractiveMode, runPrintMode } from './modes/index.js';
+import { renderRuntimeDiagnostics, runInteractiveMode, runPrintMode, runTuiMode } from './modes/index.js';
 import { Colors } from './utils/terminal.js';
 
 let askToolConfirmation: ((request: ToolConfirmationRequest) => Promise<boolean>) | undefined;
@@ -48,13 +48,26 @@ async function createHost(workspaceDir: string, maxSteps?: number | null): Promi
 const workspaceDir = process.cwd();
 fs.mkdirSync(workspaceDir, { recursive: true });
 
-const task = process.argv.slice(2).join(' ').trim();
-const host = await createHost(workspaceDir, task ? undefined : null);
-if (host) {
-  renderRuntimeDiagnostics(host.runtime.diagnostics);
+const args = process.argv.slice(2);
+const tuiMode = args.includes('--tui') || process.env.EVA_TUI === '1';
+const taskArgs = args.filter(a => a !== '--tui');
+const task = taskArgs.join(' ').trim();
 
-  if (task) {
+const host = await createHost(workspaceDir, task && !tuiMode ? undefined : null);
+if (host) {
+  if (!tuiMode) {
+    renderRuntimeDiagnostics(host.runtime.diagnostics);
+  }
+
+  if (task && !tuiMode) {
     await runPrintMode({ host, task });
+  } else if (tuiMode) {
+    await runTuiMode({
+      host,
+      setToolConfirmationHandler: (handler) => {
+        askToolConfirmation = handler;
+      },
+    });
   } else {
     await runInteractiveMode({
       host,
@@ -64,3 +77,4 @@ if (host) {
     });
   }
 }
+
