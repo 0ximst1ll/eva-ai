@@ -4,11 +4,11 @@
 
 ## 当前快照
 
-当前版本：2026-05-09
+当前版本：2026-05-10
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader` 和最小 `ContextBuilder`。完整 RPC mode、session tree、MCP loader、skills system 和 ContextManager 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder` 和 manual `/compact`。完整 RPC mode、session tree、MCP loader、skills system、自动 compaction 和完整 ContextManager 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -53,6 +53,7 @@ createRuntime()
 - `/new`：通过 `RuntimeHost.newSession()` 创建并切换到新会话。
 - `/resume`、`/resume <id>`：通过 `RuntimeHost` 恢复 latest session 或切换到指定 session。
 - `/clear`：将当前会话重置为 system prompt。
+- `/compact [custom instructions]`：手动压缩当前 session context，生成摘要并保留最近消息。
 - `/history`：打印当前 session id 和消息数量。
 - `/stats`：打印当前 session、message count、token usage、provider、model 和 tool count。
 - `/diagnostics`：打印当前 runtime 的完整 diagnostics。
@@ -247,6 +248,7 @@ interactive mode 当前会展示 ContextBuilder 状态：
 - system prompt；
 - `addUserMessage()`；
 - `clear()`；
+- `compact(customInstructions?)`；
 - `steer()` 和 `followUp()`；
 - `run({ signal, onEvent })`。
 
@@ -255,6 +257,8 @@ interactive mode 当前会展示 ContextBuilder 状态：
 - user messages 在 run 开始前追加；
 - assistant messages 通过 `assistant_message` 事件持久化；
 - tool result messages 通过 `tool_result` 事件持久化；
+- manual compact 会先调用 LLM 生成摘要，成功后追加 `compaction` entry，并将当前活动上下文重建为 system prompt、summary 和最近保留消息；
+- compaction 失败时不会写入 `compaction` entry，也不会修改当前 session messages；
 - legacy UI events 会转发给 mode renderer。
 
 ## Sessions
@@ -269,10 +273,11 @@ JSONL 模式下：
 - 每个 session 对应 `<sessionId>.jsonl`；
 - 创建或 reset session 时写入 `session_start`；
 - 每条 message 都写成一个 `message` entry；
+- manual compact 会追加 `compaction` entry，包含 summary、`firstKeptMessageIndex`、压缩前后 message 数和可选 custom instructions；
 - `manifest.json` 记录 `latestSessionId`。
 - `listSessions()` 可列出当前 workspace 下的 session id、message count、updatedAt 和 latest 标记。
 
-当前 session model 是扁平结构。还不支持 parent/child entries、fork、compaction entries、import/export，也不支持从 session tree 做确定性 context rebuild。
+当前 session model 仍是扁平结构。它支持 flat JSONL 兼容的 compaction entry 和基于最新 compaction 的 context rebuild；还不支持 parent/child entries、fork、import/export，也不支持从 session tree 做确定性 context rebuild。
 
 ## Tools
 
@@ -351,10 +356,9 @@ AgentSession 持久化已发射的 assistant/tool messages
 
 以下能力可能出现在配置字段或规划文档中，但当前 runtime 尚未实现：
 
-- `RuntimeServices`
-- project context resource loader
 - MCP loader
 - skills loader
 - RPC mode
-- session tree / fork / compact
+- session tree / fork
+- auto compact / prompt-too-long recovery
 - 完整 permission pipeline

@@ -1,94 +1,57 @@
 # Eva AI Current
 
-## 当前状态（2026-05-09）
+## 当前状态（2026-05-10）
 
-Eva AI 当前处于 M0：稳定当前基线阶段。
+Eva AI 当前已完成 M0 基线稳定和 M2 RuntimeServices / ResourceLoader 的主要骨架，正在推进 M1.x 长任务上下文治理的最小闭环。
 
-当前目标是先确认 runtime/session/mode 的核心路径可靠，再继续推进 resource loader、ContextBuilder、RPC、session tree、MCP、skills 等更大的系统能力。
+当前任务已完成 manual `/compact` 最小闭环：在不提前引入完整 session tree 和自动 compaction 的前提下，用户可以手动压缩当前会话上下文，并继续保留完整 JSONL 历史。
 
 ## 已完成
 
-- 已将旧架构文档重命名为 `docs/architecture.md`。
-- 已更新 `docs/architecture.md`，使其匹配当前代码事实。
-- 已明确当前 runtime 主要路径：
-  - `cli.ts`
-  - `RuntimeHost`
-  - `createRuntime()`
-  - `AgentSession`
-  - `Agent`
-  - `runAgentLoop()`
-- 已明确当前未实现范围，避免把 MCP、skills、RPC、session tree 等路线图能力误写成已实现能力。
-- 已新增 `docs/planning.md`，记录 Eva AI 的项目目标和参考策略。
-- 当前 interactive 和 print modes 已共享 `RuntimeHost` 与同一套 runtime/session 路径。
+- interactive 和 print modes 已共享 `RuntimeHost` 与同一套 runtime/session 路径。
+- 已实现 `RuntimeHost` 的 `newSession()`、`resumeLatestSession()`、`switchSession()` 和 `reloadResources()`。
 - 当前已有 JSONL session persistence、builtin file/search/bash tools、tool registry、高风险工具 confirmation hook、abort 和 queue 基础能力。
-- 已增加真实 `test` script，使用 Node test runner + `tsx` 执行 TypeScript 回归测试。
-- 已增加 `typecheck` script 和 `tsconfig.json`，使用 `tsc --noEmit` 做静态检查。
-- 已增加 retry 行为回归测试。
-- 已增加 `SessionManager` memory/jsonl 持久化测试。
-- 已增加 agent-loop tool-call continuation 测试。
-- 已增加 `RuntimeHost` new/resume/switch 测试。
-- 已增加 abort 与 steering/follow-up queue 测试。
-- 已修正 `config/system_prompt.md`，避免声明 MCP、skills、RPC 等尚未实现能力。
-- interactive mode 已实现 `/new`，通过 `RuntimeHost.newSession()` 创建新会话并显示新旧 session id。
-- interactive mode 已实现 `/resume` 和 `/resume <id>`，通过 `RuntimeHost` 恢复 latest session 或切换到指定 session。
-- interactive mode 已改进 `/history`，显示当前 session id 和 message count。
-- interactive mode 已实现 `/stats`，显示当前 session、message count、token usage、provider、model 和 tool count。
-- `SessionManager` 已支持列出当前 workspace sessions，interactive mode 已实现 `/sessions`。
+- 已建立 `test` 和 `typecheck` script，并覆盖 retry、SessionManager、agent-loop、RuntimeHost、abort、queue 等核心路径。
+- interactive mode 已实现 `/new`、`/resume`、`/resume <id>`、`/clear`、`/history`、`/stats`、`/diagnostics`、`/reload` 和 `/sessions`。
 - runtime diagnostics 已统一为 `source`、`level`、`code`、`message`、`details` 结构。
-- `createRuntime()` 已收集 config、provider、resource、session diagnostics。
-- `loadConfiguredTools()` 已返回统一 tools diagnostics。
-- 启动 diagnostics 默认过滤普通 `info`，保留 warning/error 和关键 info。
-- interactive mode 已实现 `/diagnostics`，用于查看完整 runtime diagnostics。
-- 已新增 `RuntimeServices`，承载 workspace 绑定的 config、provider、tools、session manager 和 diagnostics。
-- `createRuntime()` 已改为基于 `RuntimeServices` 创建当前 `AgentSession`。
-- 已新增轻量 `ResourceLoader`，承载 system prompt 和 `AGENTS.md` 项目上下文加载。
-- `RuntimeServices` 已暴露 `resourceLoader`。
-- 已新增最小 `ContextBuilder`，在 LLM call 前构造 request messages。
+- `RuntimeServices` 已承载 workspace 绑定的 config、provider、tools、session manager、resource loader、context builder 和 diagnostics。
+- `ResourceLoader` 已支持 system prompt 与 `AGENTS.md` project context 加载，并对尚未接入的 skills、MCP 返回 diagnostics。
+- `ContextBuilder` 已在每次 LLM call 前构造 request messages。
 - `AGENTS.md` 已作为 transient project context 注入模型请求，不写回 session history。
-- `RuntimeServices` 已暴露 `contextBuilder`，并增加 context diagnostics。
-- `ContextBuilder` 已记录最近一次 context build 摘要。
-- `ContextBuilder` 已支持 `project_context_max_chars` 字符预算，默认 20000。
-- 超出预算的 project context 会被截断；预算过小时会跳过注入并记录原因。
+- `ContextBuilder` 已支持 `project_context_max_chars` 字符预算、截断、跳过原因和最近一次 build 摘要。
 - interactive mode 的 `/stats` 和 `/diagnostics` 已展示 project context 数量、来源和最近一次 build 状态。
-- interactive mode 已实现 `/reload`，用于重新加载 system prompt 和 project context。
+- interactive mode 已实现 `/reload`，可重新加载 system prompt 和 project context，并保持当前 session 不变。
+- interactive mode 已实现 `/compact [custom instructions]`，用于手动压缩当前 session context。
+- `AgentSession.compact()` 已支持调用当前 LLM 生成摘要，并在成功后重建当前活动上下文。
+- `SessionManager` 已支持 flat JSONL 兼容的 `compaction` entry。
+- compact 后当前活动上下文会变为 system prompt、summary 和最近保留消息；原始历史 message entries 仍保留在 JSONL log 中。
+- compaction 失败不会修改当前 session messages。
 - note tool 相关配置字段、resource warning 和 tool category 已移除。
-- 已增加 runtime diagnostics 回归测试。
-- 已增加 diagnostics 渲染和 `/diagnostics` 命令测试。
-- 已增加 `RuntimeServices` 回归测试。
-- 已增加 `ResourceLoader` 回归测试。
-- 已增加 `ContextBuilder`、agent-loop transient context 和 AgentSession 持久化边界回归测试。
 
 ## 进行中
 
-- 推进 M2 `RuntimeServices` 与 Resource Loader。
-- ContextBuilder 最小闭环、diagnostics 展示和 project context budget 已完成，继续评估 resource reload 的优先级。
-- Resource reload 已完成，当前 runtime 可重新加载 system prompt 和 `AGENTS.md`，并保持当前 session 不变。
+- 当前 manual `/compact` 最小闭环已完成，正在进入下一步上下文治理规划评估。
 
 ## 下一步
 
-优先处理 ContextBuilder 后续收敛：
-
-- 评估是否进入 manual `/compact` 和 ContextManager。
-- 后续再补完整 token budget、session summary 和 compaction reinjection。
+- 评估是否进入 `max_steps` interactive 语义调整，或继续补 ContextManager diagnostics。
+- 后续再实现 token accounting、auto compaction、prompt-too-long recovery 和 post-compact resource budget。
 
 ## 后续重点计划
 
-- 长任务上下文治理已拆成 `docs/planning.md` 中的 M1.x。
-- M1.x 不一定紧接当前 P1 执行，但进入明确路线图。
-- M1.x 的方向是对齐 `pi-mono` 的 agent-loop 自然停止语义，不再把固定 `max_steps` 作为 interactive 长任务硬上限。
-- ContextBuilder 是 M1.x 的前置最小闭环，用来把资源加载和模型请求上下文构造分开。
-- ContextManager 后续负责 token budget、summary、manual/auto compaction、prompt-too-long recovery 和 post-compact reinjection。
+- 当前 manual `/compact` 只做最小闭环，不实现自动阈值 compaction。
+- ContextManager 后续再承接 token accounting、auto compaction、prompt-too-long recovery、post-compact resource reinjection 和 context diagnostics。
 - 当前 `max_steps` 后续应迁移为 print/headless/RPC 场景下的可选 runaway guard。
-- 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 建立最小闭环。
-- 完整 auto-compaction、prompt-too-long recovery、tool result micro-compaction 和 post-compact resource budgets 放入后续 Context Management 增强。
+- 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 逐步建立。
+- 完整 session tree、fork、clone 和 path-aware context rebuild 放入后续 session model 阶段。
 
 ## 已知问题
 
 - `logger.ts` 仍是占位文件。
 - `ResourceLoader` 仍是最小骨架，尚未支持自动监听或更细粒度 reload。
-- `ContextBuilder` 仍是最小骨架，尚未支持完整 token budget、summary、compaction reinjection 或 provider token estimation。
+- `ContextBuilder` 仍未支持完整 token budget、provider token estimation 或 post-compact resource budget。
+- manual `/compact` 仍是最小版：没有自动阈值、prompt-too-long recovery 或工具结果 micro-compaction。
 - skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
-- interactive mode 尚未实现 `/fork`、`/compact`。
 - 当前 `max_steps` 仍作为 agent loop 硬停止条件存在，尚未对齐 `pi-mono` 的自然停止语义。
 - RPC mode 尚不存在。
 - session history 仍是 flat JSONL，尚未升级为 session tree。

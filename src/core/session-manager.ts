@@ -3,6 +3,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Message } from '../schema.js';
+import {
+  chooseFirstKeptMessageIndex,
+  rebuildCompactedMessages,
+  type CompactionResult,
+} from './compaction.js';
 
 type PersistenceMode = 'memory' | 'jsonl';
 
@@ -25,7 +30,18 @@ interface MessageEntry {
   message: Message;
 }
 
-type SessionLogEntry = SessionStartEntry | MessageEntry;
+interface CompactionEntry {
+  type: 'compaction';
+  sessionId: string;
+  timestamp: number;
+  summary: string;
+  firstKeptMessageIndex: number;
+  messagesBefore: number;
+  messagesAfter: number;
+  customInstructions?: string;
+}
+
+type SessionLogEntry = SessionStartEntry | MessageEntry | CompactionEntry;
 
 interface SessionMetadata {
   createdAt: number;
@@ -143,6 +159,59 @@ export class SessionManager {
       });
       await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
+  }
+
+  async appendCompaction({
+    sessionId,
+    summary,
+    customInstructions,
+    keepRecentMessages = 8,
+  }: {
+    sessionId: string;
+    summary: string;
+    customInstructions?: string;
+    keepRecentMessages?: number;
+  }): Promise<CompactionResult> {
+    const existing = this.sessions.get(sessionId);
+    if (!existing) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    if (existing.length <= 2) {
+      throw new Error('Nothing to compact (session too small)');
+    }
+
+    const firstKeptMessageIndex = chooseFirstKeptMessageIndex(existing, keepRecentMessages);
+    const compactedMessages = rebuildCompactedMessages({
+      messages: existing,
+      summary,
+      firstKeptMessageIndex,
+    });
+    const now = Date.now();
+    const result: CompactionResult = {
+      summary,
+      firstKeptMessageIndex,
+      messagesBefore: existing.length,
+      messagesAfter: compactedMessages.length,
+    };
+
+    this.sessions.set(sessionId, compactedMessages);
+    this.touchSession(sessionId, now);
+
+    if (this.mode === 'jsonl') {
+      await this.appendEntry({
+        type: 'compaction',
+        sessionId,
+        timestamp: now,
+        summary,
+        firstKeptMessageIndex,
+        messagesBefore: result.messagesBefore,
+        messagesAfter: result.messagesAfter,
+        customInstructions,
+      });
+      await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
+    }
+
+    return result;
   }
 
   async resetSession(sessionId: string, systemPrompt: string): Promise<void> {
@@ -291,6 +360,19 @@ export class SessionManager {
         }
         if (entry.type === 'message') {
           messages.push(entry.message);
+          updatedAt = Math.max(updatedAt, entry.timestamp);
+          continue;
+        }
+        if (entry.type === 'compaction') {
+          messages.splice(
+            0,
+            messages.length,
+            ...rebuildCompactedMessages({
+              messages,
+              summary: entry.summary,
+              firstKeptMessageIndex: entry.firstKeptMessageIndex,
+            }),
+          );
           updatedAt = Math.max(updatedAt, entry.timestamp);
         }
       } catch {

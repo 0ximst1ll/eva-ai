@@ -68,3 +68,52 @@ test('SessionManager persists and reloads jsonl sessions', async () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test('SessionManager appends compaction entries and rebuilds compacted context', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-compact-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+
+  try {
+    const first = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    const sessionId = await first.createSession('system', 'session-compact');
+    await first.appendMessage(sessionId, { role: 'user', content: 'first task' });
+    await first.appendMessage(sessionId, { role: 'assistant', content: 'first answer' });
+    await first.appendMessage(sessionId, { role: 'user', content: 'second task' });
+    await first.appendMessage(sessionId, { role: 'assistant', content: 'second answer' });
+    await first.appendMessage(sessionId, { role: 'user', content: 'third task' });
+    await first.appendMessage(sessionId, { role: 'assistant', content: 'third answer' });
+
+    const result = await first.appendCompaction({
+      sessionId,
+      summary: 'Summary of earlier work.',
+      keepRecentMessages: 2,
+    });
+
+    assert.deepEqual(
+      first.getMessages(sessionId).map((message) => message.content),
+      [
+        'system',
+        '<conversation_summary>\nThe previous conversation was compacted. Use this summary as context for continuing the task.\n\nSummary of earlier work.\n</conversation_summary>',
+        'third task',
+        'third answer',
+      ],
+    );
+    assert.equal(result.messagesBefore, 7);
+    assert.equal(result.messagesAfter, 4);
+
+    const workspaceKey = encodeURIComponent(path.resolve(workspaceDir));
+    const rawLog = await fs.readFile(
+      path.join(baseDir, workspaceKey, 'session-compact.jsonl'),
+      'utf-8',
+    );
+    assert.match(rawLog, /"type":"message".*"first task"/);
+    assert.match(rawLog, /"type":"compaction".*"Summary of earlier work\."/);
+
+    const second = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    assert.equal(await second.loadSession(sessionId), true);
+    assert.deepEqual(second.getMessages(sessionId), first.getMessages(sessionId));
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});

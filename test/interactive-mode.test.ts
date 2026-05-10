@@ -352,6 +352,61 @@ test('/reload reloads runtime resources through RuntimeHost', async () => {
   assert.match(text, /System prompt:.*system_prompt\.md/);
 });
 
+test('/compact compacts the current session through AgentSession', async () => {
+  const output: string[] = [];
+  const customInstructions: Array<string | undefined> = [];
+  const host = {
+    get session() {
+      return {
+        async compact(instructions?: string) {
+          customInstructions.push(instructions);
+          return {
+            summary: 'summary',
+            firstKeptMessageIndex: 3,
+            messagesBefore: 10,
+            messagesAfter: 5,
+          };
+        },
+      };
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/compact focus on current bug',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+  const text = output.join('\n');
+
+  assert.equal(result, 'continue');
+  assert.deepEqual(customInstructions, ['focus on current bug']);
+  assert.match(text, /Compacted current session/);
+  assert.match(text, /Messages:.*10 -> 5/);
+  assert.match(text, /Kept from message index:.*3/);
+});
+
+test('/compact reports compaction failures without throwing', async () => {
+  const output: string[] = [];
+  const host = {
+    get session() {
+      return {
+        async compact() {
+          throw new Error('Nothing to compact');
+        },
+      };
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/compact',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.match(output.join('\n'), /Compact failed: Nothing to compact/);
+});
+
 test('non-slash input is not handled as an interactive command', async () => {
   const result = await handleInteractiveCommand({
     userInput: 'hello',

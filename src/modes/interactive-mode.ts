@@ -102,6 +102,24 @@ export async function handleInteractiveCommand({
     return 'continue';
   }
 
+  if (cmd === '/compact') {
+    const customInstructions = userInput.slice(command.length).trim() || undefined;
+    try {
+      const result = await host.session.compact(customInstructions);
+      writeLine(`${Colors.GREEN}✅ Compacted current session${Colors.RESET}`);
+      writeLine(
+        `${Colors.BRIGHT_CYAN}Messages:${Colors.RESET} ${result.messagesBefore} -> ${result.messagesAfter}`,
+      );
+      writeLine(
+        `${Colors.BRIGHT_CYAN}Kept from message index:${Colors.RESET} ${result.firstKeptMessageIndex}`,
+      );
+      writeLine();
+    } catch (e) {
+      writeLine(`${Colors.RED}❌ Compact failed: ${(e as Error).message}${Colors.RESET}\n`);
+    }
+    return 'continue';
+  }
+
   if (cmd === '/history') {
     writeLine(`\n${Colors.BRIGHT_CYAN}Current session:${Colors.RESET} ${host.sessionId}`);
     writeLine(`${Colors.BRIGHT_CYAN}Message count:${Colors.RESET} ${host.session.messages.length}\n`);

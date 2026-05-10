@@ -2,6 +2,11 @@ import type { LLMClient } from '../llm/llm-client.js';
 import type { AgentSessionEvent, Message } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { Agent } from './agent.js';
+import {
+  buildCompactionMessages,
+  extractCompactionSummary,
+  type CompactionResult,
+} from './compaction.js';
 import type { ContextBuilder } from './context-builder.js';
 import type {
   AfterToolCallContext,
@@ -15,6 +20,7 @@ import { SessionManager } from './session-manager.js';
 
 export class AgentSession {
   private readonly agent: Agent;
+  private readonly llmClient: LLMClient;
   private readonly sessionManager: SessionManager;
   private _systemPrompt: string;
   readonly sessionId: string;
@@ -47,6 +53,7 @@ export class AgentSession {
     sessionId: string;
   }) {
     this._systemPrompt = systemPrompt;
+    this.llmClient = llmClient;
     this.sessionManager = sessionManager;
     this.sessionId = sessionId;
     this.agent = new Agent({
@@ -91,6 +98,31 @@ export class AgentSession {
   async clear(): Promise<void> {
     await this.sessionManager.resetSession(this.sessionId, this._systemPrompt);
     this.agent.reset(this.sessionManager.getMessages(this.sessionId));
+  }
+
+  async compact(customInstructions?: string): Promise<CompactionResult> {
+    const messages = this.sessionManager.getMessages(this.sessionId);
+    if (messages.length <= 2) {
+      throw new Error('Nothing to compact (session too small)');
+    }
+
+    const response = await this.llmClient.generate(
+      buildCompactionMessages({ messages, customInstructions }),
+      null,
+    );
+    const summary = extractCompactionSummary(response);
+    const result = await this.sessionManager.appendCompaction({
+      sessionId: this.sessionId,
+      summary,
+      customInstructions,
+    });
+
+    this.agent.setMessages(this.sessionManager.getMessages(this.sessionId));
+    if (response.usage) {
+      this.agent.apiTotalTokens += response.usage.total_tokens;
+      this.apiTotalTokens = this.agent.apiTotalTokens;
+    }
+    return result;
   }
 
   steer(content: string): void {

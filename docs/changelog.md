@@ -11,6 +11,25 @@
 11. RuntimeServices 最小骨架
 12. ResourceLoader 最小骨架
 13. ContextBuilder 最小闭环
+14. Manual `/compact` 最小闭环
+
+
+
+
+# Manual `/compact` 最小闭环
+
+引入 flat JSONL 兼容的手动上下文压缩能力，作为后续完整 ContextManager 之前的最小长任务治理闭环。
+
+核心变化：
+
+- interactive mode 支持 `/compact [custom instructions]`。
+- `AgentSession.compact()` 负责调用当前 LLM 生成会话摘要。
+- `SessionManager` 支持追加 `compaction` entry，并基于最新 compaction 重建当前活动上下文。
+- compact 后当前上下文变为 system prompt、summary 和最近保留消息。
+- 原始历史 message entries 仍保留在 JSONL session log 中。
+- compaction 失败不会修改当前 session messages。
+
+当前仍不包含自动阈值 compaction、prompt-too-long recovery、完整 token budget 或 session tree。
 
 
 

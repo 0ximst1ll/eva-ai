@@ -8,8 +8,16 @@ import type { LLMResponse, LLMStreamEvent, Message } from '../src/schema.js';
 
 class ScriptedLLM {
   calls: Message[][] = [];
+  generateCalls: Message[][] = [];
 
   constructor(private readonly responses: LLMResponse[]) {}
+
+  async generate(messages: Message[]): Promise<LLMResponse> {
+    this.generateCalls.push(messages.map((message) => ({ ...message })) as Message[]);
+    const response = this.responses.shift();
+    if (!response) throw new Error('No scripted response');
+    return response;
+  }
 
   async *generateStream(messages: Message[]): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
     this.calls.push(messages.map((message) => ({ ...message })) as Message[]);
@@ -55,6 +63,66 @@ test('AgentSession keeps transient project context out of session history', asyn
     sessionManager.getMessages(sessionId).map((message) => message.content),
     ['system', 'run', 'done'],
   );
+});
+
+test('AgentSession compacts history into a summary message and keeps recent context', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-1');
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'first task' });
+  await sessionManager.appendMessage(sessionId, { role: 'assistant', content: 'first answer' });
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'second task' });
+  await sessionManager.appendMessage(sessionId, { role: 'assistant', content: 'second answer' });
+  const llm = new ScriptedLLM([
+    {
+      content: 'The user completed the first task and is now on the second task.',
+      finish_reason: 'stop',
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    },
+  ]);
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [],
+    maxSteps: 3,
+    sessionManager,
+    sessionId,
+  });
+
+  const result = await session.compact('focus on remaining work');
+  const messages = sessionManager.getMessages(sessionId);
+
+  assert.equal(result.messagesBefore, 5);
+  assert.equal(result.messagesAfter, messages.length);
+  assert.equal(messages[0]?.content, 'system');
+  assert.match(messages[1]?.content ?? '', /The user completed the first task/);
+  assert.match(llm.generateCalls[0]?.[1]?.content ?? '', /focus on remaining work/);
+  assert.equal(session.apiTotalTokens, 15);
+});
+
+test('AgentSession leaves session history unchanged when compaction fails', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-1');
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'task' });
+  await sessionManager.appendMessage(sessionId, { role: 'assistant', content: 'answer' });
+  const before = sessionManager.getMessages(sessionId);
+  const llm = new ScriptedLLM([{ content: '', finish_reason: 'stop' }]);
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [],
+    maxSteps: 3,
+    sessionManager,
+    sessionId,
+  });
+
+  await assert.rejects(() => session.compact(), /summary is empty/);
+  assert.deepEqual(sessionManager.getMessages(sessionId), before);
 });
 
 test('AgentSession uses reloaded context resources on the next run', async () => {
