@@ -60,6 +60,7 @@ test('createRuntimeServices builds workspace-bound services without creating an 
     assert.equal(services.contextBuilder.projectContextMaxChars, 20000);
     assert.ok(services.contextManager);
     assert.equal(services.contextManager.contextBuilder, services.contextBuilder);
+    assert.ok(services.tokenCounter);
     assert.equal(services.config.agent.contextWindowTokens, 100000);
     assert.ok(services.sessionManager);
     assert.ok(services.llmClient);

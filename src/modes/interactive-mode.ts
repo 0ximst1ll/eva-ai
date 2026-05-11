@@ -13,7 +13,7 @@ export interface InteractiveModeOptions {
 
 export type InteractiveCommandResult = 'not_command' | 'continue' | 'exit';
 
-function getContextDiagnostics(host: RuntimeHost): ContextDiagnostics | undefined {
+async function getContextDiagnostics(host: RuntimeHost): Promise<ContextDiagnostics | undefined> {
   return host.runtime.services?.contextManager?.getDiagnostics({
     sessionId: host.sessionId,
     messages: host.session.messages,
@@ -91,6 +91,7 @@ function formatContextUsageStatus(diagnostics: ContextDiagnostics): string {
     `window=${window}`,
     `percent=${percent}`,
     `source=${usage.source}`,
+    `count=${usage.countSource}`,
     `method=${usage.method}`,
   ].join(', ');
 }
@@ -207,7 +208,7 @@ export async function handleInteractiveCommand({
     writeLine(`${Colors.BRIGHT_CYAN}Provider:${Colors.RESET} ${host.runtime.config.llm.provider}`);
     writeLine(`${Colors.BRIGHT_CYAN}Model:${Colors.RESET} ${host.runtime.config.llm.model}`);
     writeLine(`${Colors.BRIGHT_CYAN}Tools:${Colors.RESET} ${host.runtime.tools.length}`);
-    const contextDiagnostics = getContextDiagnostics(host);
+    const contextDiagnostics = await getContextDiagnostics(host);
     if (contextDiagnostics) {
       writeLine(`${Colors.BRIGHT_CYAN}Step guard:${Colors.RESET} ${formatStepGuard(contextDiagnostics.stepGuard)}`);
       writeLine(`${Colors.BRIGHT_CYAN}Compaction:${Colors.RESET} ${formatCompactionStatus(contextDiagnostics.compaction)}`);
@@ -238,7 +239,7 @@ export async function handleInteractiveCommand({
             : Colors.DIM;
       writeLine(`${color}${formatRuntimeDiagnostic(diagnostic)}${Colors.RESET}`);
     }
-    const contextDiagnostics = getContextDiagnostics(host);
+    const contextDiagnostics = await getContextDiagnostics(host);
     if (contextDiagnostics) {
       writeLine();
       writeContextDiagnostics(contextDiagnostics, writeLine);

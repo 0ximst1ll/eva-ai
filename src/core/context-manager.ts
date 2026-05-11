@@ -2,6 +2,7 @@ import type { Message } from '../schema.js';
 import type { ContextBuildSummary, ContextBuilder } from './context-builder.js';
 import type { ProjectContextResource } from './resource-loader.js';
 import type { SessionCompactionInfo, SessionManager, SessionUsageInfo } from './session-manager.js';
+import { type TokenCounter, type TokenCountMethod, type TokenCountSource, countMessagesLocally } from './token-counter.js';
 import { estimateMessagesTokens, type TokenEstimate } from './token-estimator.js';
 
 export interface ContextDiagnosticsInput {
@@ -26,7 +27,8 @@ export interface ContextUsageDiagnostics {
   contextWindowTokens: number | null;
   percent: number | null;
   source: 'latest_request' | 'active_messages';
-  method: TokenEstimate['method'];
+  countSource: TokenCountSource;
+  method: TokenCountMethod;
 }
 
 export interface ContextDiagnostics {
@@ -43,17 +45,19 @@ export interface ContextDiagnostics {
 export interface ContextManager {
   readonly contextBuilder: ContextBuilder;
   setContextBuilder(contextBuilder: ContextBuilder): void;
-  getDiagnostics(input: ContextDiagnosticsInput): ContextDiagnostics;
+  getDiagnostics(input: ContextDiagnosticsInput): Promise<ContextDiagnostics>;
 }
 
 export function createContextManager({
   contextBuilder,
   sessionManager,
   contextWindowTokens,
+  tokenCounter,
 }: {
   contextBuilder: ContextBuilder;
   sessionManager: SessionManager;
   contextWindowTokens?: number | null;
+  tokenCounter?: TokenCounter;
 }): ContextManager {
   let currentContextBuilder = contextBuilder;
   const normalizedContextWindowTokens = normalizeOptionalPositiveInteger(contextWindowTokens);
@@ -65,20 +69,25 @@ export function createContextManager({
     setContextBuilder(nextContextBuilder: ContextBuilder): void {
       currentContextBuilder = nextContextBuilder;
     },
-    getDiagnostics({ sessionId, messages, maxSteps }: ContextDiagnosticsInput): ContextDiagnostics {
+    async getDiagnostics({ sessionId, messages, maxSteps }: ContextDiagnosticsInput): Promise<ContextDiagnostics> {
       const stepGuard = typeof maxSteps === 'number' && Number.isFinite(maxSteps) && maxSteps > 0
         ? { enabled: true, maxSteps }
         : { enabled: false };
       const activeMessageTokenEstimate = estimateMessagesTokens(messages);
       const latestBuild = currentContextBuilder.latestBuild;
+      const latestRequestMessages = currentContextBuilder.latestRequestMessages;
+      const contextUsageMessages = latestRequestMessages ?? messages;
+      const contextTokenCount = tokenCounter
+        ? await tokenCounter.countMessages({ messages: contextUsageMessages })
+        : countMessagesLocally(contextUsageMessages);
 
       return {
         activeMessageCount: messages.length,
         activeMessageTokenEstimate,
         contextUsage: createContextUsageDiagnostics({
-          tokenEstimate: latestBuild?.requestTokenEstimate ?? activeMessageTokenEstimate,
+          tokenCount: contextTokenCount,
           contextWindowTokens: normalizedContextWindowTokens,
-          source: latestBuild ? 'latest_request' : 'active_messages',
+          source: latestRequestMessages ? 'latest_request' : 'active_messages',
         }),
         stepGuard,
         compaction: sessionManager.getCompactionInfo(sessionId),
@@ -100,19 +109,20 @@ function normalizeOptionalPositiveInteger(value: number | null | undefined): num
 }
 
 function createContextUsageDiagnostics({
-  tokenEstimate,
+  tokenCount,
   contextWindowTokens,
   source,
 }: {
-  tokenEstimate: TokenEstimate;
+  tokenCount: ReturnType<typeof countMessagesLocally>;
   contextWindowTokens: number | null;
   source: ContextUsageDiagnostics['source'];
 }): ContextUsageDiagnostics {
   return {
-    estimatedTokens: tokenEstimate.tokens,
+    estimatedTokens: tokenCount.tokens,
     contextWindowTokens,
-    percent: contextWindowTokens ? (tokenEstimate.tokens / contextWindowTokens) * 100 : null,
+    percent: contextWindowTokens ? (tokenCount.tokens / contextWindowTokens) * 100 : null,
     source,
-    method: tokenEstimate.method,
+    countSource: tokenCount.source,
+    method: tokenCount.method,
   };
 }

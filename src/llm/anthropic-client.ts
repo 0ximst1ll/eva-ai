@@ -66,6 +66,25 @@ export class AnthropicClient extends LLMClientBase {
     ) as unknown as AsyncGenerator<Record<string, unknown>>;
   }
 
+  private async _makeCountTokensRequest(
+    systemMessage: string | null,
+    apiMessages: Record<string, unknown>[],
+    tools?: Tool[] | null,
+  ): Promise<number | null> {
+    const params: Record<string, unknown> = {
+      model: this.model,
+      messages: apiMessages.length ? apiMessages : [{ role: 'user', content: 'count' }],
+    };
+
+    if (systemMessage) params['system'] = systemMessage;
+    if (tools?.length) params['tools'] = tools.map(toAnthropicSchema);
+
+    const response = await this.client.messages.countTokens(
+      params as unknown as Anthropic.MessageCountTokensParams,
+    );
+    return typeof response.input_tokens === 'number' ? response.input_tokens : null;
+  }
+
   protected _convertMessages(messages: Message[]): [string | null, Record<string, unknown>[]] {
     let systemMessage: string | null = null;
     const apiMessages: Record<string, unknown>[] = [];
@@ -196,6 +215,28 @@ export class AnthropicClient extends LLMClientBase {
     }
 
     return this._parseResponse(response);
+  }
+
+  async countTokens(messages: Message[], tools?: Tool[] | null): Promise<number | null> {
+    const { systemMessage, apiMessages } = this._prepareRequest(messages, tools) as {
+      systemMessage: string | null;
+      apiMessages: Record<string, unknown>[];
+    };
+
+    try {
+      if (this.retryConfig.enabled) {
+        const wrapped = withRetry(
+          (sm: string | null, am: Record<string, unknown>[], t?: Tool[] | null) =>
+            this._makeCountTokensRequest(sm, am, t),
+          this.retryConfig,
+          this.retryCallback ?? undefined,
+        );
+        return await wrapped(systemMessage, apiMessages, tools);
+      }
+      return await this._makeCountTokensRequest(systemMessage, apiMessages, tools);
+    } catch {
+      return null;
+    }
   }
 
   async *generateStream(

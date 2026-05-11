@@ -12,6 +12,7 @@ import { createContextBuilder, type ContextBuilder } from './context-builder.js'
 import { createContextManager, type ContextManager } from './context-manager.js';
 import { createResourceLoader, type ResourceLoader } from './resource-loader.js';
 import { SessionManager } from './session-manager.js';
+import { createTokenCounter, type TokenCounter } from './token-counter.js';
 
 export type SessionMode = 'memory' | 'jsonl';
 
@@ -39,6 +40,7 @@ export interface RuntimeServices {
   resourceLoader: ResourceLoader;
   contextBuilder: ContextBuilder;
   contextManager: ContextManager;
+  tokenCounter: TokenCounter;
   systemPrompt: string;
   systemPromptPath: string | null;
   tools: Tool[];
@@ -263,10 +265,12 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
       baseDir: options.sessionBaseDir,
     },
   }));
+  const tokenCounter = createTokenCounter({ llmClient, tools });
   const contextManager = createContextManager({
     contextBuilder: resourceSet.contextBuilder,
     sessionManager,
     contextWindowTokens: config.agent.contextWindowTokens,
+    tokenCounter,
   });
 
   const services: RuntimeServices = {
@@ -278,6 +282,7 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     resourceLoader: resourceSet.resourceLoader,
     contextBuilder: resourceSet.contextBuilder,
     contextManager,
+    tokenCounter,
     systemPrompt: resourceSet.systemPrompt,
     systemPromptPath: resourceSet.systemPromptPath,
     tools,

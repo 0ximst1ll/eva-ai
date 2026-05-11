@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、本地 request token estimation、可选 context window usage percent、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、provider API countTokens、自动 compaction 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic countTokens 最小接入、可选 context window usage percent、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、OpenAI/Gemini provider countTokens、自动 compaction 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -26,6 +26,7 @@ createRuntime()
   |     |-- ResourceLoader
   |     |-- ContextBuilder
   |     |-- ContextManager
+  |     |-- TokenCounter
   |     |-- loadConfiguredTools() -> ToolRegistry -> Tool[]
   |     `-- SessionManager
   `-- AgentSession
@@ -76,6 +77,7 @@ createRuntime()
 - 通过 `createResourceLoader()` 加载 system prompt 和项目上下文资源；
 - 通过 `createContextBuilder()` 创建 LLM request messages 构造器；
 - 通过 `createContextManager()` 创建 context diagnostics 聚合器；
+- 通过 `createTokenCounter()` 创建 provider/local token count 边界；
 - 通过 `loadConfiguredTools()` 加载内置工具；
 - 创建 `SessionManager`，默认使用 `jsonl` 模式；
 - 返回统一 diagnostics。
@@ -182,6 +184,17 @@ Contents of AGENTS.md:
 
 `ContextBuilder` 只负责 project context 字符预算，不负责完整 token budget、compaction、summary 或 post-compact reinjection。这些仍属于后续 ContextManager 演进范围。
 
+## Token Counter
+
+`src/core/token-counter.ts` 当前提供最小 token count 边界：
+
+- 优先调用 provider countTokens；
+- provider 不支持或失败时回退到本地 `gpt-tokenizer` estimate；
+- 返回 `source`，区分 `provider` 和 `local`；
+- 返回 `method`，当前为 `anthropic_count_tokens` 或 `gpt-tokenizer`。
+
+当前 provider countTokens 只接入 Anthropic adapter。OpenAI 和 Google adapter 暂时返回 `null`，由 TokenCounter 回退到本地估算。
+
 ## Context Manager
 
 `src/core/context-manager.ts` 当前是最小状态聚合器。它持有当前 `ContextBuilder`，并通过 `SessionManager` 汇总当前 session 的 context diagnostics。
@@ -197,14 +210,14 @@ Contents of AGENTS.md:
 - 暴露 active messages 的估算 token 数；
 - 暴露 project context 资源、字符预算和最近一次 context build 摘要；
 - 暴露最近一次 request/project context token estimate。
-- 如果配置了 `context_window_tokens`，基于本地 token estimate 计算 context usage percent；未配置时显示 unknown。
+- 如果配置了 `context_window_tokens`，基于 TokenCounter 结果计算 context usage percent；未配置时显示 unknown。
 
-它当前不负责自动 compaction、provider API countTokens、prompt-too-long recovery、summary 生成、post-compact resource reinjection 或完整 token budget。
+它当前不负责自动 compaction、OpenAI/Gemini provider countTokens、prompt-too-long recovery、summary 生成、post-compact resource reinjection 或完整 token budget。
 
 interactive mode 当前通过 `ContextManager` 展示 context 状态：
 
-- `/stats`：显示 step guard、compaction 简要状态、token usage、本地 token estimate、context usage percent、project context 数量和最近一次 context build 状态；
-- `/diagnostics`：显示 active messages、step guard、compaction metadata、token usage、本地 token estimate、context usage percent、project context 资源名称、路径、字符数和最近一次 build 状态。
+- `/stats`：显示 step guard、compaction 简要状态、token usage、token estimate、context usage percent、count source、project context 数量和最近一次 context build 状态；
+- `/diagnostics`：显示 active messages、step guard、compaction metadata、token usage、token estimate、context usage percent、count source、project context 资源名称、路径、字符数和最近一次 build 状态。
 
 ## LLM 层
 
@@ -223,8 +236,11 @@ interactive mode 当前通过 `ContextManager` 展示 context 状态：
 
 - `generate(messages, tools)`
 - `generateStream(messages, tools)`
+- `countTokens(messages, tools)`
 
 基类中的 streaming 实现可以将非流式响应适配成 `thinking_delta`、`content_delta`、`tool_call`、`usage` 和 `done` 事件。具体 provider adapter 可以覆盖该行为。
+
+当前只有 `AnthropicClient.countTokens()` 调用 provider API；其他 adapter 继承基类默认 `null` 返回，由 TokenCounter fallback 处理。
 
 ## Agent Loop
 

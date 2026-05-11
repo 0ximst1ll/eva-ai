@@ -73,6 +73,10 @@ export class LLMClient {
     return this._client.generate(messages, tools);
   }
 
+  async countTokens(messages: Message[], tools?: Tool[] | null): Promise<number | null> {
+    return this._client.countTokens(messages, tools);
+  }
+
   async *generateStream(
     messages: Message[],
     tools?: Tool[] | null,

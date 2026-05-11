@@ -25,6 +25,10 @@ export abstract class LLMClientBase {
 
     abstract generate(messages: Message[], tool?: Tool[] | null): Promise<LLMResponse>;
 
+    async countTokens(_messages: Message[], _tool?: Tool[] | null): Promise<number | null> {
+        return null;
+    }
+
     async *generateStream(
         messages: Message[],
         tool?: Tool[] | null,

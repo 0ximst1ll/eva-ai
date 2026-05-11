@@ -9,6 +9,7 @@ export interface ContextBuilder {
   readonly projectContext: ProjectContextResource[];
   readonly projectContextMaxChars: number;
   readonly latestBuild: ContextBuildSummary | null;
+  readonly latestRequestMessages: Message[] | null;
   build(input: BuildContextInput): BuildContextResult;
 }
 
@@ -129,10 +130,14 @@ export function createContextBuilder({
   const resources = projectContext.slice();
   const maxChars = normalizeBudget(projectContextMaxChars);
   let latestBuild: ContextBuildSummary | null = null;
+  let latestRequestMessages: Message[] | null = null;
 
   return {
     get latestBuild() {
       return latestBuild;
+    },
+    get latestRequestMessages() {
+      return latestRequestMessages?.slice() ?? null;
     },
     projectContext: resources,
     projectContextMaxChars: maxChars,
@@ -140,6 +145,7 @@ export function createContextBuilder({
       const formattedProjectContext = formatProjectContext(resources, maxChars);
       if (!formattedProjectContext.content) {
         const requestMessages = withSystemMessage(messages, systemPrompt);
+        latestRequestMessages = requestMessages.slice();
         latestBuild = {
           injected: false,
           projectContextCount: 0,
@@ -181,6 +187,7 @@ export function createContextBuilder({
         { role: 'user', content: formattedProjectContext.content },
         systemPrompt,
       );
+      latestRequestMessages = requestMessages.slice();
       latestBuild = {
         injected: true,
         projectContextCount: resources.length,

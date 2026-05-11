@@ -34,7 +34,7 @@ test('ContextManager reports context diagnostics from builder and session metada
     contextWindowTokens: 1000,
   });
 
-  const beforeBuild = contextManager.getDiagnostics({
+  const beforeBuild = await contextManager.getDiagnostics({
     sessionId,
     messages: sessionManager.getMessages(sessionId),
     maxSteps: null,
@@ -44,6 +44,7 @@ test('ContextManager reports context diagnostics from builder and session metada
   assert.ok(beforeBuild.activeMessageTokenEstimate.tokens > 0);
   assert.equal(beforeBuild.contextUsage.contextWindowTokens, 1000);
   assert.equal(beforeBuild.contextUsage.source, 'active_messages');
+  assert.equal(beforeBuild.contextUsage.countSource, 'local');
   assert.equal(
     beforeBuild.contextUsage.percent,
     (beforeBuild.activeMessageTokenEstimate.tokens / 1000) * 100,
@@ -60,7 +61,7 @@ test('ContextManager reports context diagnostics from builder and session metada
     systemPrompt: 'system',
     messages: sessionManager.getMessages(sessionId),
   });
-  const afterBuild = contextManager.getDiagnostics({
+  const afterBuild = await contextManager.getDiagnostics({
     sessionId,
     messages: sessionManager.getMessages(sessionId),
     maxSteps: 8,
@@ -72,6 +73,43 @@ test('ContextManager reports context diagnostics from builder and session metada
   assert.ok((afterBuild.latestBuild?.projectContextTokenEstimate.tokens ?? 0) > 0);
   assert.equal(afterBuild.contextUsage.source, 'latest_request');
   assert.equal(afterBuild.contextUsage.estimatedTokens, afterBuild.latestBuild?.requestTokenEstimate.tokens);
+});
+
+test('ContextManager uses provider token counts when a TokenCounter is available', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-context');
+  const contextBuilder = createContextBuilder();
+  contextBuilder.build({
+    systemPrompt: 'system',
+    messages: sessionManager.getMessages(sessionId),
+  });
+  const contextManager = createContextManager({
+    contextBuilder,
+    sessionManager,
+    contextWindowTokens: 1000,
+    tokenCounter: {
+      async countMessages() {
+        return {
+          tokens: 250,
+          source: 'provider',
+          method: 'anthropic_count_tokens',
+        };
+      },
+    },
+  });
+
+  const diagnostics = await contextManager.getDiagnostics({
+    sessionId,
+    messages: sessionManager.getMessages(sessionId),
+  });
+
+  assert.equal(diagnostics.contextUsage.estimatedTokens, 250);
+  assert.equal(diagnostics.contextUsage.countSource, 'provider');
+  assert.equal(diagnostics.contextUsage.method, 'anthropic_count_tokens');
+  assert.equal(diagnostics.contextUsage.percent, 25);
 });
 
 test('ContextManager updates diagnostics when the context builder changes', async () => {
@@ -101,7 +139,7 @@ test('ContextManager updates diagnostics when the context builder changes', asyn
   });
 
   contextManager.setContextBuilder(nextContextBuilder);
-  const diagnostics = contextManager.getDiagnostics({
+  const diagnostics = await contextManager.getDiagnostics({
     sessionId,
     messages: sessionManager.getMessages(sessionId),
   });

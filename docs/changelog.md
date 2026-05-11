@@ -13,6 +13,24 @@
 13. ContextBuilder 最小闭环
 14. Manual `/compact` 最小闭环
 15. ContextBuilder / ContextManager 上下文管理分层
+16. TokenCounter provider/local 计数边界
+
+
+
+
+# TokenCounter provider/local 计数边界
+
+为上下文预算能力新增 `TokenCounter` 边界，让 `ContextManager` 可以区分 provider countTokens 与本地 token estimate。
+
+核心变化：
+
+- 新增 `src/core/token-counter.ts`。
+- `LLMClient` / `LLMClientBase` 暴露 `countTokens(messages, tools)`。
+- `AnthropicClient` 接入 Anthropic Messages countTokens API。
+- OpenAI / Google 暂时走基类默认 `null`，由 TokenCounter 回退到本地 `gpt-tokenizer`。
+- `ContextManager` 的 context usage diagnostics 增加 `countSource` 和 `method`。
+
+当前仍不触发自动压缩，也不实现 OpenAI/Gemini provider countTokens。
 
 
 
