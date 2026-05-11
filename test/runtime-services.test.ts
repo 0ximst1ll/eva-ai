@@ -9,12 +9,25 @@ async function writeConfig(
   dir: string,
   {
     contextWindowTokens,
+    compactionEnabled,
+    compactionReserveTokens,
   }: {
     contextWindowTokens?: number;
+    compactionEnabled?: boolean;
+    compactionReserveTokens?: number;
   } = {},
 ): Promise<string> {
   const configPath = path.join(dir, 'config.yaml');
-  const agentConfig = contextWindowTokens ? [`context_window_tokens: ${contextWindowTokens}`] : [];
+  const agentConfig = [
+    ...(contextWindowTokens ? [`context_window_tokens: ${contextWindowTokens}`] : []),
+    ...(compactionEnabled === undefined && compactionReserveTokens === undefined
+      ? []
+      : [
+          'compaction:',
+          ...(compactionEnabled === undefined ? [] : [`  enabled: ${compactionEnabled}`]),
+          ...(compactionReserveTokens ? [`  reserve_tokens: ${compactionReserveTokens}`] : []),
+        ]),
+  ];
   await fs.writeFile(
     configPath,
     [
@@ -40,7 +53,11 @@ test('createRuntimeServices builds workspace-bound services without creating an 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-services-'));
 
   try {
-    const configPath = await writeConfig(tempDir, { contextWindowTokens: 100000 });
+    const configPath = await writeConfig(tempDir, {
+      contextWindowTokens: 100000,
+      compactionEnabled: true,
+      compactionReserveTokens: 16000,
+    });
     const services = await createRuntimeServices({
       workspaceDir: tempDir,
       configPath,
@@ -62,6 +79,8 @@ test('createRuntimeServices builds workspace-bound services without creating an 
     assert.equal(services.contextManager.contextBuilder, services.contextBuilder);
     assert.ok(services.tokenCounter);
     assert.equal(services.config.agent.contextWindowTokens, 100000);
+    assert.equal(services.config.agent.compaction.enabled, true);
+    assert.equal(services.config.agent.compaction.reserveTokens, 16000);
     assert.ok(services.sessionManager);
     assert.ok(services.llmClient);
     assert.ok(services.diagnostics.some((diagnostic) => diagnostic.code === 'config_loaded'));

@@ -271,6 +271,7 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     sessionManager,
     contextWindowTokens: config.agent.contextWindowTokens,
     tokenCounter,
+    compaction: config.agent.compaction,
   });
 
   const services: RuntimeServices = {

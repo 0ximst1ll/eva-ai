@@ -96,6 +96,22 @@ function formatContextUsageStatus(diagnostics: ContextDiagnostics): string {
   ].join(', ');
 }
 
+function formatCompactionRecommendationStatus(diagnostics: ContextDiagnostics): string {
+  const recommendation = diagnostics.compactionRecommendation;
+  const decision = recommendation.shouldCompact ? 'yes' : 'no';
+  const usage = recommendation.usagePercent === null ? 'unknown' : `${recommendation.usagePercent.toFixed(1)}%`;
+  const window = recommendation.contextWindowTokens?.toString() ?? 'unknown';
+  return [
+    decision,
+    `reason=${recommendation.reason}`,
+    `auto=${recommendation.autoEnabled ? 'enabled' : 'disabled'}`,
+    `usage=${usage}`,
+    `reserve=${recommendation.reserveTokens}`,
+    `estimated=${recommendation.estimatedTokens}`,
+    `window=${window}`,
+  ].join(', ');
+}
+
 function writeContextDiagnostics(
   diagnostics: ContextDiagnostics,
   writeLine: (message?: string) => void,
@@ -113,6 +129,7 @@ function writeContextDiagnostics(
   writeLine(`  Token usage: ${formatUsageStatus(diagnostics.usage)}`);
   writeLine(`  Latest usage: ${formatLatestUsageStatus(diagnostics.usage)}`);
   writeLine(`  Context usage: ${formatContextUsageStatus(diagnostics)}`);
+  writeLine(`  Compaction recommendation: ${formatCompactionRecommendationStatus(diagnostics)}`);
   writeLine(`  Estimated tokens: ${formatTokenEstimateStatus(diagnostics)}`);
   writeLine(`  Project context resources: ${diagnostics.projectContext.count}`);
   for (const resource of diagnostics.projectContext.resources) {
@@ -215,6 +232,7 @@ export async function handleInteractiveCommand({
       writeLine(`${Colors.BRIGHT_CYAN}Token usage:${Colors.RESET} ${formatUsageStatus(contextDiagnostics.usage)}`);
       writeLine(`${Colors.BRIGHT_CYAN}Latest usage:${Colors.RESET} ${formatLatestUsageStatus(contextDiagnostics.usage)}`);
       writeLine(`${Colors.BRIGHT_CYAN}Context usage:${Colors.RESET} ${formatContextUsageStatus(contextDiagnostics)}`);
+      writeLine(`${Colors.BRIGHT_CYAN}Compaction recommendation:${Colors.RESET} ${formatCompactionRecommendationStatus(contextDiagnostics)}`);
       writeLine(`${Colors.BRIGHT_CYAN}Estimated tokens:${Colors.RESET} ${formatTokenEstimateStatus(contextDiagnostics)}`);
       writeLine(`${Colors.BRIGHT_CYAN}Project context:${Colors.RESET} ${contextDiagnostics.projectContext.count}`);
       writeLine(`${Colors.BRIGHT_CYAN}Context build:${Colors.RESET} ${formatContextBuildStatus(contextDiagnostics.latestBuild)}`);

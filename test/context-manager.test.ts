@@ -45,6 +45,8 @@ test('ContextManager reports context diagnostics from builder and session metada
   assert.equal(beforeBuild.contextUsage.contextWindowTokens, 1000);
   assert.equal(beforeBuild.contextUsage.source, 'active_messages');
   assert.equal(beforeBuild.contextUsage.countSource, 'local');
+  assert.equal(beforeBuild.compactionRecommendation.shouldCompact, false);
+  assert.equal(beforeBuild.compactionRecommendation.reason, 'auto_disabled');
   assert.equal(
     beforeBuild.contextUsage.percent,
     (beforeBuild.activeMessageTokenEstimate.tokens / 1000) * 100,
@@ -110,6 +112,72 @@ test('ContextManager uses provider token counts when a TokenCounter is available
   assert.equal(diagnostics.contextUsage.countSource, 'provider');
   assert.equal(diagnostics.contextUsage.method, 'anthropic_count_tokens');
   assert.equal(diagnostics.contextUsage.percent, 25);
+});
+
+test('ContextManager recommends compaction only when the reserve is reached', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-context');
+  const contextBuilder = createContextBuilder();
+
+  const belowReserve = createContextManager({
+    contextBuilder,
+    sessionManager,
+    contextWindowTokens: 1000,
+    compaction: {
+      enabled: true,
+      reserveTokens: 200,
+    },
+    tokenCounter: {
+      async countMessages() {
+        return { tokens: 700, source: 'provider', method: 'anthropic_count_tokens' };
+      },
+    },
+  });
+  const belowDiagnostics = await belowReserve.getDiagnostics({
+    sessionId,
+    messages: sessionManager.getMessages(sessionId),
+  });
+  assert.equal(belowDiagnostics.compactionRecommendation.shouldCompact, false);
+  assert.equal(belowDiagnostics.compactionRecommendation.reason, 'below_reserve');
+
+  const reserveReached = createContextManager({
+    contextBuilder,
+    sessionManager,
+    contextWindowTokens: 1000,
+    compaction: {
+      enabled: true,
+      reserveTokens: 200,
+    },
+    tokenCounter: {
+      async countMessages() {
+        return { tokens: 850, source: 'provider', method: 'anthropic_count_tokens' };
+      },
+    },
+  });
+  const reserveDiagnostics = await reserveReached.getDiagnostics({
+    sessionId,
+    messages: sessionManager.getMessages(sessionId),
+  });
+  assert.equal(reserveDiagnostics.compactionRecommendation.shouldCompact, true);
+  assert.equal(reserveDiagnostics.compactionRecommendation.reason, 'reserve_reached');
+
+  const unknownWindow = createContextManager({
+    contextBuilder,
+    sessionManager,
+    compaction: {
+      enabled: true,
+      reserveTokens: 200,
+    },
+  });
+  const unknownDiagnostics = await unknownWindow.getDiagnostics({
+    sessionId,
+    messages: sessionManager.getMessages(sessionId),
+  });
+  assert.equal(unknownDiagnostics.compactionRecommendation.shouldCompact, false);
+  assert.equal(unknownDiagnostics.compactionRecommendation.reason, 'context_window_unknown');
 });
 
 test('ContextManager updates diagnostics when the context builder changes', async () => {

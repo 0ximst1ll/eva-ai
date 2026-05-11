@@ -49,6 +49,12 @@ export interface AgentConfigData {
   systemPromptPath: string;
   projectContextMaxChars: number;
   contextWindowTokens: number | null;
+  compaction: CompactionConfigData;
+}
+
+export interface CompactionConfigData {
+  enabled: boolean;
+  reserveTokens: number;
 }
 
 export interface ConfigData {
@@ -68,6 +74,10 @@ interface RawYaml {
   system_prompt_path?: string;
   project_context_max_chars?: number;
   context_window_tokens?: number;
+  compaction?: {
+    enabled?: boolean;
+    reserve_tokens?: number;
+  };
   retry?: {
     enabled?: boolean;
     max_retries?: number;
@@ -159,6 +169,10 @@ export class Config {
         systemPromptPath: raw.system_prompt_path ?? 'system_prompt.md',
         projectContextMaxChars: raw.project_context_max_chars ?? 20000,
         contextWindowTokens: normalizeOptionalPositiveInteger(raw.context_window_tokens),
+        compaction: {
+          enabled: raw.compaction?.enabled ?? false,
+          reserveTokens: normalizePositiveInteger(raw.compaction?.reserve_tokens, 16384),
+        },
       },
       tools: {
         enableFileTools: tools.enable_file_tools ?? true,
@@ -194,5 +208,10 @@ export class Config {
 
 function normalizeOptionalPositiveInteger(value: number | undefined): number | null {
   if (value === undefined || !Number.isFinite(value) || value <= 0) return null;
+  return Math.floor(value);
+}
+
+function normalizePositiveInteger(value: number | undefined, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return fallback;
   return Math.floor(value);
 }

@@ -27,6 +27,10 @@ function createConfig(systemPromptPath = 'system_prompt.md'): ConfigData {
       systemPromptPath,
       projectContextMaxChars: 20000,
       contextWindowTokens: null,
+      compaction: {
+        enabled: false,
+        reserveTokens: 16384,
+      },
     },
     tools: {
       enableFileTools: false,

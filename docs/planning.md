@@ -318,7 +318,7 @@ MCP 不应阻塞首轮提示。
 - 支持 token accounting，并优先使用 provider 返回的 usage；
 - 支持 context diagnostics，能解释当前上下文预算和压缩状态；
 - 支持手动 `/compact`；
-- 支持自动阈值 compaction；
+- 支持基于 context reserve 的自动 compaction；
 - 支持 prompt-too-long recovery；
 - compaction 作为 session entry 写入；
 - compact 后按预算重新注入 project context 和 skills。
@@ -337,7 +337,7 @@ Eva AI 的上下文治理分两层推进：
 - `ContextBuilder`：无状态构造器。每次 LLM call 前，把当前 session messages、system prompt、project context 和 runtime context 组合成发送给 provider 的 request messages。
 - `ContextManager`：有状态管理器。后续负责 token budget、manual/auto compaction、summary、post-compact resource reinjection 和 context diagnostics。
 
-第一阶段先实现 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 边界、本地 request token estimation、Anthropic countTokens 最小接入和可选 context usage percent，避免过早引入完整 Claude Code 式 context engine。当前最小 `ContextManager` 只聚合 `ContextBuilder.latestBuild`、session usage、compaction、step guard、project context metadata、token count source 和基于配置窗口的 usage percent，不做自动策略。
+第一阶段先实现 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 边界、本地 request token estimation、Anthropic countTokens 最小接入、可选 context usage percent 和 auto compaction recommendation diagnostics，避免过早引入完整 Claude Code 式 context engine。当前最小 `ContextManager` 只聚合 `ContextBuilder.latestBuild`、session usage、compaction、step guard、project context metadata、token count source、基于配置窗口的 usage percent 和 compaction recommendation，不自动执行 compact。
 
 `ContextBuilder` 的目标行为：
 
@@ -370,7 +370,7 @@ user/assistant/tool: durable session history
 - project context budget；
 - session summary；
 - manual `/compact`；
-- automatic threshold compaction；
+- automatic reserve-based compaction execution；
 - prompt-too-long recovery；
 - post-compact project context / skills reinjection；
 - context diagnostics。
@@ -628,7 +628,7 @@ user/assistant/tool: durable session history
 
 范围：
 
-- automatic threshold compaction。
+- automatic reserve-based compaction。
 - prompt-too-long recovery。
 - tool result micro-compaction。
 - oversized output persistence。

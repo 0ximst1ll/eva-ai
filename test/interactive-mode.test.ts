@@ -29,16 +29,26 @@ function createContextManagerMock({
       const activeMessageTokenEstimate = estimateMessagesTokens(messages);
       const latestBuild = contextBuilder.latestBuild;
       const contextUsageEstimate = latestBuild?.requestTokenEstimate ?? activeMessageTokenEstimate;
+      const contextUsage = {
+        estimatedTokens: contextUsageEstimate.tokens,
+        contextWindowTokens,
+        percent: contextWindowTokens ? (contextUsageEstimate.tokens / contextWindowTokens) * 100 : null,
+        source: latestBuild ? 'latest_request' : 'active_messages',
+        countSource: 'local',
+        method: contextUsageEstimate.method,
+      };
       return {
         activeMessageCount: messages.length,
         activeMessageTokenEstimate,
-        contextUsage: {
-          estimatedTokens: contextUsageEstimate.tokens,
+        contextUsage,
+        compactionRecommendation: {
+          shouldCompact: false,
+          reason: 'auto_disabled',
+          autoEnabled: false,
+          reserveTokens: 16384,
+          estimatedTokens: contextUsage.estimatedTokens,
           contextWindowTokens,
-          percent: contextWindowTokens ? (contextUsageEstimate.tokens / contextWindowTokens) * 100 : null,
-          source: latestBuild ? 'latest_request' : 'active_messages',
-          countSource: 'local',
-          method: contextUsageEstimate.method,
+          usagePercent: contextUsage.percent,
         },
         stepGuard: typeof maxSteps === 'number' && Number.isFinite(maxSteps) && maxSteps > 0
           ? { enabled: true, maxSteps }
@@ -263,6 +273,7 @@ test('/stats prints session and runtime details', async () => {
   assert.match(text, /Token usage:.*calls=2, prompt=80, completion=43, total=123/);
   assert.match(text, /Latest usage:.*source=assistant, prompt=30, completion=20, total=50, at=2026-05-10T00:00:00\.000Z/);
   assert.match(text, /Context usage:.*estimated=\d+, window=100000, percent=\d+\.\d%, source=active_messages, count=local, method=gpt-tokenizer/);
+  assert.match(text, /Compaction recommendation:.*no, reason=auto_disabled, auto=disabled/);
   assert.match(text, /Estimated tokens:.*active=\d+, method=gpt-tokenizer/);
   assert.match(text, /Project context:.*1/);
   assert.match(text, /Context build:.*not built yet/);
@@ -493,6 +504,7 @@ test('/diagnostics prints full runtime diagnostics', async () => {
   assert.match(text, /Token usage: calls=1, prompt=100, completion=25, total=125/);
   assert.match(text, /Latest usage: source=compaction, prompt=100, completion=25, total=125, at=2026-05-10T00:01:00\.000Z/);
   assert.match(text, /Context usage: estimated=\d+, window=100000, percent=\d+\.\d%, source=latest_request, count=local, method=gpt-tokenizer/);
+  assert.match(text, /Compaction recommendation: no, reason=auto_disabled, auto=disabled/);
   assert.match(text, /Estimated tokens: active=\d+, request=\d+, project_context=\d+, method=gpt-tokenizer/);
   assert.match(text, /AGENTS\.md path=\/workspace\/AGENTS\.md chars=23/);
   assert.match(text, /Budget: 20000 chars/);

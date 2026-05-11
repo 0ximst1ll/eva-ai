@@ -31,10 +31,32 @@ export interface ContextUsageDiagnostics {
   method: TokenCountMethod;
 }
 
+export type CompactionRecommendationReason =
+  | 'auto_disabled'
+  | 'context_window_unknown'
+  | 'below_reserve'
+  | 'reserve_reached';
+
+export interface CompactionOptions {
+  enabled: boolean;
+  reserveTokens: number;
+}
+
+export interface CompactionRecommendationDiagnostics {
+  shouldCompact: boolean;
+  reason: CompactionRecommendationReason;
+  autoEnabled: boolean;
+  reserveTokens: number;
+  estimatedTokens: number;
+  contextWindowTokens: number | null;
+  usagePercent: number | null;
+}
+
 export interface ContextDiagnostics {
   activeMessageCount: number;
   activeMessageTokenEstimate: TokenEstimate;
   contextUsage: ContextUsageDiagnostics;
+  compactionRecommendation: CompactionRecommendationDiagnostics;
   stepGuard: ContextStepGuardDiagnostics;
   compaction: SessionCompactionInfo;
   usage: SessionUsageInfo;
@@ -53,14 +75,17 @@ export function createContextManager({
   sessionManager,
   contextWindowTokens,
   tokenCounter,
+  compaction,
 }: {
   contextBuilder: ContextBuilder;
   sessionManager: SessionManager;
   contextWindowTokens?: number | null;
   tokenCounter?: TokenCounter;
+  compaction?: Partial<CompactionOptions>;
 }): ContextManager {
   let currentContextBuilder = contextBuilder;
   const normalizedContextWindowTokens = normalizeOptionalPositiveInteger(contextWindowTokens);
+  const normalizedCompaction = normalizeCompactionOptions(compaction);
 
   return {
     get contextBuilder() {
@@ -80,14 +105,19 @@ export function createContextManager({
       const contextTokenCount = tokenCounter
         ? await tokenCounter.countMessages({ messages: contextUsageMessages })
         : countMessagesLocally(contextUsageMessages);
+      const contextUsage = createContextUsageDiagnostics({
+        tokenCount: contextTokenCount,
+        contextWindowTokens: normalizedContextWindowTokens,
+        source: latestRequestMessages ? 'latest_request' : 'active_messages',
+      });
 
       return {
         activeMessageCount: messages.length,
         activeMessageTokenEstimate,
-        contextUsage: createContextUsageDiagnostics({
-          tokenCount: contextTokenCount,
-          contextWindowTokens: normalizedContextWindowTokens,
-          source: latestRequestMessages ? 'latest_request' : 'active_messages',
+        contextUsage,
+        compactionRecommendation: createCompactionRecommendation({
+          contextUsage,
+          compaction: normalizedCompaction,
         }),
         stepGuard,
         compaction: sessionManager.getCompactionInfo(sessionId),
@@ -124,5 +154,63 @@ function createContextUsageDiagnostics({
     source,
     countSource: tokenCount.source,
     method: tokenCount.method,
+  };
+}
+
+function normalizeCompactionOptions(options: Partial<CompactionOptions> | undefined): CompactionOptions {
+  return {
+    enabled: options?.enabled ?? false,
+    reserveTokens: normalizePositiveInteger(options?.reserveTokens, 16384),
+  };
+}
+
+function normalizePositiveInteger(value: number | null | undefined, fallback: number): number {
+  if (value === undefined || value === null || !Number.isFinite(value) || value <= 0) return fallback;
+  return Math.floor(value);
+}
+
+function createCompactionRecommendation({
+  contextUsage,
+  compaction,
+}: {
+  contextUsage: ContextUsageDiagnostics;
+  compaction: CompactionOptions;
+}): CompactionRecommendationDiagnostics {
+  const base = {
+    autoEnabled: compaction.enabled,
+    reserveTokens: compaction.reserveTokens,
+    estimatedTokens: contextUsage.estimatedTokens,
+    contextWindowTokens: contextUsage.contextWindowTokens,
+    usagePercent: contextUsage.percent,
+  };
+
+  if (!compaction.enabled) {
+    return {
+      ...base,
+      shouldCompact: false,
+      reason: 'auto_disabled',
+    };
+  }
+
+  if (!contextUsage.contextWindowTokens || contextUsage.percent === null) {
+    return {
+      ...base,
+      shouldCompact: false,
+      reason: 'context_window_unknown',
+    };
+  }
+
+  if (contextUsage.estimatedTokens >= contextUsage.contextWindowTokens - compaction.reserveTokens) {
+    return {
+      ...base,
+      shouldCompact: true,
+      reason: 'reserve_reached',
+    };
+  }
+
+  return {
+    ...base,
+    shouldCompact: false,
+    reason: 'below_reserve',
   };
 }

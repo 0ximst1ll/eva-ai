@@ -39,6 +39,9 @@ workspace_dir: "./workspace"  # Working directory
 system_prompt_path: "system_prompt.md"  # System prompt file (same config directory)
 project_context_max_chars: 20000  # Maximum project context characters injected into each LLM request
 # context_window_tokens: 200000  # Optional model context window for context usage percent diagnostics
+compaction:
+  enabled: false  # Recommendation only for now; Eva will not auto-compact yet
+  reserve_tokens: 16384  # Recommend compaction when estimated tokens enter this reserve
 
 # ===== Tools Configuration =====
 tools:

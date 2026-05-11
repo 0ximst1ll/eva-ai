@@ -4,11 +4,11 @@
 
 ## 当前快照
 
-当前版本：2026-05-10
+当前版本：2026-05-11
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic countTokens 最小接入、可选 context window usage percent、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、OpenAI/Gemini provider countTokens、自动 compaction 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic countTokens 最小接入、可选 context window usage percent、auto compaction recommendation diagnostics、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、OpenAI/Gemini provider countTokens、自动 compaction 执行循环和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -58,7 +58,7 @@ createRuntime()
 - `/clear`：将当前会话重置为 system prompt。
 - `/compact [custom instructions]`：手动压缩当前 session context，生成摘要并保留最近消息。
 - `/history`：打印当前 session id 和消息数量。
-- `/stats`：打印当前 session、message count、token usage、provider、model 和 tool count。
+- `/stats`：打印当前 session、message count、token usage、context usage、compaction recommendation、provider、model 和 tool count。
 - `/diagnostics`：打印当前 runtime 的完整 diagnostics。
 - `/reload`：重新加载 runtime resources，并保持当前 session 不变。
 - `/sessions`：列出当前 workspace 下的 sessions，并标记当前 active session 和 latest session。
@@ -127,7 +127,7 @@ createRuntime()
 当前重要字段：
 
 - LLM：`api_key`、`api_base`、`model`、`provider`、`retry`。
-- Agent：`max_steps`、`workspace_dir`、`system_prompt_path`、`project_context_max_chars`、`context_window_tokens`。
+- Agent：`max_steps`、`workspace_dir`、`system_prompt_path`、`project_context_max_chars`、`context_window_tokens`、`compaction.enabled`、`compaction.reserve_tokens`。
 - Tools：`enable_file_tools`、`enable_bash`、`enabled_tools`、`disabled_tools`、`disabled_categories`、`require_confirmation`、`confirm_risk_levels`。
 
 已解析但尚未接入 loader 的预留字段：
@@ -210,14 +210,15 @@ Contents of AGENTS.md:
 - 暴露 active messages 的估算 token 数；
 - 暴露 project context 资源、字符预算和最近一次 context build 摘要；
 - 暴露最近一次 request/project context token estimate。
-- 如果配置了 `context_window_tokens`，基于 TokenCounter 结果计算 context usage percent；未配置时显示 unknown。
+- 如果配置了 `context_window_tokens`，基于 TokenCounter 结果计算 context usage percent；未配置时显示 unknown；
+- 基于 `compaction` 配置输出 compaction recommendation diagnostics，但不会自动执行 compact。
 
-它当前不负责自动 compaction、OpenAI/Gemini provider countTokens、prompt-too-long recovery、summary 生成、post-compact resource reinjection 或完整 token budget。
+它当前不负责自动 compaction 执行、OpenAI/Gemini provider countTokens、prompt-too-long recovery、summary 生成、post-compact resource reinjection 或完整 token budget。
 
 interactive mode 当前通过 `ContextManager` 展示 context 状态：
 
-- `/stats`：显示 step guard、compaction 简要状态、token usage、token estimate、context usage percent、count source、project context 数量和最近一次 context build 状态；
-- `/diagnostics`：显示 active messages、step guard、compaction metadata、token usage、token estimate、context usage percent、count source、project context 资源名称、路径、字符数和最近一次 build 状态。
+- `/stats`：显示 step guard、compaction 简要状态、token usage、token estimate、context usage percent、count source、compaction recommendation、project context 数量和最近一次 context build 状态；
+- `/diagnostics`：显示 active messages、step guard、compaction metadata、token usage、token estimate、context usage percent、count source、compaction recommendation、project context 资源名称、路径、字符数和最近一次 build 状态。
 
 ## LLM 层
 
