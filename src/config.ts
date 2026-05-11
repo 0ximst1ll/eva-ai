@@ -48,6 +48,7 @@ export interface AgentConfigData {
   workspaceDir: string;
   systemPromptPath: string;
   projectContextMaxChars: number;
+  contextWindowTokens: number | null;
 }
 
 export interface ConfigData {
@@ -66,6 +67,7 @@ interface RawYaml {
   workspace_dir?: string;
   system_prompt_path?: string;
   project_context_max_chars?: number;
+  context_window_tokens?: number;
   retry?: {
     enabled?: boolean;
     max_retries?: number;
@@ -156,6 +158,7 @@ export class Config {
         workspaceDir: raw.workspace_dir ?? './workspace',
         systemPromptPath: raw.system_prompt_path ?? 'system_prompt.md',
         projectContextMaxChars: raw.project_context_max_chars ?? 20000,
+        contextWindowTokens: normalizeOptionalPositiveInteger(raw.context_window_tokens),
       },
       tools: {
         enableFileTools: tools.enable_file_tools ?? true,
@@ -187,4 +190,9 @@ export class Config {
     }
     return Config.fromYaml(configPath);
   }
+}
+
+function normalizeOptionalPositiveInteger(value: number | undefined): number | null {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return null;
+  return Math.floor(value);
 }

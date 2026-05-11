@@ -266,6 +266,7 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
   const contextManager = createContextManager({
     contextBuilder: resourceSet.contextBuilder,
     sessionManager,
+    contextWindowTokens: config.agent.contextWindowTokens,
   });
 
   const services: RuntimeServices = {

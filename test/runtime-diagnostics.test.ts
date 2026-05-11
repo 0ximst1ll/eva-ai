@@ -62,6 +62,7 @@ test('createRuntime returns unified diagnostics for config, provider, tools, ses
       new Set(['config', 'provider', 'resource', 'context', 'tools', 'session']),
     );
     assert.equal(runtime.config.agent.maxSteps, null);
+    assert.equal(runtime.config.agent.contextWindowTokens, null);
 
     assert.equal(findDiagnostic(runtime.diagnostics, 'config_loaded').level, 'info');
     assert.equal(findDiagnostic(runtime.diagnostics, 'provider_configured').source, 'provider');

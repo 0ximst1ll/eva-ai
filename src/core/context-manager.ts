@@ -21,9 +21,18 @@ export interface ProjectContextDiagnostics {
   budgetChars: number;
 }
 
+export interface ContextUsageDiagnostics {
+  estimatedTokens: number;
+  contextWindowTokens: number | null;
+  percent: number | null;
+  source: 'latest_request' | 'active_messages';
+  method: TokenEstimate['method'];
+}
+
 export interface ContextDiagnostics {
   activeMessageCount: number;
   activeMessageTokenEstimate: TokenEstimate;
+  contextUsage: ContextUsageDiagnostics;
   stepGuard: ContextStepGuardDiagnostics;
   compaction: SessionCompactionInfo;
   usage: SessionUsageInfo;
@@ -40,11 +49,14 @@ export interface ContextManager {
 export function createContextManager({
   contextBuilder,
   sessionManager,
+  contextWindowTokens,
 }: {
   contextBuilder: ContextBuilder;
   sessionManager: SessionManager;
+  contextWindowTokens?: number | null;
 }): ContextManager {
   let currentContextBuilder = contextBuilder;
+  const normalizedContextWindowTokens = normalizeOptionalPositiveInteger(contextWindowTokens);
 
   return {
     get contextBuilder() {
@@ -57,10 +69,17 @@ export function createContextManager({
       const stepGuard = typeof maxSteps === 'number' && Number.isFinite(maxSteps) && maxSteps > 0
         ? { enabled: true, maxSteps }
         : { enabled: false };
+      const activeMessageTokenEstimate = estimateMessagesTokens(messages);
+      const latestBuild = currentContextBuilder.latestBuild;
 
       return {
         activeMessageCount: messages.length,
-        activeMessageTokenEstimate: estimateMessagesTokens(messages),
+        activeMessageTokenEstimate,
+        contextUsage: createContextUsageDiagnostics({
+          tokenEstimate: latestBuild?.requestTokenEstimate ?? activeMessageTokenEstimate,
+          contextWindowTokens: normalizedContextWindowTokens,
+          source: latestBuild ? 'latest_request' : 'active_messages',
+        }),
         stepGuard,
         compaction: sessionManager.getCompactionInfo(sessionId),
         usage: sessionManager.getUsageInfo(sessionId),
@@ -69,8 +88,31 @@ export function createContextManager({
           resources: currentContextBuilder.projectContext,
           budgetChars: currentContextBuilder.projectContextMaxChars,
         },
-        latestBuild: currentContextBuilder.latestBuild,
+        latestBuild,
       };
     },
+  };
+}
+
+function normalizeOptionalPositiveInteger(value: number | null | undefined): number | null {
+  if (value === undefined || value === null || !Number.isFinite(value) || value <= 0) return null;
+  return Math.floor(value);
+}
+
+function createContextUsageDiagnostics({
+  tokenEstimate,
+  contextWindowTokens,
+  source,
+}: {
+  tokenEstimate: TokenEstimate;
+  contextWindowTokens: number | null;
+  source: ContextUsageDiagnostics['source'];
+}): ContextUsageDiagnostics {
+  return {
+    estimatedTokens: tokenEstimate.tokens,
+    contextWindowTokens,
+    percent: contextWindowTokens ? (tokenEstimate.tokens / contextWindowTokens) * 100 : null,
+    source,
+    method: tokenEstimate.method,
   };
 }

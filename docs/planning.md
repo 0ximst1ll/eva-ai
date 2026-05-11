@@ -337,7 +337,7 @@ Eva AI 的上下文治理分两层推进：
 - `ContextBuilder`：无状态构造器。每次 LLM call 前，把当前 session messages、system prompt、project context 和 runtime context 组合成发送给 provider 的 request messages。
 - `ContextManager`：有状态管理器。后续负责 token budget、manual/auto compaction、summary、post-compact resource reinjection 和 context diagnostics。
 
-第一阶段先实现 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合和本地 request token estimation，避免过早引入完整 Claude Code 式 context engine。当前最小 `ContextManager` 只聚合 `ContextBuilder.latestBuild`、session usage、compaction、step guard、project context metadata 和本地 token estimate，不做自动策略。
+第一阶段先实现 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、本地 request token estimation 和可选 context usage percent，避免过早引入完整 Claude Code 式 context engine。当前最小 `ContextManager` 只聚合 `ContextBuilder.latestBuild`、session usage、compaction、step guard、project context metadata、本地 token estimate 和基于配置窗口的 usage percent，不做自动策略。
 
 `ContextBuilder` 的目标行为：
 

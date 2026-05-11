@@ -28,7 +28,11 @@ test('ContextManager reports context diagnostics from builder and session metada
     }],
     projectContextMaxChars: 20000,
   });
-  const contextManager = createContextManager({ contextBuilder, sessionManager });
+  const contextManager = createContextManager({
+    contextBuilder,
+    sessionManager,
+    contextWindowTokens: 1000,
+  });
 
   const beforeBuild = contextManager.getDiagnostics({
     sessionId,
@@ -38,6 +42,12 @@ test('ContextManager reports context diagnostics from builder and session metada
   assert.equal(beforeBuild.activeMessageCount, 2);
   assert.equal(beforeBuild.activeMessageTokenEstimate.method, 'gpt-tokenizer');
   assert.ok(beforeBuild.activeMessageTokenEstimate.tokens > 0);
+  assert.equal(beforeBuild.contextUsage.contextWindowTokens, 1000);
+  assert.equal(beforeBuild.contextUsage.source, 'active_messages');
+  assert.equal(
+    beforeBuild.contextUsage.percent,
+    (beforeBuild.activeMessageTokenEstimate.tokens / 1000) * 100,
+  );
   assert.deepEqual(beforeBuild.stepGuard, { enabled: false });
   assert.equal(beforeBuild.projectContext.count, 1);
   assert.equal(beforeBuild.projectContext.budgetChars, 20000);
@@ -60,6 +70,8 @@ test('ContextManager reports context diagnostics from builder and session metada
   assert.equal(afterBuild.latestBuild?.projectContextCount, 1);
   assert.ok((afterBuild.latestBuild?.requestTokenEstimate.tokens ?? 0) > 0);
   assert.ok((afterBuild.latestBuild?.projectContextTokenEstimate.tokens ?? 0) > 0);
+  assert.equal(afterBuild.contextUsage.source, 'latest_request');
+  assert.equal(afterBuild.contextUsage.estimatedTokens, afterBuild.latestBuild?.requestTokenEstimate.tokens);
 });
 
 test('ContextManager updates diagnostics when the context builder changes', async () => {
@@ -96,4 +108,6 @@ test('ContextManager updates diagnostics when the context builder changes', asyn
 
   assert.equal(contextManager.contextBuilder, nextContextBuilder);
   assert.equal(diagnostics.projectContext.resources[0]?.content, 'new instructions');
+  assert.equal(diagnostics.contextUsage.contextWindowTokens, null);
+  assert.equal(diagnostics.contextUsage.percent, null);
 });

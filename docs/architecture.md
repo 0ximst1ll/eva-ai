@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、本地 request token estimation、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、provider API countTokens、自动 compaction 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、本地 request token estimation、可选 context window usage percent、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、provider API countTokens、自动 compaction 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -125,7 +125,7 @@ createRuntime()
 当前重要字段：
 
 - LLM：`api_key`、`api_base`、`model`、`provider`、`retry`。
-- Agent：`max_steps`、`workspace_dir`、`system_prompt_path`、`project_context_max_chars`。
+- Agent：`max_steps`、`workspace_dir`、`system_prompt_path`、`project_context_max_chars`、`context_window_tokens`。
 - Tools：`enable_file_tools`、`enable_bash`、`enabled_tools`、`disabled_tools`、`disabled_categories`、`require_confirmation`、`confirm_risk_levels`。
 
 已解析但尚未接入 loader 的预留字段：
@@ -197,13 +197,14 @@ Contents of AGENTS.md:
 - 暴露 active messages 的估算 token 数；
 - 暴露 project context 资源、字符预算和最近一次 context build 摘要；
 - 暴露最近一次 request/project context token estimate。
+- 如果配置了 `context_window_tokens`，基于本地 token estimate 计算 context usage percent；未配置时显示 unknown。
 
-它当前不负责自动 compaction、provider API countTokens、prompt-too-long recovery、summary 生成、post-compact resource reinjection、model context window 百分比或完整 token budget。
+它当前不负责自动 compaction、provider API countTokens、prompt-too-long recovery、summary 生成、post-compact resource reinjection 或完整 token budget。
 
 interactive mode 当前通过 `ContextManager` 展示 context 状态：
 
-- `/stats`：显示 step guard、compaction 简要状态、token usage、本地 token estimate、project context 数量和最近一次 context build 状态；
-- `/diagnostics`：显示 active messages、step guard、compaction metadata、token usage、本地 token estimate、project context 资源名称、路径、字符数和最近一次 build 状态。
+- `/stats`：显示 step guard、compaction 简要状态、token usage、本地 token estimate、context usage percent、project context 数量和最近一次 context build 状态；
+- `/diagnostics`：显示 active messages、step guard、compaction metadata、token usage、本地 token estimate、context usage percent、project context 资源名称、路径、字符数和最近一次 build 状态。
 
 ## LLM 层
 

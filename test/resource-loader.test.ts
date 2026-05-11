@@ -26,6 +26,7 @@ function createConfig(systemPromptPath = 'system_prompt.md'): ConfigData {
       workspaceDir: '.',
       systemPromptPath,
       projectContextMaxChars: 20000,
+      contextWindowTokens: null,
     },
     tools: {
       enableFileTools: false,

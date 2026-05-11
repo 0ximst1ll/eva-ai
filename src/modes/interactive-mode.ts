@@ -82,6 +82,19 @@ function formatTokenEstimateStatus(diagnostics: ContextDiagnostics): string {
   return parts.join(', ');
 }
 
+function formatContextUsageStatus(diagnostics: ContextDiagnostics): string {
+  const usage = diagnostics.contextUsage;
+  const window = usage.contextWindowTokens?.toString() ?? 'unknown';
+  const percent = usage.percent === null ? 'unknown' : `${usage.percent.toFixed(1)}%`;
+  return [
+    `estimated=${usage.estimatedTokens}`,
+    `window=${window}`,
+    `percent=${percent}`,
+    `source=${usage.source}`,
+    `method=${usage.method}`,
+  ].join(', ');
+}
+
 function writeContextDiagnostics(
   diagnostics: ContextDiagnostics,
   writeLine: (message?: string) => void,
@@ -98,6 +111,7 @@ function writeContextDiagnostics(
   }
   writeLine(`  Token usage: ${formatUsageStatus(diagnostics.usage)}`);
   writeLine(`  Latest usage: ${formatLatestUsageStatus(diagnostics.usage)}`);
+  writeLine(`  Context usage: ${formatContextUsageStatus(diagnostics)}`);
   writeLine(`  Estimated tokens: ${formatTokenEstimateStatus(diagnostics)}`);
   writeLine(`  Project context resources: ${diagnostics.projectContext.count}`);
   for (const resource of diagnostics.projectContext.resources) {
@@ -199,6 +213,7 @@ export async function handleInteractiveCommand({
       writeLine(`${Colors.BRIGHT_CYAN}Compaction:${Colors.RESET} ${formatCompactionStatus(contextDiagnostics.compaction)}`);
       writeLine(`${Colors.BRIGHT_CYAN}Token usage:${Colors.RESET} ${formatUsageStatus(contextDiagnostics.usage)}`);
       writeLine(`${Colors.BRIGHT_CYAN}Latest usage:${Colors.RESET} ${formatLatestUsageStatus(contextDiagnostics.usage)}`);
+      writeLine(`${Colors.BRIGHT_CYAN}Context usage:${Colors.RESET} ${formatContextUsageStatus(contextDiagnostics)}`);
       writeLine(`${Colors.BRIGHT_CYAN}Estimated tokens:${Colors.RESET} ${formatTokenEstimateStatus(contextDiagnostics)}`);
       writeLine(`${Colors.BRIGHT_CYAN}Project context:${Colors.RESET} ${contextDiagnostics.projectContext.count}`);
       writeLine(`${Colors.BRIGHT_CYAN}Context build:${Colors.RESET} ${formatContextBuildStatus(contextDiagnostics.latestBuild)}`);

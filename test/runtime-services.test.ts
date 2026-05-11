@@ -5,8 +5,16 @@ import * as path from 'node:path';
 import test from 'node:test';
 import { createRuntimeServices } from '../src/core/runtime-services.js';
 
-async function writeConfig(dir: string): Promise<string> {
+async function writeConfig(
+  dir: string,
+  {
+    contextWindowTokens,
+  }: {
+    contextWindowTokens?: number;
+  } = {},
+): Promise<string> {
   const configPath = path.join(dir, 'config.yaml');
+  const agentConfig = contextWindowTokens ? [`context_window_tokens: ${contextWindowTokens}`] : [];
   await fs.writeFile(
     configPath,
     [
@@ -15,6 +23,7 @@ async function writeConfig(dir: string): Promise<string> {
       'model: "test-model"',
       'retry:',
       '  enabled: false',
+      ...agentConfig,
       'tools:',
       '  enable_file_tools: false',
       '  enable_bash: false',
@@ -31,7 +40,7 @@ test('createRuntimeServices builds workspace-bound services without creating an 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-services-'));
 
   try {
-    const configPath = await writeConfig(tempDir);
+    const configPath = await writeConfig(tempDir, { contextWindowTokens: 100000 });
     const services = await createRuntimeServices({
       workspaceDir: tempDir,
       configPath,
@@ -51,6 +60,7 @@ test('createRuntimeServices builds workspace-bound services without creating an 
     assert.equal(services.contextBuilder.projectContextMaxChars, 20000);
     assert.ok(services.contextManager);
     assert.equal(services.contextManager.contextBuilder, services.contextBuilder);
+    assert.equal(services.config.agent.contextWindowTokens, 100000);
     assert.ok(services.sessionManager);
     assert.ok(services.llmClient);
     assert.ok(services.diagnostics.some((diagnostic) => diagnostic.code === 'config_loaded'));

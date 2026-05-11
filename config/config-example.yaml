@@ -38,6 +38,7 @@ retry:
 workspace_dir: "./workspace"  # Working directory
 system_prompt_path: "system_prompt.md"  # System prompt file (same config directory)
 project_context_max_chars: 20000  # Maximum project context characters injected into each LLM request
+# context_window_tokens: 200000  # Optional model context window for context usage percent diagnostics
 
 # ===== Tools Configuration =====
 tools:

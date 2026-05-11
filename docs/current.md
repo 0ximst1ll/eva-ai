@@ -1,10 +1,10 @@
 # Eva AI Current
 
-## 当前状态（2026-05-10）
+## 当前状态（2026-05-11）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、本地 request token estimation，以及规划文档中的长期架构域视图整理。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、本地 request token estimation、可选 context usage percent，以及规划文档中的长期架构域视图整理。
 
-刚完成的任务是在不引入完整 context budget engine 的前提下，为 `ContextBuilder` / `ContextManager` 增加本地 request token estimation 诊断。provider 返回的 usage 仍作为真实用量来源；本地估算只用于发送前和 diagnostics 可见性。
+刚完成的任务是在不引入完整 context budget engine 的前提下，为 `ContextManager` 增加可选 model context window 与 usage percent 诊断。先通过 `context_window_tokens` 配置提供窗口大小，用本地 request token estimate 计算百分比；暂不接入 provider API countTokens 或自动压缩策略。
 
 ## 已完成
 
@@ -20,8 +20,8 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - `AGENTS.md` 已作为 transient project context 注入模型请求，不写回 session history。
 - `ContextBuilder` 已支持 `project_context_max_chars` 字符预算、截断、跳过原因和最近一次 build 摘要。
 - `ContextBuilder` 已记录最近一次 request messages 和 project context 的本地 token estimate。
-- `ContextManager` 已作为最小状态聚合器，汇总 `ContextBuilder.latestBuild`、active messages、step guard、compaction、usage、project context metadata 和本地 token estimate。
-- interactive mode 的 `/stats` 和 `/diagnostics` 已通过 `ContextManager` 展示 project context 数量、来源、token estimate 和最近一次 build 状态。
+- `ContextManager` 已作为最小状态聚合器，汇总 `ContextBuilder.latestBuild`、active messages、step guard、compaction、usage、project context metadata、本地 token estimate 和可选 context usage percent。
+- interactive mode 的 `/stats` 和 `/diagnostics` 已通过 `ContextManager` 展示 project context 数量、来源、token estimate、context usage percent 和最近一次 build 状态。
 - interactive mode 已实现 `/reload`，可重新加载 system prompt 和 project context，并保持当前 session 不变。
 - interactive mode 已实现 `/compact [custom instructions]`，用于手动压缩当前 session context。
 - `AgentSession.compact()` 已支持调用当前 LLM 生成摘要，并在成功后重建当前活动上下文。
@@ -47,7 +47,8 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 下一步
 
-- 后续评估 provider API countTokens、model context window 和 context usage percent。
+- 后续评估 provider API countTokens。
+- 后续基于 context window 设计 auto compaction 阈值配置。
 - 后续再实现 auto compaction、prompt-too-long recovery 和 post-compact resource budget。
 - 规划 print/headless/RPC 场景下 permission pending 的处理策略。
 
@@ -63,7 +64,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 - `logger.ts` 仍是占位文件。
 - `ResourceLoader` 仍是最小骨架，尚未支持自动监听或更细粒度 reload。
-- `ContextManager` 仍未支持完整 token budget、provider API countTokens、model context window、自动策略或 post-compact resource budget。
+- `ContextManager` 仍未支持完整 token budget、provider API countTokens、自动策略或 post-compact resource budget。
 - manual `/compact` 仍是最小版：没有自动阈值、prompt-too-long recovery 或工具结果 micro-compaction。
 - skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
 - 当前 `max_steps` 字段名仍偏模糊，后续应迁移为 `max_steps_per_run` 或同类命名。
