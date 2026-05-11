@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic countTokens 最小接入、可选 context window usage percent、auto compaction recommendation diagnostics、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、OpenAI/Gemini provider countTokens、自动 compaction 执行循环和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction recommendation diagnostics、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、OpenAI provider countTokens、自动 compaction 执行循环和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -191,9 +191,9 @@ Contents of AGENTS.md:
 - 优先调用 provider countTokens；
 - provider 不支持或失败时回退到本地 `gpt-tokenizer` estimate；
 - 返回 `source`，区分 `provider` 和 `local`；
-- 返回 `method`，当前为 `anthropic_count_tokens` 或 `gpt-tokenizer`。
+- 返回 `method`，当前为 `anthropic_count_tokens`、`google_count_tokens` 或 `gpt-tokenizer`。
 
-当前 provider countTokens 只接入 Anthropic adapter。OpenAI 和 Google adapter 暂时返回 `null`，由 TokenCounter 回退到本地估算。
+当前 provider countTokens 已接入 Anthropic 和 Google Gemini adapter。OpenAI adapter 暂时返回 `null`，由 TokenCounter 回退到本地估算。
 
 ## Context Manager
 
@@ -213,7 +213,7 @@ Contents of AGENTS.md:
 - 如果配置了 `context_window_tokens`，基于 TokenCounter 结果计算 context usage percent；未配置时显示 unknown；
 - 基于 `compaction` 配置输出 compaction recommendation diagnostics，但不会自动执行 compact。
 
-它当前不负责自动 compaction 执行、OpenAI/Gemini provider countTokens、prompt-too-long recovery、summary 生成、post-compact resource reinjection 或完整 token budget。
+它当前不负责自动 compaction 执行、OpenAI provider countTokens、prompt-too-long recovery、summary 生成、post-compact resource reinjection 或完整 token budget。
 
 interactive mode 当前通过 `ContextManager` 展示 context 状态：
 
@@ -241,7 +241,7 @@ interactive mode 当前通过 `ContextManager` 展示 context 状态：
 
 基类中的 streaming 实现可以将非流式响应适配成 `thinking_delta`、`content_delta`、`tool_call`、`usage` 和 `done` 事件。具体 provider adapter 可以覆盖该行为。
 
-当前只有 `AnthropicClient.countTokens()` 调用 provider API；其他 adapter 继承基类默认 `null` 返回，由 TokenCounter fallback 处理。
+当前 `AnthropicClient.countTokens()` 和 `GoogleClient.countTokens()` 调用 provider API。OpenAI adapter 继承基类默认 `null` 返回，由 TokenCounter fallback 处理。
 
 ## Agent Loop
 

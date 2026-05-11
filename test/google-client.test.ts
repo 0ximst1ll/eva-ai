@@ -82,3 +82,29 @@ test('GoogleClient stores thought signatures returned with function calls', () =
     providerMetadata: { google: { thoughtSignature: 'signature-a' } },
   });
 });
+
+test('GoogleClient countTokens uses Google countTokens API shape', async () => {
+  const client = new GoogleClient('test-key', '', 'gemini-test');
+  let requestBody: Record<string, unknown> | undefined;
+  const inspectable = client as unknown as {
+    client: {
+      models: {
+        countTokens: (body: Record<string, unknown>) => Promise<{ totalTokens: number }>;
+      };
+    };
+  };
+  inspectable.client.models.countTokens = async (body) => {
+    requestBody = body;
+    return { totalTokens: 321 };
+  };
+
+  const tokens = await client.countTokens([
+    { role: 'system', content: 'system prompt' },
+    { role: 'user', content: 'hello' },
+  ]);
+
+  assert.equal(tokens, 321);
+  assert.equal(requestBody?.['model'], 'gemini-test');
+  assert.deepEqual(requestBody?.['contents'], [{ role: 'user', parts: [{ text: 'hello' }] }]);
+  assert.deepEqual(requestBody?.['config'], { systemInstruction: 'system prompt' });
+});

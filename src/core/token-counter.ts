@@ -1,10 +1,11 @@
 import type { LLMClient } from '../llm/llm-client.js';
+import { LLMProvider } from '../schema.js';
 import type { Message } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { estimateMessagesTokens } from './token-estimator.js';
 
 export type TokenCountSource = 'provider' | 'local';
-export type TokenCountMethod = 'anthropic_count_tokens' | 'gpt-tokenizer';
+export type TokenCountMethod = 'anthropic_count_tokens' | 'google_count_tokens' | 'gpt-tokenizer';
 
 export interface TokenCountResult {
   tokens: number;
@@ -33,12 +34,17 @@ export function createTokenCounter({
         return {
           tokens: providerTokens,
           source: 'provider',
-          method: 'anthropic_count_tokens',
+          method: getProviderCountMethod(llmClient.provider),
         };
       }
       return countMessagesLocally(messages);
     },
   };
+}
+
+function getProviderCountMethod(provider: LLMProvider | undefined): TokenCountMethod {
+  if (provider === LLMProvider.GOOGLE) return 'google_count_tokens';
+  return 'anthropic_count_tokens';
 }
 
 export function countMessagesLocally(messages: Message[]): TokenCountResult {

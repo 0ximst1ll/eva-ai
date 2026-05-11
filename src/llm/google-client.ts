@@ -96,6 +96,29 @@ export class GoogleClient extends LLMClientBase {
     });
   }
 
+  private async _makeCountTokensRequest(
+    systemInstruction: string | null,
+    contents: Content[],
+    tools?: Tool[] | null,
+  ): Promise<number | null> {
+    const config: Record<string, unknown> = {};
+
+    if (systemInstruction) {
+      config['systemInstruction'] = systemInstruction;
+    }
+
+    if (tools?.length) {
+      config['tools'] = [{ functionDeclarations: tools.map(toGoogleSchema) }];
+    }
+
+    const response = await this.client.models.countTokens({
+      model: this.model,
+      contents: contents.length ? contents : [{ role: 'user', parts: [{ text: '' }] }],
+      config,
+    });
+    return typeof response.totalTokens === 'number' ? response.totalTokens : null;
+  }
+
   /**
    * 将内部 Message[] 转换为 Google Gemini 的 [systemInstruction, Content[]] 格式
    *
@@ -256,6 +279,28 @@ export class GoogleClient extends LLMClientBase {
     }
 
     return this._parseResponse(response);
+  }
+
+  async countTokens(messages: Message[], tools?: Tool[] | null): Promise<number | null> {
+    const { systemInstruction, contents } = this._prepareRequest(messages, tools) as {
+      systemInstruction: string | null;
+      contents: Content[];
+    };
+
+    try {
+      if (this.retryConfig.enabled) {
+        const wrapped = withRetry(
+          (si: string | null, c: Content[], t?: Tool[] | null) =>
+            this._makeCountTokensRequest(si, c, t),
+          this.retryConfig,
+          this.retryCallback ?? undefined,
+        );
+        return await wrapped(systemInstruction, contents, tools);
+      }
+      return await this._makeCountTokensRequest(systemInstruction, contents, tools);
+    } catch {
+      return null;
+    }
   }
 
   async *generateStream(
