@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、自动 compaction 和完整 ContextManager 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、本地 request token estimation、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、provider API countTokens、自动 compaction 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -25,6 +25,7 @@ createRuntime()
   |     |-- LLMClient
   |     |-- ResourceLoader
   |     |-- ContextBuilder
+  |     |-- ContextManager
   |     |-- loadConfiguredTools() -> ToolRegistry -> Tool[]
   |     `-- SessionManager
   `-- AgentSession
@@ -74,10 +75,11 @@ createRuntime()
 - 创建 retry 配置，并接入 provider diagnostic；
 - 通过 `createResourceLoader()` 加载 system prompt 和项目上下文资源；
 - 通过 `createContextBuilder()` 创建 LLM request messages 构造器；
+- 通过 `createContextManager()` 创建 context diagnostics 聚合器；
 - 通过 `loadConfiguredTools()` 加载内置工具；
 - 创建 `SessionManager`，默认使用 `jsonl` 模式；
 - 返回统一 diagnostics。
-- 支持 reload resources，重新加载 system prompt 和 project context，并重建 `ContextBuilder`。
+- 支持 reload resources，重新加载 system prompt 和 project context，重建 `ContextBuilder`，并同步更新 `ContextManager`。
 
 `createRuntime()` 负责：
 
@@ -98,7 +100,7 @@ createRuntime()
 
 启动时 diagnostics 默认只展示 warning/error 和少量关键 info，避免普通 info 淹没终端。完整 diagnostics 可通过 interactive mode 的 `/diagnostics` 查看。
 
-当前 resource diagnostics 会报告 system prompt 加载状态、`AGENTS.md` 项目上下文加载状态，以及 skills、MCP 已配置但尚未接入 loader 的情况。context diagnostics 会报告 ContextBuilder 的基础装配状态。
+当前 resource diagnostics 会报告 system prompt 加载状态、`AGENTS.md` 项目上下文加载状态，以及 skills、MCP 已配置但尚未接入 loader 的情况。runtime context diagnostics 会报告 ContextBuilder 的基础装配状态，interactive context diagnostics 通过 `ContextManager` 聚合当前 session 的上下文状态。
 
 `RuntimeHost` 包装当前 active runtime，并暴露：
 
@@ -147,7 +149,7 @@ createRuntime()
 
 当前 `AGENTS.md` 作为 `runtime.services.resourceLoader.projectContext` 暴露，并由 `ContextBuilder` 在每次 LLM call 前临时注入 request messages。它不会写回 `SessionManager` 的 durable session history。
 
-`RuntimeServices.reloadResources()` 会重新创建 `ResourceLoader` 和 `ContextBuilder`。当前 `AgentSession` 会继续保留原 session history，但下一次 LLM request 会使用 reload 后的 system prompt 和 project context。
+`RuntimeServices.reloadResources()` 会重新创建 `ResourceLoader` 和 `ContextBuilder`，并更新 `ContextManager` 持有的 builder。当前 `AgentSession` 会继续保留原 session history，但下一次 LLM request 会使用 reload 后的 system prompt 和 project context。
 
 ## Context Builder
 
@@ -163,7 +165,8 @@ createRuntime()
 - 如果预算小到无法容纳 project context framing，则跳过注入并记录原因；
 - 返回用于本次 LLM call 的 request messages；
 - 返回 context diagnostics metadata；
-- 记录最近一次 context build 摘要。
+- 记录最近一次 context build 摘要；
+- 使用本地 tokenizer 记录最近一次 request messages 和 project context 的估算 token 数。
 
 当前注入格式：
 
@@ -177,12 +180,30 @@ Contents of AGENTS.md:
 </project_context>
 ```
 
-`ContextBuilder` 只负责 project context 字符预算，不负责完整 token budget、compaction、summary 或 post-compact reinjection。这些仍属于后续 ContextManager 范围。
+`ContextBuilder` 只负责 project context 字符预算，不负责完整 token budget、compaction、summary 或 post-compact reinjection。这些仍属于后续 ContextManager 演进范围。
 
-interactive mode 当前会展示 ContextBuilder 状态：
+## Context Manager
 
-- `/stats`：显示 step guard、compaction 简要状态、token usage、project context 数量和最近一次 context build 状态；
-- `/diagnostics`：显示 active messages、step guard、compaction metadata、token usage、project context 资源名称、路径、字符数和最近一次 build 状态。
+`src/core/context-manager.ts` 当前是最小状态聚合器。它持有当前 `ContextBuilder`，并通过 `SessionManager` 汇总当前 session 的 context diagnostics。
+
+它当前负责：
+
+- 暴露当前 `ContextBuilder`；
+- 在 resources reload 后接收新的 `ContextBuilder`；
+- 汇总 active message count；
+- 汇总 step guard 状态；
+- 读取 session compaction metadata；
+- 读取 session usage metadata；
+- 暴露 active messages 的估算 token 数；
+- 暴露 project context 资源、字符预算和最近一次 context build 摘要；
+- 暴露最近一次 request/project context token estimate。
+
+它当前不负责自动 compaction、provider API countTokens、prompt-too-long recovery、summary 生成、post-compact resource reinjection、model context window 百分比或完整 token budget。
+
+interactive mode 当前通过 `ContextManager` 展示 context 状态：
+
+- `/stats`：显示 step guard、compaction 简要状态、token usage、本地 token estimate、project context 数量和最近一次 context build 状态；
+- `/diagnostics`：显示 active messages、step guard、compaction metadata、token usage、本地 token estimate、project context 资源名称、路径、字符数和最近一次 build 状态。
 
 ## LLM 层
 

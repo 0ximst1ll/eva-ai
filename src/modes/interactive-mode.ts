@@ -1,6 +1,7 @@
 import * as readline from 'node:readline';
 import { RuntimeSessionNotFoundError, type ToolConfirmationRequest } from '../core/runtime.js';
-import type { ContextBuilder } from '../core/context-builder.js';
+import type { ContextBuildSummary } from '../core/context-builder.js';
+import type { ContextDiagnostics } from '../core/context-manager.js';
 import type { RuntimeHost } from '../core/runtime-host.js';
 import { Colors } from '../utils/terminal.js';
 import { createCliRenderer, createToolConfirmationPrompt, formatRuntimeDiagnostic } from './cli-ui.js';
@@ -12,38 +13,42 @@ export interface InteractiveModeOptions {
 
 export type InteractiveCommandResult = 'not_command' | 'continue' | 'exit';
 
-function getContextBuilder(host: RuntimeHost): ContextBuilder | undefined {
-  return host.runtime.services?.contextBuilder;
+function getContextDiagnostics(host: RuntimeHost): ContextDiagnostics | undefined {
+  return host.runtime.services?.contextManager?.getDiagnostics({
+    sessionId: host.sessionId,
+    messages: host.session.messages,
+    maxSteps: host.session.maxSteps,
+  });
 }
 
-function formatContextBuildStatus(contextBuilder: ContextBuilder): string {
-  const latestBuild = contextBuilder.latestBuild;
+function formatContextBuildStatus(latestBuild: ContextBuildSummary | null): string {
   if (!latestBuild) return 'not built yet';
   if (!latestBuild.injected) {
     const reason = latestBuild.projectContextSkippedReason
       ? `, reason=${latestBuild.projectContextSkippedReason}`
       : '';
-    return `not injected${reason}, request messages=${latestBuild.requestMessageCount}, budget=${latestBuild.projectContextMaxChars}`;
+    return `not injected${reason}, request messages=${latestBuild.requestMessageCount}, estimated request tokens=${latestBuild.requestTokenEstimate.tokens}, budget=${latestBuild.projectContextMaxChars}`;
   }
   const status = [
     `injected ${latestBuild.projectContextCount} resource(s)`,
     `request messages=${latestBuild.requestMessageCount}`,
+    `estimated request tokens=${latestBuild.requestTokenEstimate.tokens}`,
     `chars=${latestBuild.projectContextContentLength}/${latestBuild.projectContextMaxChars}`,
   ];
   if (latestBuild.projectContextTruncated) status.push('truncated');
   return status.join(', ');
 }
 
-function formatStepGuard(maxSteps: number | null | undefined): string {
-  return maxSteps ? `max_steps=${maxSteps}` : 'disabled';
+function formatStepGuard(stepGuard: ContextDiagnostics['stepGuard']): string {
+  return stepGuard.enabled ? `max_steps=${stepGuard.maxSteps}` : 'disabled';
 }
 
-function formatCompactionStatus(compaction: RuntimeHost['session']['compaction']): string {
+function formatCompactionStatus(compaction: ContextDiagnostics['compaction']): string {
   if (!compaction.compacted) return 'none';
   return `compacted messages ${compaction.messagesBefore} -> ${compaction.messagesAfter}, summary chars=${compaction.summaryLength}`;
 }
 
-function formatUsageStatus(usage: RuntimeHost['session']['usage']): string {
+function formatUsageStatus(usage: ContextDiagnostics['usage']): string {
   if (!usage.count) return 'unknown';
   return [
     `calls=${usage.count}`,
@@ -53,7 +58,7 @@ function formatUsageStatus(usage: RuntimeHost['session']['usage']): string {
   ].join(', ');
 }
 
-function formatLatestUsageStatus(usage: RuntimeHost['session']['usage']): string {
+function formatLatestUsageStatus(usage: ContextDiagnostics['usage']): string {
   if (!usage.latest) return 'unknown';
   const timestamp = usage.latestTimestamp ? new Date(usage.latestTimestamp).toISOString() : 'unknown';
   const source = usage.latestSource ?? 'unknown';
@@ -66,30 +71,40 @@ function formatLatestUsageStatus(usage: RuntimeHost['session']['usage']): string
   ].join(', ');
 }
 
+function formatTokenEstimateStatus(diagnostics: ContextDiagnostics): string {
+  const latestBuild = diagnostics.latestBuild;
+  const parts = [`active=${diagnostics.activeMessageTokenEstimate.tokens}`];
+  if (latestBuild) {
+    parts.push(`request=${latestBuild.requestTokenEstimate.tokens}`);
+    parts.push(`project_context=${latestBuild.projectContextTokenEstimate.tokens}`);
+  }
+  parts.push(`method=${diagnostics.activeMessageTokenEstimate.method}`);
+  return parts.join(', ');
+}
+
 function writeContextDiagnostics(
-  contextBuilder: ContextBuilder,
-  host: RuntimeHost,
+  diagnostics: ContextDiagnostics,
   writeLine: (message?: string) => void,
 ): void {
-  const compaction = host.session.compaction;
-  const usage = host.session.usage;
+  const compaction = diagnostics.compaction;
   writeLine(`${Colors.BRIGHT_CYAN}Context:${Colors.RESET}`);
-  writeLine(`  Active messages: ${host.session.messages.length}`);
-  writeLine(`  Step guard: ${formatStepGuard(host.session.maxSteps)}`);
+  writeLine(`  Active messages: ${diagnostics.activeMessageCount}`);
+  writeLine(`  Step guard: ${formatStepGuard(diagnostics.stepGuard)}`);
   writeLine(`  Compaction: ${formatCompactionStatus(compaction)}`);
   if (compaction.compacted) {
     writeLine(`  - First kept message index: ${compaction.firstKeptMessageIndex}`);
     writeLine(`  - Compacted at: ${compaction.timestamp ? new Date(compaction.timestamp).toISOString() : 'unknown'}`);
     writeLine(`  - Custom instructions: ${compaction.customInstructions ? 'yes' : 'no'}`);
   }
-  writeLine(`  Token usage: ${formatUsageStatus(usage)}`);
-  writeLine(`  Latest usage: ${formatLatestUsageStatus(usage)}`);
-  writeLine(`  Project context resources: ${contextBuilder.projectContext.length}`);
-  for (const resource of contextBuilder.projectContext) {
+  writeLine(`  Token usage: ${formatUsageStatus(diagnostics.usage)}`);
+  writeLine(`  Latest usage: ${formatLatestUsageStatus(diagnostics.usage)}`);
+  writeLine(`  Estimated tokens: ${formatTokenEstimateStatus(diagnostics)}`);
+  writeLine(`  Project context resources: ${diagnostics.projectContext.count}`);
+  for (const resource of diagnostics.projectContext.resources) {
     writeLine(`  - ${resource.name} path=${resource.path} chars=${resource.content.length}`);
   }
-  writeLine(`  Budget: ${contextBuilder.projectContextMaxChars} chars`);
-  writeLine(`  Last build: ${formatContextBuildStatus(contextBuilder)}`);
+  writeLine(`  Budget: ${diagnostics.projectContext.budgetChars} chars`);
+  writeLine(`  Last build: ${formatContextBuildStatus(diagnostics.latestBuild)}`);
 }
 
 export async function handleInteractiveCommand({
@@ -178,14 +193,15 @@ export async function handleInteractiveCommand({
     writeLine(`${Colors.BRIGHT_CYAN}Provider:${Colors.RESET} ${host.runtime.config.llm.provider}`);
     writeLine(`${Colors.BRIGHT_CYAN}Model:${Colors.RESET} ${host.runtime.config.llm.model}`);
     writeLine(`${Colors.BRIGHT_CYAN}Tools:${Colors.RESET} ${host.runtime.tools.length}`);
-    writeLine(`${Colors.BRIGHT_CYAN}Step guard:${Colors.RESET} ${formatStepGuard(host.session.maxSteps)}`);
-    writeLine(`${Colors.BRIGHT_CYAN}Compaction:${Colors.RESET} ${formatCompactionStatus(host.session.compaction)}`);
-    writeLine(`${Colors.BRIGHT_CYAN}Token usage:${Colors.RESET} ${formatUsageStatus(host.session.usage)}`);
-    writeLine(`${Colors.BRIGHT_CYAN}Latest usage:${Colors.RESET} ${formatLatestUsageStatus(host.session.usage)}`);
-    const contextBuilder = getContextBuilder(host);
-    if (contextBuilder) {
-      writeLine(`${Colors.BRIGHT_CYAN}Project context:${Colors.RESET} ${contextBuilder.projectContext.length}`);
-      writeLine(`${Colors.BRIGHT_CYAN}Context build:${Colors.RESET} ${formatContextBuildStatus(contextBuilder)}`);
+    const contextDiagnostics = getContextDiagnostics(host);
+    if (contextDiagnostics) {
+      writeLine(`${Colors.BRIGHT_CYAN}Step guard:${Colors.RESET} ${formatStepGuard(contextDiagnostics.stepGuard)}`);
+      writeLine(`${Colors.BRIGHT_CYAN}Compaction:${Colors.RESET} ${formatCompactionStatus(contextDiagnostics.compaction)}`);
+      writeLine(`${Colors.BRIGHT_CYAN}Token usage:${Colors.RESET} ${formatUsageStatus(contextDiagnostics.usage)}`);
+      writeLine(`${Colors.BRIGHT_CYAN}Latest usage:${Colors.RESET} ${formatLatestUsageStatus(contextDiagnostics.usage)}`);
+      writeLine(`${Colors.BRIGHT_CYAN}Estimated tokens:${Colors.RESET} ${formatTokenEstimateStatus(contextDiagnostics)}`);
+      writeLine(`${Colors.BRIGHT_CYAN}Project context:${Colors.RESET} ${contextDiagnostics.projectContext.count}`);
+      writeLine(`${Colors.BRIGHT_CYAN}Context build:${Colors.RESET} ${formatContextBuildStatus(contextDiagnostics.latestBuild)}`);
     }
     writeLine();
     return 'continue';
@@ -207,10 +223,10 @@ export async function handleInteractiveCommand({
             : Colors.DIM;
       writeLine(`${color}${formatRuntimeDiagnostic(diagnostic)}${Colors.RESET}`);
     }
-    const contextBuilder = getContextBuilder(host);
-    if (contextBuilder) {
+    const contextDiagnostics = getContextDiagnostics(host);
+    if (contextDiagnostics) {
       writeLine();
-      writeContextDiagnostics(contextBuilder, host, writeLine);
+      writeContextDiagnostics(contextDiagnostics, writeLine);
     }
     writeLine();
     return 'continue';

@@ -12,6 +12,24 @@
 12. ResourceLoader 最小骨架
 13. ContextBuilder 最小闭环
 14. Manual `/compact` 最小闭环
+15. ContextBuilder / ContextManager 上下文管理分层
+
+
+
+
+# ContextBuilder / ContextManager 上下文管理分层
+
+将上下文管理正式拆成两层：`ContextBuilder` 继续负责构造单次 LLM request messages，`ContextManager` 作为有状态上下文诊断聚合入口，承接后续 token budget、auto compact、prompt-too-long recovery 和 post-compact reinjection 的演进边界。
+
+核心变化：
+
+- 新增最小 `ContextManager`，聚合 `ContextBuilder.latestBuild`、active messages、step guard、compaction、usage 和 project context metadata。
+- `RuntimeServices` 暴露 `contextManager`，并在 `reloadResources()` 后同步更新其持有的 `ContextBuilder`。
+- interactive mode 的 `/stats` 与 `/diagnostics` 改为通过 `ContextManager` 读取 context 状态。
+- `ContextBuilder.latestBuild` 增加本地 request token estimate 和 project context token estimate。
+- 新增本地 token estimator，用于 diagnostics 可见性；provider 返回的 usage 仍作为真实用量来源。
+
+当前仍不包含 provider API countTokens、model context window 百分比、完整 token budget、自动阈值 compaction、prompt-too-long recovery 或 post-compact resource budget。
 
 
 

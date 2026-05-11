@@ -49,6 +49,8 @@ test('createRuntimeServices builds workspace-bound services without creating an 
     assert.ok(services.contextBuilder);
     assert.equal(services.contextBuilder.projectContext.length, 0);
     assert.equal(services.contextBuilder.projectContextMaxChars, 20000);
+    assert.ok(services.contextManager);
+    assert.equal(services.contextManager.contextBuilder, services.contextBuilder);
     assert.ok(services.sessionManager);
     assert.ok(services.llmClient);
     assert.ok(services.diagnostics.some((diagnostic) => diagnostic.code === 'config_loaded'));
@@ -80,6 +82,8 @@ test('RuntimeServices reloadResources reloads project context without recreating
     assert.equal(services.sessionManager, previousSessionManager);
     assert.equal(result.resourceLoader.projectContext[0]?.content, 'new instructions');
     assert.equal(services.contextBuilder.projectContext[0]?.content, 'new instructions');
+    assert.equal(services.contextManager.contextBuilder, services.contextBuilder);
+    assert.equal(services.contextManager.contextBuilder.projectContext[0]?.content, 'new instructions');
     assert.ok(services.diagnostics.some((diagnostic) => diagnostic.code === 'resources_reloaded'));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });

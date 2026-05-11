@@ -3,7 +3,45 @@ import test from 'node:test';
 import { createContextBuilder } from '../src/core/context-builder.js';
 import { RuntimeSessionNotFoundError } from '../src/core/runtime.js';
 import type { RuntimeHost } from '../src/core/runtime-host.js';
+import { estimateMessagesTokens } from '../src/core/token-estimator.js';
 import { handleInteractiveCommand } from '../src/modes/interactive-mode.js';
+
+function createContextManagerMock({
+  contextBuilder = createContextBuilder(),
+  session,
+}: {
+  contextBuilder?: ReturnType<typeof createContextBuilder>;
+  session: {
+    compaction: RuntimeHost['session']['compaction'];
+    usage: RuntimeHost['session']['usage'];
+  };
+}) {
+  return {
+    getDiagnostics({
+      messages,
+      maxSteps,
+    }: {
+      messages: RuntimeHost['session']['messages'];
+      maxSteps?: number | null;
+    }) {
+      return {
+        activeMessageCount: messages.length,
+        activeMessageTokenEstimate: estimateMessagesTokens(messages),
+        stepGuard: typeof maxSteps === 'number' && Number.isFinite(maxSteps) && maxSteps > 0
+          ? { enabled: true, maxSteps }
+          : { enabled: false },
+        compaction: session.compaction,
+        usage: session.usage,
+        projectContext: {
+          count: contextBuilder.projectContext.length,
+          resources: contextBuilder.projectContext,
+          budgetChars: contextBuilder.projectContextMaxChars,
+        },
+        latestBuild: contextBuilder.latestBuild,
+      };
+    },
+  };
+}
 
 test('/new creates a new runtime session through RuntimeHost', async () => {
   let sessionId = 'session-old';
@@ -145,35 +183,36 @@ test('/stats prints session and runtime details', async () => {
     }],
     projectContextMaxChars: 20000,
   });
+  const session = {
+    apiTotalTokens: 123,
+    maxSteps: null,
+    compaction: { compacted: false },
+    usage: {
+      count: 2,
+      total: {
+        prompt_tokens: 80,
+        completion_tokens: 43,
+        total_tokens: 123,
+      },
+      latest: {
+        prompt_tokens: 30,
+        completion_tokens: 20,
+        total_tokens: 50,
+      },
+      latestTimestamp: Date.parse('2026-05-10T00:00:00.000Z'),
+      latestSource: 'assistant' as const,
+    },
+    messages: [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'hello' },
+    ],
+  };
   const host = {
     get sessionId() {
       return 'session-stats';
     },
     get session() {
-      return {
-        apiTotalTokens: 123,
-        maxSteps: null,
-        compaction: { compacted: false },
-        usage: {
-          count: 2,
-          total: {
-            prompt_tokens: 80,
-            completion_tokens: 43,
-            total_tokens: 123,
-          },
-          latest: {
-            prompt_tokens: 30,
-            completion_tokens: 20,
-            total_tokens: 50,
-          },
-          latestTimestamp: Date.parse('2026-05-10T00:00:00.000Z'),
-          latestSource: 'assistant',
-        },
-        messages: [
-          { role: 'system', content: 'system' },
-          { role: 'user', content: 'hello' },
-        ],
-      };
+      return session;
     },
     get runtime() {
       return {
@@ -186,6 +225,7 @@ test('/stats prints session and runtime details', async () => {
         tools: [{ name: 'read_file' }, { name: 'bash' }],
         services: {
           contextBuilder,
+          contextManager: createContextManagerMock({ contextBuilder, session }),
         },
       };
     },
@@ -209,37 +249,39 @@ test('/stats prints session and runtime details', async () => {
   assert.match(text, /Compaction:.*none/);
   assert.match(text, /Token usage:.*calls=2, prompt=80, completion=43, total=123/);
   assert.match(text, /Latest usage:.*source=assistant, prompt=30, completion=20, total=50, at=2026-05-10T00:00:00\.000Z/);
+  assert.match(text, /Estimated tokens:.*active=\d+, method=gpt-tokenizer/);
   assert.match(text, /Project context:.*1/);
   assert.match(text, /Context build:.*not built yet/);
 });
 
 test('/stats prints compacted context details', async () => {
   const output: string[] = [];
+  const session = {
+    apiTotalTokens: 0,
+    maxSteps: 12,
+    compaction: {
+      compacted: true,
+      summaryLength: 42,
+      messagesBefore: 10,
+      messagesAfter: 5,
+      firstKeptMessageIndex: 6,
+    },
+    usage: {
+      count: 0,
+      total: {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+      },
+    },
+    messages: [{ role: 'system', content: 'system' }],
+  };
   const host = {
     get sessionId() {
       return 'session-compacted';
     },
     get session() {
-      return {
-        apiTotalTokens: 0,
-        maxSteps: 12,
-        compaction: {
-          compacted: true,
-          summaryLength: 42,
-          messagesBefore: 10,
-          messagesAfter: 5,
-          firstKeptMessageIndex: 6,
-        },
-        usage: {
-          count: 0,
-          total: {
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0,
-          },
-        },
-        messages: [{ role: 'system', content: 'system' }],
-      };
+      return session;
     },
     get runtime() {
       return {
@@ -250,7 +292,9 @@ test('/stats prints compacted context details', async () => {
           },
         },
         tools: [],
-        services: {},
+        services: {
+          contextManager: createContextManagerMock({ session }),
+        },
       };
     },
   } as unknown as RuntimeHost;
@@ -349,40 +393,44 @@ test('/diagnostics prints full runtime diagnostics', async () => {
     systemPrompt: 'system',
     messages: [{ role: 'system', content: 'system' }],
   });
+  const session = {
+    maxSteps: null,
+    compaction: {
+      compacted: true,
+      timestamp: Date.parse('2026-05-10T00:00:00.000Z'),
+      summaryLength: 40,
+      firstKeptMessageIndex: 4,
+      messagesBefore: 9,
+      messagesAfter: 5,
+      customInstructions: 'focus',
+    },
+    usage: {
+      count: 1,
+      total: {
+        prompt_tokens: 100,
+        completion_tokens: 25,
+        total_tokens: 125,
+      },
+      latest: {
+        prompt_tokens: 100,
+        completion_tokens: 25,
+        total_tokens: 125,
+      },
+      latestTimestamp: Date.parse('2026-05-10T00:01:00.000Z'),
+      latestSource: 'compaction' as const,
+    },
+    messages: [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'summary' },
+      { role: 'user', content: 'next' },
+    ],
+  };
   const host = {
+    get sessionId() {
+      return 'session-diagnostics';
+    },
     get session() {
-      return {
-        maxSteps: null,
-        compaction: {
-          compacted: true,
-          timestamp: Date.parse('2026-05-10T00:00:00.000Z'),
-          summaryLength: 40,
-          firstKeptMessageIndex: 4,
-          messagesBefore: 9,
-          messagesAfter: 5,
-          customInstructions: 'focus',
-        },
-        usage: {
-          count: 1,
-          total: {
-            prompt_tokens: 100,
-            completion_tokens: 25,
-            total_tokens: 125,
-          },
-          latest: {
-            prompt_tokens: 100,
-            completion_tokens: 25,
-            total_tokens: 125,
-          },
-          latestTimestamp: Date.parse('2026-05-10T00:01:00.000Z'),
-          latestSource: 'compaction',
-        },
-        messages: [
-          { role: 'system', content: 'system' },
-          { role: 'user', content: 'summary' },
-          { role: 'user', content: 'next' },
-        ],
-      };
+      return session;
     },
     get runtime() {
       return {
@@ -404,6 +452,7 @@ test('/diagnostics prints full runtime diagnostics', async () => {
         ],
         services: {
           contextBuilder,
+          contextManager: createContextManagerMock({ contextBuilder, session }),
         },
       };
     },
@@ -429,9 +478,10 @@ test('/diagnostics prints full runtime diagnostics', async () => {
   assert.match(text, /Custom instructions: yes/);
   assert.match(text, /Token usage: calls=1, prompt=100, completion=25, total=125/);
   assert.match(text, /Latest usage: source=compaction, prompt=100, completion=25, total=125, at=2026-05-10T00:01:00\.000Z/);
+  assert.match(text, /Estimated tokens: active=\d+, request=\d+, project_context=\d+, method=gpt-tokenizer/);
   assert.match(text, /AGENTS\.md path=\/workspace\/AGENTS\.md chars=23/);
   assert.match(text, /Budget: 20000 chars/);
-  assert.match(text, /Last build: injected 1 resource\(s\).*chars=85\/20000/);
+  assert.match(text, /Last build: injected 1 resource\(s\).*estimated request tokens=\d+.*chars=85\/20000/);
 });
 
 test('/reload reloads runtime resources through RuntimeHost', async () => {

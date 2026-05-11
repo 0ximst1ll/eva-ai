@@ -1,6 +1,7 @@
 import { createDiagnostic, type RuntimeDiagnostic } from '../diagnostics.js';
 import type { Message } from '../schema.js';
 import type { ProjectContextResource } from './resource-loader.js';
+import { estimateMessagesTokens, estimateTextTokens, type TokenEstimate } from './token-estimator.js';
 
 export const DEFAULT_PROJECT_CONTEXT_MAX_CHARS = 20000;
 
@@ -34,6 +35,8 @@ export interface ContextBuildSummary {
   inputMessageCount: number;
   requestMessageCount: number;
   builtAt: number;
+  requestTokenEstimate: TokenEstimate;
+  projectContextTokenEstimate: TokenEstimate;
 }
 
 export interface CreateContextBuilderOptions {
@@ -149,6 +152,8 @@ export function createContextBuilder({
           inputMessageCount: messages.length,
           requestMessageCount: requestMessages.length,
           builtAt: Date.now(),
+          requestTokenEstimate: estimateMessagesTokens(requestMessages),
+          projectContextTokenEstimate: estimateTextTokens(''),
         };
         return {
           messages: requestMessages,
@@ -187,6 +192,8 @@ export function createContextBuilder({
         inputMessageCount: messages.length,
         requestMessageCount: requestMessages.length,
         builtAt: Date.now(),
+        requestTokenEstimate: estimateMessagesTokens(requestMessages),
+        projectContextTokenEstimate: estimateTextTokens(formattedProjectContext.content),
       };
 
       return {

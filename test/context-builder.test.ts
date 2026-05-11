@@ -33,6 +33,9 @@ test('ContextBuilder injects project context after the system message', () => {
   assert.deepEqual(durableMessages.map((message) => message.content), ['system', 'hello']);
   assert.equal(result.diagnostics[0]?.code, 'project_context_injected');
   assert.equal(result.summary.injected, true);
+  assert.equal(result.summary.requestTokenEstimate.method, 'gpt-tokenizer');
+  assert.ok(result.summary.requestTokenEstimate.tokens > 0);
+  assert.ok(result.summary.projectContextTokenEstimate.tokens > 0);
   assert.deepEqual(builder.latestBuild, result.summary);
 });
 
@@ -52,6 +55,9 @@ test('ContextBuilder returns a shallow message copy when project context is empt
   assert.deepEqual(result.messages, durableMessages);
   assert.equal(result.diagnostics[0]?.code, 'project_context_empty');
   assert.equal(result.summary.injected, false);
+  assert.equal(result.summary.requestTokenEstimate.method, 'gpt-tokenizer');
+  assert.ok(result.summary.requestTokenEstimate.tokens > 0);
+  assert.equal(result.summary.projectContextTokenEstimate.tokens, 0);
   assert.deepEqual(builder.latestBuild, result.summary);
 });
 

@@ -9,6 +9,7 @@ import { LLMProvider } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { loadConfiguredTools, type ToolRegistry } from '../tools/index.js';
 import { createContextBuilder, type ContextBuilder } from './context-builder.js';
+import { createContextManager, type ContextManager } from './context-manager.js';
 import { createResourceLoader, type ResourceLoader } from './resource-loader.js';
 import { SessionManager } from './session-manager.js';
 
@@ -37,6 +38,7 @@ export interface RuntimeServices {
   retryConfig: RetryConfig;
   resourceLoader: ResourceLoader;
   contextBuilder: ContextBuilder;
+  contextManager: ContextManager;
   systemPrompt: string;
   systemPromptPath: string | null;
   tools: Tool[];
@@ -156,6 +158,7 @@ export function reloadRuntimeServicesResources(services: RuntimeServices): Runti
 
   services.resourceLoader = result.resourceLoader;
   services.contextBuilder = result.contextBuilder;
+  services.contextManager.setContextBuilder(result.contextBuilder);
   services.systemPrompt = result.systemPrompt;
   services.systemPromptPath = result.systemPromptPath;
   services.diagnostics.push(...diagnostics);
@@ -260,6 +263,10 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
       baseDir: options.sessionBaseDir,
     },
   }));
+  const contextManager = createContextManager({
+    contextBuilder: resourceSet.contextBuilder,
+    sessionManager,
+  });
 
   const services: RuntimeServices = {
     workspaceDir,
@@ -269,6 +276,7 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     retryConfig,
     resourceLoader: resourceSet.resourceLoader,
     contextBuilder: resourceSet.contextBuilder,
+    contextManager,
     systemPrompt: resourceSet.systemPrompt,
     systemPromptPath: resourceSet.systemPromptPath,
     tools,
