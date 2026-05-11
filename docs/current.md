@@ -1,12 +1,17 @@
 # Eva AI Current
 
-## 当前状态（2026-05-10）
+## 当前状态（2026-05-11）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、本地 request token estimation，以及规划文档中的长期架构域视图整理。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、本地 request token estimation，以及自建最小 TUI 框架（`src/tui/`）并接入 `tui-mode.ts`。
 
-刚完成的任务是在不引入完整 context budget engine 的前提下，为 `ContextBuilder` / `ContextManager` 增加本地 request token estimation 诊断。provider 返回的 usage 仍作为真实用量来源；本地估算只用于发送前和 diagnostics 可见性。
+刚完成的任务是参考 pi-mono 的 `pi-tui` 设计，为 Eva 自建了最小 TUI 框架，并新增 `tui-mode.ts` 作为并行 interactive mode。通过 `--tui` flag 启动，原 `interactive-mode.ts` 保留不变。
 
 ## 已完成
+
+- 自建最小 TUI 框架 `src/tui/`：差量渲染引擎（16ms 节流、`cursorRow` 精确追踪、CSI 2026 synchronized output）、`Component` 接口 + `Container`、`utils`（visibleWidth/wrapText/truncate）、`StdinBuffer`（ESC 序列解析）、`ProcessTerminal`、`Text`/`Separator`/`Spacer`/`Input`/`Footer` 组件。
+- 新增 `tui-mode.ts`，布局为 header → chatContainer → statusContainer → inputContainer → footer，inline 追加 + 终端 scrollback，与 pi-mono 方案一致。
+- `--tui` flag 启动 TUI mode，原 `interactive-mode.ts` 保留不变，两种 mode 并行。
+- TUI mode 复用 `handleInteractiveCommand()` 处理所有 slash commands，复用 `AbortController` 处理 Ctrl-C abort。
 
 - interactive 和 print modes 已共享 `RuntimeHost` 与同一套 runtime/session 路径。
 - 已实现 `RuntimeHost` 的 `newSession()`、`resumeLatestSession()`、`switchSession()` 和 `reloadResources()`。
@@ -47,17 +52,26 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 下一步
 
-- 后续评估 provider API countTokens、model context window 和 context usage percent。
-- 后续再实现 auto compaction、prompt-too-long recovery 和 post-compact resource budget。
-- 规划 print/headless/RPC 场景下 permission pending 的处理策略。
+按优先级排列：
 
-## 后续重点计划
+1. **TUI 体验完善**（当前最近完成，有明确待补项）
+   - TUI mode 补全所有 slash commands 的输出渲染（当前 `/stats`、`/diagnostics` 等输出是纯文本追加，可考虑格式化）
+   - `tui-mode.ts` 设为默认启动（去掉 `--tui` flag，或将其设为默认值），`--no-tui` 回退到 readline mode
+   - TUI mode 补全 tool confirmation 的更好展示（当前是简单文本替换 input）
+   - `architecture.md` 补充 TUI 框架章节
 
-- 当前 manual `/compact` 只做最小闭环，不实现自动阈值 compaction。
-- ContextManager 后续再承接 token accounting、auto compaction、prompt-too-long recovery 和 post-compact resource reinjection。
-- 当前 `max_steps` 后续应进一步迁移为 print/headless/RPC 场景下的命名更明确的可选 runaway guard。
-- 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 逐步建立。
-- 完整 session tree、fork、clone 和 path-aware context rebuild 放入后续 session model 阶段。
+2. **M3：Headless RPC**
+   - JSONL stdin/stdout 协议（`prompt`、`get_state`、`abort`、`new_session`）
+   - interactive、print、RPC 共享 `RuntimeHost`
+
+3. **Context Management 补齐**
+   - provider API countTokens / model context window 百分比
+   - auto compaction 阈值触发
+   - prompt-too-long recovery
+
+4. **M4：Session Tree**
+   - session entry schema（`id`、`parentId`、`timestamp`）
+   - `/fork`、path-aware context rebuild
 
 ## 已知问题
 
@@ -70,3 +84,5 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - RPC mode 尚不存在。
 - session history 仍是 flat JSONL，尚未升级为 session tree。
 - tool result budget、超大输出持久化、完整 permission pipeline 尚未实现。
+- TUI 框架尚未覆盖测试；`src/tui/` 中无单元测试。
+- TUI mode 的 `architecture.md` 章节尚未补充。
