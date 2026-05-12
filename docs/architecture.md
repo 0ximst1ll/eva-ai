@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction recommendation diagnostics、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、OpenAI provider countTokens、自动 compaction 执行循环和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、OpenAI provider countTokens、prompt-too-long recovery、post-compact resource budget 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -88,6 +88,7 @@ createRuntime()
 - 选择或创建 session；
 - 创建带工具治理 hook 的 `AgentSession`。
 - 将 `RuntimeServices` 暴露为 `runtime.services`。
+- 将 `ContextManager` 传给 `AgentSession`，用于 run 前 auto compaction 检查。
 - 支持 `reloadResources()`，在不切换当前 session 的情况下同步新的 resources 和 context builder。
 
 当前 runtime diagnostics 使用统一结构：
@@ -211,9 +212,11 @@ Contents of AGENTS.md:
 - 暴露 project context 资源、字符预算和最近一次 context build 摘要；
 - 暴露最近一次 request/project context token estimate。
 - 如果配置了 `context_window_tokens`，基于 TokenCounter 结果计算 context usage percent；未配置时显示 unknown；
-- 基于 `compaction` 配置输出 compaction recommendation diagnostics，但不会自动执行 compact。
+- 基于 `compaction` 配置输出 compaction recommendation diagnostics。
 
-它当前不负责自动 compaction 执行、OpenAI provider countTokens、prompt-too-long recovery、summary 生成、post-compact resource reinjection 或完整 token budget。
+它当前不负责 OpenAI provider countTokens、prompt-too-long recovery、summary 生成、post-compact resource reinjection 或完整 token budget。
+
+`AgentSession.run()` 会在进入 agent loop 前使用 `ContextManager` 基于 active messages 计算 compaction recommendation。如果 `compaction.enabled=true` 且 reason 为 `reserve_reached`，会先调用现有 `compact()`；compact 失败时不会修改当前 session，并继续本次 run。
 
 interactive mode 当前通过 `ContextManager` 展示 context 状态：
 

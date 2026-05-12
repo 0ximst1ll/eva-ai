@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AgentSession } from '../src/core/agent-session.js';
 import { createContextBuilder } from '../src/core/context-builder.js';
+import { createContextManager } from '../src/core/context-manager.js';
 import { SessionManager } from '../src/core/session-manager.js';
 import type { LLMClient } from '../src/llm/llm-client.js';
 import type { LLMResponse, LLMStreamEvent, Message } from '../src/schema.js';
@@ -198,4 +199,100 @@ test('AgentSession uses reloaded context resources on the next run', async () =>
     sessionManager.getMessages(sessionId).map((message) => message.content),
     ['system-old', 'first run', 'first', 'second run', 'second'],
   );
+});
+
+test('AgentSession automatically compacts before run when context reserve is reached', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-1');
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'first task' });
+  await sessionManager.appendMessage(sessionId, { role: 'assistant', content: 'first answer' });
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'second task' });
+  await sessionManager.appendMessage(sessionId, { role: 'assistant', content: 'second answer' });
+  const contextBuilder = createContextBuilder();
+  const contextManager = createContextManager({
+    contextBuilder,
+    sessionManager,
+    contextWindowTokens: 1000,
+    compaction: { enabled: true, reserveTokens: 200 },
+    tokenCounter: {
+      async countMessages() {
+        return { tokens: 850, source: 'provider', method: 'anthropic_count_tokens' };
+      },
+    },
+  });
+  const llm = new ScriptedLLM([
+    {
+      content: 'Earlier work was summarized.',
+      finish_reason: 'stop',
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [],
+    maxSteps: 3,
+    contextBuilder,
+    contextManager,
+    sessionManager,
+    sessionId,
+  });
+
+  await session.addUserMessage('current task');
+  assert.equal(await session.run(), 'done');
+
+  assert.equal(llm.generateCalls.length, 1);
+  assert.equal(llm.calls.length, 1);
+  assert.match(session.messages[1]?.content ?? '', /Earlier work was summarized/);
+  assert.equal(session.compaction.compacted, true);
+  assert.equal(session.usage.latestSource, 'compaction');
+});
+
+test('AgentSession continues the run when automatic compaction fails', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-1');
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'task' });
+  await sessionManager.appendMessage(sessionId, { role: 'assistant', content: 'answer' });
+  const beforeRunMessages = sessionManager.getMessages(sessionId).map((message) => ({ ...message }));
+  const contextBuilder = createContextBuilder();
+  const contextManager = createContextManager({
+    contextBuilder,
+    sessionManager,
+    contextWindowTokens: 1000,
+    compaction: { enabled: true, reserveTokens: 200 },
+    tokenCounter: {
+      async countMessages() {
+        return { tokens: 850, source: 'provider', method: 'anthropic_count_tokens' };
+      },
+    },
+  });
+  const llm = new ScriptedLLM([
+    { content: '', finish_reason: 'stop' },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [],
+    maxSteps: 3,
+    contextBuilder,
+    contextManager,
+    sessionManager,
+    sessionId,
+  });
+
+  assert.equal(await session.run(), 'done');
+
+  assert.equal(llm.generateCalls.length, 1);
+  assert.equal(llm.calls.length, 1);
+  assert.equal(session.compaction.compacted, false);
+  assert.deepEqual(session.messages.slice(0, beforeRunMessages.length), beforeRunMessages);
+  assert.equal(session.messages.at(-1)?.content, 'done');
 });

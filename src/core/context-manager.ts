@@ -9,6 +9,7 @@ export interface ContextDiagnosticsInput {
   sessionId: string;
   messages: Message[];
   maxSteps?: number | null;
+  usageSource?: 'auto' | 'active_messages';
 }
 
 export interface ContextStepGuardDiagnostics {
@@ -94,13 +95,18 @@ export function createContextManager({
     setContextBuilder(nextContextBuilder: ContextBuilder): void {
       currentContextBuilder = nextContextBuilder;
     },
-    async getDiagnostics({ sessionId, messages, maxSteps }: ContextDiagnosticsInput): Promise<ContextDiagnostics> {
+    async getDiagnostics({
+      sessionId,
+      messages,
+      maxSteps,
+      usageSource = 'auto',
+    }: ContextDiagnosticsInput): Promise<ContextDiagnostics> {
       const stepGuard = typeof maxSteps === 'number' && Number.isFinite(maxSteps) && maxSteps > 0
         ? { enabled: true, maxSteps }
         : { enabled: false };
       const activeMessageTokenEstimate = estimateMessagesTokens(messages);
       const latestBuild = currentContextBuilder.latestBuild;
-      const latestRequestMessages = currentContextBuilder.latestRequestMessages;
+      const latestRequestMessages = usageSource === 'auto' ? currentContextBuilder.latestRequestMessages : null;
       const contextUsageMessages = latestRequestMessages ?? messages;
       const contextTokenCount = tokenCounter
         ? await tokenCounter.countMessages({ messages: contextUsageMessages })

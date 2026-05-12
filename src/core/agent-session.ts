@@ -8,6 +8,7 @@ import {
   type CompactionResult,
 } from './compaction.js';
 import type { ContextBuilder } from './context-builder.js';
+import type { ContextManager } from './context-manager.js';
 import type {
   AfterToolCallContext,
   AfterToolCallResult,
@@ -22,6 +23,7 @@ export class AgentSession {
   private readonly agent: Agent;
   private readonly llmClient: LLMClient;
   private readonly sessionManager: SessionManager;
+  private readonly contextManager?: ContextManager;
   private _systemPrompt: string;
   private readonly _maxSteps?: number | null;
   readonly sessionId: string;
@@ -35,6 +37,7 @@ export class AgentSession {
     maxSteps,
     toolExecution,
     contextBuilder,
+    contextManager,
     beforeToolCall,
     afterToolCall,
     sessionManager,
@@ -46,6 +49,7 @@ export class AgentSession {
     maxSteps?: number | null;
     toolExecution?: ToolExecutionMode;
     contextBuilder?: ContextBuilder;
+    contextManager?: ContextManager;
     beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) =>
       BeforeToolCallResult | Promise<BeforeToolCallResult | undefined> | undefined;
     afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) =>
@@ -56,6 +60,7 @@ export class AgentSession {
     this._systemPrompt = systemPrompt;
     this.llmClient = llmClient;
     this.sessionManager = sessionManager;
+    this.contextManager = contextManager;
     this._maxSteps = maxSteps;
     this.sessionId = sessionId;
     this.agent = new Agent({
@@ -160,6 +165,7 @@ export class AgentSession {
     signal?: AbortSignal;
     onEvent?: (event: AgentSessionEvent) => void;
   } = {}): Promise<string> {
+    await this.compactIfRecommended();
     const unsubscribe = this.agent.subscribe(async (event) => {
       await this.handleAgentEvent(event, onEvent);
     });
@@ -171,6 +177,24 @@ export class AgentSession {
       return result;
     } finally {
       unsubscribe();
+    }
+  }
+
+  private async compactIfRecommended(): Promise<void> {
+    if (!this.contextManager) return;
+
+    const diagnostics = await this.contextManager.getDiagnostics({
+      sessionId: this.sessionId,
+      messages: this.sessionManager.getMessages(this.sessionId),
+      maxSteps: this._maxSteps,
+      usageSource: 'active_messages',
+    });
+    if (diagnostics.compactionRecommendation.reason !== 'reserve_reached') return;
+
+    try {
+      await this.compact();
+    } catch {
+      // Auto compaction must never make a runnable session unusable.
     }
   }
 

@@ -182,6 +182,7 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
     tools,
     maxSteps: options.maxSteps === undefined ? config.agent.maxSteps : options.maxSteps,
     contextBuilder,
+    contextManager: services.contextManager,
     beforeToolCall: createToolGovernanceHook(config, options),
     sessionManager,
     sessionId,

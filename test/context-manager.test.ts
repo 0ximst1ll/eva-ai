@@ -114,6 +114,41 @@ test('ContextManager uses provider token counts when a TokenCounter is available
   assert.equal(diagnostics.contextUsage.percent, 25);
 });
 
+test('ContextManager can force usage diagnostics from active messages', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-context');
+  const contextBuilder = createContextBuilder();
+  contextBuilder.build({
+    systemPrompt: 'system',
+    messages: sessionManager.getMessages(sessionId),
+  });
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'new input' });
+  let countedMessages: string[] = [];
+  const contextManager = createContextManager({
+    contextBuilder,
+    sessionManager,
+    contextWindowTokens: 1000,
+    tokenCounter: {
+      async countMessages({ messages }) {
+        countedMessages = messages.map((message) => message.content);
+        return { tokens: 250, source: 'provider', method: 'anthropic_count_tokens' };
+      },
+    },
+  });
+
+  const diagnostics = await contextManager.getDiagnostics({
+    sessionId,
+    messages: sessionManager.getMessages(sessionId),
+    usageSource: 'active_messages',
+  });
+
+  assert.deepEqual(countedMessages, ['system', 'new input']);
+  assert.equal(diagnostics.contextUsage.source, 'active_messages');
+});
+
 test('ContextManager recommends compaction only when the reserve is reached', async () => {
   const sessionManager = new SessionManager({
     workspaceDir: '/workspace',
