@@ -2,13 +2,14 @@ import * as fs from 'node:fs';
 import {
   RuntimeConfigNotFoundError,
   UnsupportedProviderError,
+  type ToolPermissionDecision,
   type ToolConfirmationRequest,
 } from './core/runtime.js';
 import { RuntimeHost } from './core/runtime-host.js';
 import { renderRuntimeDiagnostics, runInteractiveMode, runPrintMode } from './modes/index.js';
 import { Colors } from './utils/terminal.js';
 
-let askToolConfirmation: ((request: ToolConfirmationRequest) => Promise<boolean>) | undefined;
+let askToolConfirmation: ((request: ToolConfirmationRequest) => Promise<ToolPermissionDecision>) | undefined;
 
 async function createHost(workspaceDir: string, maxSteps?: number | null): Promise<RuntimeHost | null> {
 
@@ -16,7 +17,7 @@ async function createHost(workspaceDir: string, maxSteps?: number | null): Promi
     const host = await RuntimeHost.create({
       workspaceDir,
       maxSteps,
-      confirmToolCall: (request) => askToolConfirmation?.(request) ?? false,
+      confirmToolCall: (request) => askToolConfirmation?.(request) ?? 'ask',
       onLlmRetry: ({ error, attempt, nextDelay }) => {
         console.log(`\n${Colors.BRIGHT_YELLOW}⚠️  LLM call failed (attempt ${attempt}): ${error.message}${Colors.RESET}`);
         console.log(

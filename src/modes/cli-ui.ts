@@ -1,5 +1,5 @@
 import { type AgentSessionEvent } from '../schema.js';
-import type { RuntimeDiagnostic, ToolConfirmationRequest } from '../core/runtime.js';
+import type { RuntimeDiagnostic, ToolConfirmationRequest, ToolPermissionDecision } from '../core/runtime.js';
 import { Colors, calculateDisplayWidth } from '../utils/terminal.js';
 
 const BOX_WIDTH = 58;
@@ -137,7 +137,7 @@ export function renderRuntimeDiagnostics(
 }
 
 export function createToolConfirmationPrompt(prompt: CliPrompt) {
-  return async ({ tool, args, metadata }: ToolConfirmationRequest): Promise<boolean> => {
+  return async ({ tool, args, metadata }: ToolConfirmationRequest): Promise<ToolPermissionDecision> => {
     console.log();
     console.log(
       Colors.BRIGHT_YELLOW +
@@ -173,6 +173,6 @@ export function createToolConfirmationPrompt(prompt: CliPrompt) {
     const answer = (await prompt(Colors.BRIGHT_YELLOW + 'Allow this tool call? [y/N] ' + Colors.RESET))
       .trim()
       .toLowerCase();
-    return answer === 'y' || answer === 'yes';
+    return answer === 'y' || answer === 'yes' ? 'allow' : 'deny';
   };
 }

@@ -4,13 +4,13 @@
 
 Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环，以及规划文档中的长期架构域视图整理。
 
-刚完成的任务是实现 post-compact resource budget 最小闭环。session 已 compact 后，`ContextBuilder` 会对 project context 使用更保守的有效预算，并在最近一次 build 摘要中暴露预算模式。
+刚完成的任务是实现 permission pending 最小策略。工具确认已从 boolean 扩展为 `allow` / `deny` / `ask` 语义；interactive 继续现场确认，print/headless 在 pending permission 时 fail-closed，并为未来 RPC/ACP pending event 预留清晰语义。
 
 ## 已完成
 
 - interactive 和 print modes 已共享 `RuntimeHost` 与同一套 runtime/session 路径。
 - 已实现 `RuntimeHost` 的 `newSession()`、`resumeLatestSession()`、`switchSession()` 和 `reloadResources()`。
-- 当前已有 JSONL session persistence、builtin file/search/bash tools、tool registry、高风险工具 confirmation hook、abort 和 queue 基础能力。
+- 当前已有 JSONL session persistence、builtin file/search/bash tools、tool registry、高风险工具 confirmation hook、最小 permission pending 语义、abort 和 queue 基础能力。
 - 已建立 `test` 和 `typecheck` script，并覆盖 retry、SessionManager、agent-loop、RuntimeHost、abort、queue 等核心路径。
 - interactive mode 已实现 `/new`、`/resume`、`/resume <id>`、`/clear`、`/history`、`/stats`、`/diagnostics`、`/reload` 和 `/sessions`。
 - runtime diagnostics 已统一为 `source`、`level`、`code`、`message`、`details` 结构。
@@ -45,6 +45,8 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - `AgentSession` 已暴露 usage 状态，并会持久化 assistant response usage 和 compact LLM usage。
 - `/stats` 与 `/diagnostics` 已展示 token usage、最近一次 usage 来源和时间。
 - note tool 相关配置字段、resource warning 和 tool category 已移除。
+- tool permission decision 已支持 `allow` / `deny` / `ask`，并兼容旧 boolean confirmation handler。
+- print/headless 当前没有确认通道时会将需要确认的 tool call 视为 pending permission 并 fail-closed。
 
 ## 进行中
 
@@ -52,8 +54,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 下一步
 
-- 规划 print/headless/RPC 场景下 permission pending 的处理策略。
-- 规划 print/headless/RPC 场景下 permission pending 的处理策略。
+- 规划 RPC/ACP mode 的 pending permission event。
 
 ## 后续重点计划
 
@@ -62,6 +63,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - 当前 `max_steps` 后续应进一步迁移为 print/headless/RPC 场景下的命名更明确的可选 runaway guard。
 - 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 逐步建立。
 - 完整 session tree、fork、clone 和 path-aware context rebuild 放入后续 session model 阶段。
+- 完整 permission pipeline 后续继续补 permission modes、rules、diagnostics 和 RPC/ACP pending event。
 
 ## 已知问题
 

@@ -31,12 +31,16 @@ export interface ToolConfirmationRequest {
   metadata: ToolMetadata;
 }
 
+export type ToolPermissionDecision = 'allow' | 'deny' | 'ask';
+export type ToolPermissionHandlerResult = ToolPermissionDecision | boolean;
+
 export interface CreateRuntimeOptions extends CreateRuntimeServicesOptions {
   createNewSession?: boolean;
   sessionId?: string;
   createSessionIfMissing?: boolean;
   maxSteps?: number | null;
-  confirmToolCall?: (request: ToolConfirmationRequest) => boolean | Promise<boolean>;
+  confirmToolCall?: (request: ToolConfirmationRequest) =>
+    ToolPermissionHandlerResult | Promise<ToolPermissionHandlerResult>;
 }
 
 export interface Runtime {
@@ -72,7 +76,13 @@ function shouldConfirmTool(metadata: ToolMetadata, config: ConfigData): boolean 
   return config.tools.confirmRiskLevels.includes(metadata.riskLevel);
 }
 
-function createToolGovernanceHook(config: ConfigData, options: CreateRuntimeOptions) {
+export function normalizeToolPermissionDecision(result: ToolPermissionHandlerResult): ToolPermissionDecision {
+  if (result === true) return 'allow';
+  if (result === false) return 'deny';
+  return result;
+}
+
+export function createToolGovernanceHook(config: ConfigData, options: CreateRuntimeOptions) {
   return async (context: BeforeToolCallContext) => {
     if (!context.tool?.metadata) return undefined;
 
@@ -82,21 +92,30 @@ function createToolGovernanceHook(config: ConfigData, options: CreateRuntimeOpti
     if (!options.confirmToolCall) {
       return {
         block: true,
-        reason: 'Tool requires confirmation but no confirmation handler is available: ' + context.tool.name,
+        reason: 'Tool permission pending: confirmation required but no confirmation handler is available for ' + context.tool.name,
       };
     }
 
-    const approved = await options.confirmToolCall({
-      toolCall: context.toolCall,
-      tool: context.tool,
-      args: context.args,
-      metadata,
-    });
+    const decision = normalizeToolPermissionDecision(
+      await options.confirmToolCall({
+        toolCall: context.toolCall,
+        tool: context.tool,
+        args: context.args,
+        metadata,
+      }),
+    );
 
-    if (!approved) {
+    if (decision === 'ask') {
       return {
         block: true,
-        reason: 'Tool execution rejected by user: ' + context.tool.name,
+        reason: 'Tool permission pending: approval required but current mode cannot request it for ' + context.tool.name,
+      };
+    }
+
+    if (decision === 'deny') {
+      return {
+        block: true,
+        reason: 'Tool execution denied: ' + context.tool.name,
       };
     }
 

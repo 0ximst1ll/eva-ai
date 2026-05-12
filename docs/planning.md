@@ -266,14 +266,14 @@ Resource loading 只负责发现和读取资源，不负责决定这些资源如
 
 ### 权限治理
 
-当前 Eva AI 只有高风险 confirmation。目标是演进为统一权限管线。
+当前 Eva AI 已有高风险 confirmation，并已把最小 tool permission decision 统一为 `allow`、`deny`、`ask`。完整目标仍是演进为统一权限管线。
 
 推荐顺序：
 
-1. rules：allow、deny、ask。
+1. rules：从当前最小 `allow`、`deny`、`ask` 语义演进为可配置规则。
 2. modes：default、plan、accept-edits、bypass、dont-ask。
 3. interaction：interactive 下询问用户。
-4. headless/RPC：无确认通道时默认 deny。
+4. headless/RPC：无确认通道时默认 fail-closed；RPC/ACP 后续把 `ask` 暴露为 pending permission event。
 5. classifier slot：只预留接口，暂不实现。
 
 设计原则：

@@ -1,5 +1,5 @@
 import * as readline from 'node:readline';
-import { RuntimeSessionNotFoundError, type ToolConfirmationRequest } from '../core/runtime.js';
+import { RuntimeSessionNotFoundError, type ToolConfirmationRequest, type ToolPermissionDecision } from '../core/runtime.js';
 import type { ContextBuildSummary } from '../core/context-builder.js';
 import type { ContextDiagnostics } from '../core/context-manager.js';
 import type { RuntimeHost } from '../core/runtime-host.js';
@@ -8,7 +8,7 @@ import { createCliRenderer, createToolConfirmationPrompt, formatRuntimeDiagnosti
 
 export interface InteractiveModeOptions {
   host: RuntimeHost;
-  setToolConfirmationHandler: (handler: (request: ToolConfirmationRequest) => Promise<boolean>) => void;
+  setToolConfirmationHandler: (handler: (request: ToolConfirmationRequest) => Promise<ToolPermissionDecision>) => void;
 }
 
 export type InteractiveCommandResult = 'not_command' | 'continue' | 'exit';

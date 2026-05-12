@@ -366,8 +366,9 @@ JSONL 模式下：
 - `disabled_tools`；
 - `disabled_categories`；
 - 对显式要求确认的工具，或 risk level 命中 `confirm_risk_levels` 的工具，执行前请求确认。
+- tool permission decision 已统一为 `allow`、`deny`、`ask`，并保留 boolean confirmation handler 兼容。
 
-如果某个 tool 需要确认但当前没有 confirmation handler，runtime 会阻止该 tool call。在 interactive mode 中，`createToolConfirmationPrompt()` 会提供确认 handler。
+如果某个 tool 需要确认但当前没有 confirmation handler，runtime 会把它视为 pending permission 并 fail-closed，返回被阻止的 tool result。在 interactive mode 中，`createToolConfirmationPrompt()` 会提供确认 handler，并把用户输入转换为 `allow` 或 `deny`。print/headless 当前没有交互确认通道，因此遇到 `ask` 时会阻止 tool call。未来 RPC/ACP mode 可以把 `ask` 映射为 pending permission event。
 
 ## 核心数据流
 
