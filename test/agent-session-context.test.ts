@@ -7,16 +7,19 @@ import { SessionManager } from '../src/core/session-manager.js';
 import type { LLMClient } from '../src/llm/llm-client.js';
 import type { LLMResponse, LLMStreamEvent, Message } from '../src/schema.js';
 
+type ScriptedLLMStep = LLMResponse | Error;
+
 class ScriptedLLM {
   calls: Message[][] = [];
   generateCalls: Message[][] = [];
 
-  constructor(private readonly responses: LLMResponse[]) {}
+  constructor(private readonly responses: ScriptedLLMStep[]) {}
 
   async generate(messages: Message[]): Promise<LLMResponse> {
     this.generateCalls.push(messages.map((message) => ({ ...message })) as Message[]);
     const response = this.responses.shift();
     if (!response) throw new Error('No scripted response');
+    if (response instanceof Error) throw response;
     return response;
   }
 
@@ -24,6 +27,7 @@ class ScriptedLLM {
     this.calls.push(messages.map((message) => ({ ...message })) as Message[]);
     const response = this.responses.shift();
     if (!response) throw new Error('No scripted response');
+    if (response instanceof Error) throw response;
     yield { type: 'done', response };
     return response;
   }
@@ -295,4 +299,82 @@ test('AgentSession continues the run when automatic compaction fails', async () 
   assert.equal(session.compaction.compacted, false);
   assert.deepEqual(session.messages.slice(0, beforeRunMessages.length), beforeRunMessages);
   assert.equal(session.messages.at(-1)?.content, 'done');
+});
+
+test('AgentSession compacts and retries once after a context overflow error', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-1');
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'first task' });
+  await sessionManager.appendMessage(sessionId, { role: 'assistant', content: 'first answer' });
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'current task' });
+  const llm = new ScriptedLLM([
+    new Error('context_length_exceeded: prompt is too long'),
+    {
+      content: 'Previous work was summarized.',
+      finish_reason: 'stop',
+      usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 },
+    },
+    { content: 'done after retry', finish_reason: 'stop' },
+  ]);
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [],
+    maxSteps: 3,
+    sessionManager,
+    sessionId,
+  });
+  const events = [] as string[];
+
+  assert.equal(await session.run({ onEvent: (event) => events.push(event.type) }), 'done after retry');
+
+  assert.equal(llm.calls.length, 2);
+  assert.equal(llm.generateCalls.length, 1);
+  assert.equal(session.compaction.compacted, true);
+  assert.match(session.messages[1]?.content ?? '', /Previous work was summarized/);
+  assert.equal(session.messages.at(-1)?.content, 'done after retry');
+  assert.deepEqual(events.filter((event) => event === 'error'), []);
+});
+
+test('AgentSession returns the original context overflow error when recovery compaction fails', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-1');
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'first task' });
+  await sessionManager.appendMessage(sessionId, { role: 'assistant', content: 'first answer' });
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'current task' });
+  const beforeRunMessages = sessionManager.getMessages(sessionId).map((message) => ({ ...message }));
+  const llm = new ScriptedLLM([
+    new Error('input token count exceeds the model context window'),
+    { content: '', finish_reason: 'stop' },
+  ]);
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [],
+    maxSteps: 3,
+    sessionManager,
+    sessionId,
+  });
+  const errors = [] as string[];
+
+  const result = await session.run({
+    onEvent: (event) => {
+      if (event.type === 'error') errors.push(event.message);
+    },
+  });
+
+  assert.match(result, /LLM call failed/);
+  assert.match(result, /context window/);
+  assert.equal(llm.calls.length, 1);
+  assert.equal(llm.generateCalls.length, 1);
+  assert.equal(session.compaction.compacted, false);
+  assert.deepEqual(session.messages, beforeRunMessages);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0] ?? '', /context window/);
 });

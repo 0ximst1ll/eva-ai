@@ -19,6 +19,26 @@ import type {
 } from './agent-loop.js';
 import { SessionManager, type SessionCompactionInfo, type SessionUsageInfo } from './session-manager.js';
 
+type AgentRunAttempt = {
+  result: string;
+  contextOverflowError?: Extract<AgentLoopEvent, { type: 'error' }>;
+};
+
+function isContextOverflowErrorMessage(message: string): boolean {
+  return [
+    /context_length_exceeded/i,
+    /context window/i,
+    /context length/i,
+    /maximum context/i,
+    /prompt(?:\s+\S+){0,4}\s+too long/i,
+    /input(?:\s+\S+){0,8}\s+(?:too long|exceed)/i,
+    /token(?:\s+\S+){0,8}\s+exceed/i,
+    /exceed(?:s|ed|ing)?(?:\s+\S+){0,8}\s+(?:context|tokens?|maximum input)/i,
+    /too many tokens/i,
+    /request too large/i,
+  ].some((pattern) => pattern.test(message));
+}
+
 export class AgentSession {
   private readonly agent: Agent;
   private readonly llmClient: LLMClient;
@@ -166,18 +186,56 @@ export class AgentSession {
     onEvent?: (event: AgentSessionEvent) => void;
   } = {}): Promise<string> {
     await this.compactIfRecommended();
+    const firstAttempt = await this.runAgentOnce({ signal, onEvent, suppressContextOverflowError: true });
+    if (!firstAttempt.contextOverflowError) {
+      this.syncUsageFromSession();
+      return firstAttempt.result;
+    }
+
+    try {
+      await this.compact();
+    } catch {
+      onEvent?.(firstAttempt.contextOverflowError);
+      this.syncUsageFromSession();
+      return firstAttempt.result;
+    }
+
+    const retryAttempt = await this.runAgentOnce({ signal, onEvent, suppressContextOverflowError: false });
+    this.syncUsageFromSession();
+    return retryAttempt.result;
+  }
+
+  private async runAgentOnce({
+    signal,
+    onEvent,
+    suppressContextOverflowError,
+  }: {
+    signal?: AbortSignal;
+    onEvent?: (event: AgentSessionEvent) => void;
+    suppressContextOverflowError: boolean;
+  }): Promise<AgentRunAttempt> {
+    let contextOverflowError: Extract<AgentLoopEvent, { type: 'error' }> | undefined;
     const unsubscribe = this.agent.subscribe(async (event) => {
-      await this.handleAgentEvent(event, onEvent);
+      if (event.type === 'error' && isContextOverflowErrorMessage(event.message)) {
+        contextOverflowError = event;
+      }
+      await this.handleAgentEvent(
+        event,
+        suppressContextOverflowError && event === contextOverflowError ? undefined : onEvent,
+      );
     });
 
     try {
       const result = await this.agent.continue({ signal });
-      this.apiTotalTokens = this.sessionManager.getUsageInfo(this.sessionId).total.total_tokens;
-      this.agent.apiTotalTokens = this.apiTotalTokens;
-      return result;
+      return { result, contextOverflowError };
     } finally {
       unsubscribe();
     }
+  }
+
+  private syncUsageFromSession(): void {
+    this.apiTotalTokens = this.sessionManager.getUsageInfo(this.sessionId).total.total_tokens;
+    this.agent.apiTotalTokens = this.apiTotalTokens;
   }
 
   private async compactIfRecommended(): Promise<void> {

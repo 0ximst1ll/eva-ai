@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、OpenAI provider countTokens、prompt-too-long recovery、post-compact resource budget 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、OpenAI provider countTokens、post-compact resource budget 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -214,9 +214,11 @@ Contents of AGENTS.md:
 - 如果配置了 `context_window_tokens`，基于 TokenCounter 结果计算 context usage percent；未配置时显示 unknown；
 - 基于 `compaction` 配置输出 compaction recommendation diagnostics。
 
-它当前不负责 OpenAI provider countTokens、prompt-too-long recovery、summary 生成、post-compact resource reinjection 或完整 token budget。
+它当前不负责 OpenAI provider countTokens、summary 生成、post-compact resource reinjection 或完整 token budget。
 
 `AgentSession.run()` 会在进入 agent loop 前使用 `ContextManager` 基于 active messages 计算 compaction recommendation。如果 `compaction.enabled=true` 且 reason 为 `reserve_reached`，会先调用现有 `compact()`；compact 失败时不会修改当前 session，并继续本次 run。
+
+如果 LLM call 返回 context/prompt overflow 类错误，`AgentSession.run()` 会尝试执行一次现有 `compact()` 并重试当前 run。恢复成功时抑制第一次 overflow error 事件；恢复失败时保留原错误结果，并且不修改 session messages。
 
 interactive mode 当前通过 `ContextManager` 展示 context 状态：
 
@@ -414,5 +416,5 @@ AgentSession 持久化已发射的 assistant/tool messages 和 usage metadata
 - skills loader
 - RPC mode
 - session tree / fork
-- auto compact / prompt-too-long recovery
+- post-compact resource budget
 - 完整 permission pipeline
