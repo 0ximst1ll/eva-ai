@@ -23,11 +23,14 @@ async function getContextDiagnostics(host: RuntimeHost): Promise<ContextDiagnost
 
 function formatContextBuildStatus(latestBuild: ContextBuildSummary | null): string {
   if (!latestBuild) return 'not built yet';
+  const budget = latestBuild.projectContextBudgetMode === 'post_compact'
+    ? `budget=${latestBuild.projectContextMaxChars} (post_compact, configured=${latestBuild.projectContextConfiguredMaxChars})`
+    : `budget=${latestBuild.projectContextMaxChars}`;
   if (!latestBuild.injected) {
     const reason = latestBuild.projectContextSkippedReason
       ? `, reason=${latestBuild.projectContextSkippedReason}`
       : '';
-    return `not injected${reason}, request messages=${latestBuild.requestMessageCount}, estimated request tokens=${latestBuild.requestTokenEstimate.tokens}, budget=${latestBuild.projectContextMaxChars}`;
+    return `not injected${reason}, request messages=${latestBuild.requestMessageCount}, estimated request tokens=${latestBuild.requestTokenEstimate.tokens}, ${budget}`;
   }
   const status = [
     `injected ${latestBuild.projectContextCount} resource(s)`,
@@ -35,6 +38,9 @@ function formatContextBuildStatus(latestBuild: ContextBuildSummary | null): stri
     `estimated request tokens=${latestBuild.requestTokenEstimate.tokens}`,
     `chars=${latestBuild.projectContextContentLength}/${latestBuild.projectContextMaxChars}`,
   ];
+  if (latestBuild.projectContextBudgetMode === 'post_compact') {
+    status.push(`budget=post_compact configured=${latestBuild.projectContextConfiguredMaxChars}`);
+  }
   if (latestBuild.projectContextTruncated) status.push('truncated');
   return status.join(', ');
 }

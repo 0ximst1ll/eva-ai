@@ -1,9 +1,11 @@
 import { createDiagnostic, type RuntimeDiagnostic } from '../diagnostics.js';
 import type { Message } from '../schema.js';
+import { isCompactionSummaryMessage } from './compaction.js';
 import type { ProjectContextResource } from './resource-loader.js';
 import { estimateMessagesTokens, estimateTextTokens, type TokenEstimate } from './token-estimator.js';
 
 export const DEFAULT_PROJECT_CONTEXT_MAX_CHARS = 20000;
+export const DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS = 4000;
 
 export interface ContextBuilder {
   readonly projectContext: ProjectContextResource[];
@@ -26,11 +28,14 @@ export interface BuildContextResult {
 
 export interface ContextBuildSummary {
   injected: boolean;
+  compactedContext: boolean;
+  projectContextBudgetMode: 'normal' | 'post_compact';
   projectContextCount: number;
   projectContextNames: string[];
   projectContextContentLength: number;
   projectContextOriginalContentLength: number;
   projectContextMaxChars: number;
+  projectContextConfiguredMaxChars: number;
   projectContextTruncated: boolean;
   projectContextSkippedReason?: string;
   inputMessageCount: number;
@@ -38,6 +43,10 @@ export interface ContextBuildSummary {
   builtAt: number;
   requestTokenEstimate: TokenEstimate;
   projectContextTokenEstimate: TokenEstimate;
+}
+
+function isCompactedContext(messages: Message[]): boolean {
+  return messages.some(isCompactionSummaryMessage);
 }
 
 export interface CreateContextBuilderOptions {
@@ -142,17 +151,27 @@ export function createContextBuilder({
     projectContext: resources,
     projectContextMaxChars: maxChars,
     build({ systemPrompt, messages }: BuildContextInput): BuildContextResult {
-      const formattedProjectContext = formatProjectContext(resources, maxChars);
+      const compactedContext = isCompactedContext(messages);
+      const effectiveMaxChars = compactedContext
+        ? Math.min(maxChars, DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS)
+        : maxChars;
+      const budgetMode: ContextBuildSummary['projectContextBudgetMode'] = compactedContext
+        ? 'post_compact'
+        : 'normal';
+      const formattedProjectContext = formatProjectContext(resources, effectiveMaxChars);
       if (!formattedProjectContext.content) {
         const requestMessages = withSystemMessage(messages, systemPrompt);
         latestRequestMessages = requestMessages.slice();
         latestBuild = {
           injected: false,
+          compactedContext,
+          projectContextBudgetMode: budgetMode,
           projectContextCount: 0,
           projectContextNames: [],
           projectContextContentLength: 0,
           projectContextOriginalContentLength: formattedProjectContext.originalContentLength,
-          projectContextMaxChars: maxChars,
+          projectContextMaxChars: effectiveMaxChars,
+          projectContextConfiguredMaxChars: maxChars,
           projectContextTruncated: false,
           projectContextSkippedReason: formattedProjectContext.skippedReason,
           inputMessageCount: messages.length,
@@ -173,7 +192,10 @@ export function createContextBuilder({
               ? `Project context skipped because budget is too small (${maxChars} chars)`
               : 'No project context injected',
             details: {
-              budgetChars: maxChars,
+              budgetChars: effectiveMaxChars,
+              configuredBudgetChars: maxChars,
+              budgetMode,
+              compactedContext,
               originalContentLength: formattedProjectContext.originalContentLength,
               skippedReason: formattedProjectContext.skippedReason,
             },
@@ -190,11 +212,14 @@ export function createContextBuilder({
       latestRequestMessages = requestMessages.slice();
       latestBuild = {
         injected: true,
+        compactedContext,
+        projectContextBudgetMode: budgetMode,
         projectContextCount: resources.length,
         projectContextNames: resources.map((resource) => resource.name),
         projectContextContentLength: formattedProjectContext.contentLength,
         projectContextOriginalContentLength: formattedProjectContext.originalContentLength,
-        projectContextMaxChars: maxChars,
+        projectContextMaxChars: effectiveMaxChars,
+        projectContextConfiguredMaxChars: maxChars,
         projectContextTruncated: formattedProjectContext.truncated,
         inputMessageCount: messages.length,
         requestMessageCount: requestMessages.length,
@@ -215,7 +240,10 @@ export function createContextBuilder({
           details: {
             count: resources.length,
             names: resources.map((resource) => resource.name),
-            budgetChars: maxChars,
+            budgetChars: effectiveMaxChars,
+            configuredBudgetChars: maxChars,
+            budgetMode,
+            compactedContext,
             contentLength: formattedProjectContext.contentLength,
             originalContentLength: formattedProjectContext.originalContentLength,
             truncated: formattedProjectContext.truncated,

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AgentSession } from '../src/core/agent-session.js';
-import { createContextBuilder } from '../src/core/context-builder.js';
+import {
+  DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS,
+  createContextBuilder,
+} from '../src/core/context-builder.js';
 import { createContextManager } from '../src/core/context-manager.js';
 import { SessionManager } from '../src/core/session-manager.js';
 import type { LLMClient } from '../src/llm/llm-client.js';
@@ -127,6 +130,49 @@ test('AgentSession compacts history into a summary message and keeps recent cont
   assert.equal(session.apiTotalTokens, 15);
   assert.equal(session.usage.count, 1);
   assert.equal(session.usage.latestSource, 'compaction');
+});
+
+test('AgentSession uses the post-compact project context budget on the next run', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-1');
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'first task' });
+  await sessionManager.appendMessage(sessionId, { role: 'assistant', content: 'first answer' });
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'second task' });
+  const llm = new ScriptedLLM([
+    { content: 'Previous work summary.', finish_reason: 'stop' },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const contextBuilder = createContextBuilder({
+    projectContext: [{
+      type: 'project_context',
+      name: 'AGENTS.md',
+      path: '/workspace/AGENTS.md',
+      content: 'A'.repeat(8000),
+    }],
+    projectContextMaxChars: 20000,
+  });
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [],
+    maxSteps: 3,
+    contextBuilder,
+    sessionManager,
+    sessionId,
+  });
+
+  await session.compact();
+  await session.addUserMessage('continue');
+  assert.equal(await session.run(), 'done');
+
+  assert.equal(llm.generateCalls.length, 1);
+  assert.equal(llm.calls.length, 1);
+  assert.equal(contextBuilder.latestBuild?.projectContextBudgetMode, 'post_compact');
+  assert.equal(contextBuilder.latestBuild?.projectContextMaxChars, DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS);
+  assert.equal(llm.calls[0]?.[1]?.content.length, DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS);
 });
 
 test('AgentSession leaves session history unchanged when compaction fails', async () => {

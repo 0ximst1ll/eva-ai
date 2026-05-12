@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createContextBuilder } from '../src/core/context-builder.js';
+import {
+  DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS,
+  createContextBuilder,
+} from '../src/core/context-builder.js';
+import { createCompactionSummaryMessage } from '../src/core/compaction.js';
 import type { ProjectContextResource } from '../src/core/resource-loader.js';
 import type { Message } from '../src/schema.js';
 
@@ -81,6 +85,33 @@ test('ContextBuilder truncates project context to the configured budget', () => 
   assert.equal(result.messages[1]?.content.length, 120);
   assert.match(result.messages[1]?.content ?? '', /Project context truncated to fit budget/);
   assert.equal(result.diagnostics[0]?.code, 'project_context_truncated');
+});
+
+test('ContextBuilder uses a conservative project context budget after compaction', () => {
+  const builder = createContextBuilder({
+    projectContext: [{
+      ...agentsResource,
+      content: 'A'.repeat(8000),
+    }],
+    projectContextMaxChars: 20000,
+  });
+
+  const result = builder.build({
+    systemPrompt: 'system',
+    messages: [
+      { role: 'system', content: 'system' },
+      createCompactionSummaryMessage('Previous work summary.'),
+      { role: 'user', content: 'continue' },
+    ],
+  });
+
+  assert.equal(result.summary.compactedContext, true);
+  assert.equal(result.summary.projectContextBudgetMode, 'post_compact');
+  assert.equal(result.summary.projectContextConfiguredMaxChars, 20000);
+  assert.equal(result.summary.projectContextMaxChars, DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS);
+  assert.equal(result.summary.projectContextTruncated, true);
+  assert.equal(result.messages[1]?.content.length, DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS);
+  assert.equal(result.diagnostics[0]?.details?.budgetMode, 'post_compact');
 });
 
 test('ContextBuilder skips project context when the budget cannot fit framing', () => {

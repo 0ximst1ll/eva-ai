@@ -328,7 +328,7 @@ MCP 不应阻塞首轮提示。
 - 先实现 flat JSONL 兼容的 compaction entry 和 context rebuild 最小闭环；
 - 不必为了第一版 `/compact` 立即完成完整 session tree；
 - 完整历史必须继续保留在 session log 中，只改变发送给模型的上下文视图；
-- 后续再补齐 tool result micro-compaction、大输出持久化和 post-compact resource budgets。
+- 后续再补齐 tool result micro-compaction、大输出持久化和更完整的 post-compact skills/resource reinjection。
 
 ### Context Builder / Context Manager 分工
 
@@ -337,7 +337,7 @@ Eva AI 的上下文治理分两层推进：
 - `ContextBuilder`：无状态构造器。每次 LLM call 前，把当前 session messages、system prompt、project context 和 runtime context 组合成发送给 provider 的 request messages。
 - `ContextManager`：有状态管理器。后续负责 token budget、manual/auto compaction、summary、post-compact resource reinjection 和 context diagnostics。
 
-第一阶段先实现 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 边界、本地 request token estimation、Anthropic/Gemini countTokens 最小接入、可选 context usage percent 和 auto compaction 最小执行闭环，避免过早引入完整 Claude Code 式 context engine。当前最小 `ContextManager` 只聚合 `ContextBuilder.latestBuild`、session usage、compaction、step guard、project context metadata、token count source、基于配置窗口的 usage percent 和 compaction recommendation；`AgentSession.run()` 只在 `reserve_reached` 时基于该 recommendation 自动调用现有 `compact()`。
+第一阶段先实现 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 边界、本地 request token estimation、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction、prompt-too-long recovery 和 post-compact resource budget 最小闭环，避免过早引入完整 Claude Code 式 context engine。当前最小 `ContextManager` 只聚合 `ContextBuilder.latestBuild`、session usage、compaction、step guard、project context metadata、token count source、基于配置窗口的 usage percent 和 compaction recommendation；`AgentSession.run()` 只在 `reserve_reached` 时基于该 recommendation 自动调用现有 `compact()`，并在 context overflow 时执行一次 compact-and-retry。
 
 `ContextBuilder` 的目标行为：
 
@@ -346,6 +346,7 @@ Eva AI 的上下文治理分两层推进：
 - 保留当前 system prompt 兼容路径；
 - 在请求模型前临时注入 project context；
 - 对 project context 应用轻量字符预算，避免 `AGENTS.md` 无限制膨胀请求；
+- 当 active context 已 compact 时，对 project context 应用更保守的 post-compact 有效预算；
 - assistant/tool result 仍写回原始 session messages，而不是写回 request messages；
 - 为后续 budget 和 diagnostics 返回结构化 metadata。
 
@@ -372,7 +373,7 @@ user/assistant/tool: durable session history
 - manual `/compact`；
 - automatic reserve-based compaction execution；
 - prompt-too-long recovery；
-- post-compact project context / skills reinjection；
+- 更完整的 post-compact project context / skills reinjection；
 - context diagnostics。
 
 ## 阶段规划

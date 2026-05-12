@@ -26,6 +26,12 @@ export function createCompactionSummaryMessage(summary: string): Message {
   };
 }
 
+export function isCompactionSummaryMessage(message: Message): boolean {
+  return message.role === 'user'
+    && message.content.startsWith(SUMMARY_HEADER)
+    && message.content.trimEnd().endsWith('</conversation_summary>');
+}
+
 export function buildCompactionMessages({
   messages,
   customInstructions,

@@ -2,9 +2,9 @@
 
 ## 当前状态（2026-05-12）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环，以及规划文档中的长期架构域视图整理。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环，以及规划文档中的长期架构域视图整理。
 
-刚完成的任务是实现 prompt-too-long recovery 最小闭环。当 LLM 返回 context/prompt 过长错误时，`AgentSession.run()` 会尝试执行一次现有 compaction 并重试当前 run；如果恢复失败，则保留原错误结果，不破坏 session messages。
+刚完成的任务是实现 post-compact resource budget 最小闭环。session 已 compact 后，`ContextBuilder` 会对 project context 使用更保守的有效预算，并在最近一次 build 摘要中暴露预算模式。
 
 ## 已完成
 
@@ -19,6 +19,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - `ContextBuilder` 已在每次 LLM call 前构造 request messages。
 - `AGENTS.md` 已作为 transient project context 注入模型请求，不写回 session history。
 - `ContextBuilder` 已支持 `project_context_max_chars` 字符预算、截断、跳过原因和最近一次 build 摘要。
+- `ContextBuilder` 已支持 compact 后的保守 project context 有效预算，避免 compact 后的 request view 重新被资源上下文撑大。
 - `ContextBuilder` 已记录最近一次 request messages 和 project context 的本地 token estimate。
 - `TokenCounter` 已支持 provider/local 计数边界，Anthropic 和 Gemini provider 优先使用 countTokens API，失败或不支持时回退本地估算。
 - `ContextManager` 已作为最小状态聚合器，汇总 `ContextBuilder.latestBuild`、active messages、step guard、compaction、usage、project context metadata、token count source、可选 context usage percent 和 compaction recommendation。
@@ -51,13 +52,13 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 下一步
 
-- 进入 post-compact resource budget，让 compact 后的 request view 能重新受资源预算约束。
+- 规划 print/headless/RPC 场景下 permission pending 的处理策略。
 - 规划 print/headless/RPC 场景下 permission pending 的处理策略。
 
 ## 后续重点计划
 
-- 当前 manual `/compact`、auto compaction 和 prompt-too-long recovery 都只做最小闭环，尚未处理 post-compact resource budget。
-- ContextManager 后续再承接完整 token budget 和 post-compact resource reinjection。
+- 当前 manual `/compact`、auto compaction、prompt-too-long recovery 和 post-compact resource budget 都只做最小闭环。
+- ContextManager 后续再承接完整 token budget 和 skills/resource reinjection 策略。
 - 当前 `max_steps` 后续应进一步迁移为 print/headless/RPC 场景下的命名更明确的可选 runaway guard。
 - 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 逐步建立。
 - 完整 session tree、fork、clone 和 path-aware context rebuild 放入后续 session model 阶段。
@@ -66,7 +67,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 - `logger.ts` 仍是占位文件。
 - `ResourceLoader` 仍是最小骨架，尚未支持自动监听或更细粒度 reload。
-- `ContextManager` 仍未支持完整 token budget、OpenAI provider countTokens 或 post-compact resource budget。
+- `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。
 - manual `/compact` 仍是最小版：没有工具结果 micro-compaction。
 - skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
 - 当前 `max_steps` 字段名仍偏模糊，后续应迁移为 `max_steps_per_run` 或同类命名。
