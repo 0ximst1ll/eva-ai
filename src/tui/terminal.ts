@@ -46,6 +46,7 @@ export class ProcessTerminal {
     process.stdout.write('\x1b[?2004l');
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(false);
+      process.stdin.pause();
     }
     this.rawModeEnabled = false;
   }
