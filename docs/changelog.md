@@ -27,6 +27,8 @@
 - 新增默认 `transformContext()` 和 `convertToLlm()`。
 - `runAgentLoop()` 在每次 provider call 前执行 `transformContext -> convertToLlm -> ContextBuilder.build -> LLMClient.generateStream`。
 - `LLMClient` / `LLMClientBase` / token counting 路径改为接收 provider-facing `LlmMessage[]`。
+- `ContextBuilder` 收敛为 provider request view builder，接收 `LlmMessage[]` 并返回 `ProviderRequestView`。
+- `ContextManager` diagnostics 优先使用 `latestProviderRequestView` 计算 context usage。
 
 当前仍是最小骨架：`AgentMessage` 尚未扩展 custom/internal message，session entry schema 和完整 path-aware context rebuild 仍未实现。
 

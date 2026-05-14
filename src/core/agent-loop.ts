@@ -316,7 +316,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         const requestMessages = config.contextBuilder
           ? config.contextBuilder.build({
             systemPrompt: getSystemPromptForContext(config, transformedMessages),
-            messages: llmMessages,
+            llmMessages,
           }).messages
           : llmMessages;
         response = await generateResponseWithStreaming({

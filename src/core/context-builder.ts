@@ -11,20 +11,28 @@ export interface ContextBuilder {
   readonly projectContext: ProjectContextResource[];
   readonly projectContextMaxChars: number;
   readonly latestBuild: ContextBuildSummary | null;
+  readonly latestProviderRequestView: ProviderRequestView | null;
+  /** @deprecated Use latestProviderRequestView.messages. */
   readonly latestRequestMessages: LlmMessage[] | null;
-  build(input: BuildContextInput): BuildContextResult;
+  build(input: BuildProviderRequestViewInput): ProviderRequestView;
 }
 
-export interface BuildContextInput {
+export interface BuildProviderRequestViewInput {
   systemPrompt: string;
-  messages: LlmMessage[];
+  llmMessages: LlmMessage[];
 }
 
-export interface BuildContextResult {
+export interface ProviderRequestView {
   messages: LlmMessage[];
   diagnostics: RuntimeDiagnostic[];
   summary: ContextBuildSummary;
 }
+
+/** @deprecated Use BuildProviderRequestViewInput. */
+export type BuildContextInput = BuildProviderRequestViewInput;
+
+/** @deprecated Use ProviderRequestView. */
+export type BuildContextResult = ProviderRequestView;
 
 export interface ContextBuildSummary {
   injected: boolean;
@@ -38,9 +46,15 @@ export interface ContextBuildSummary {
   projectContextConfiguredMaxChars: number;
   projectContextTruncated: boolean;
   projectContextSkippedReason?: string;
+  inputLlmMessageCount: number;
+  providerRequestMessageCount: number;
+  /** @deprecated Use inputLlmMessageCount. */
   inputMessageCount: number;
+  /** @deprecated Use providerRequestMessageCount. */
   requestMessageCount: number;
   builtAt: number;
+  providerRequestTokenEstimate: TokenEstimate;
+  /** @deprecated Use providerRequestTokenEstimate. */
   requestTokenEstimate: TokenEstimate;
   projectContextTokenEstimate: TokenEstimate;
 }
@@ -143,19 +157,73 @@ export function createContextBuilder({
   const resources = projectContext.slice();
   const maxChars = normalizeBudget(projectContextMaxChars);
   let latestBuild: ContextBuildSummary | null = null;
-  let latestRequestMessages: LlmMessage[] | null = null;
+  let latestProviderRequestView: ProviderRequestView | null = null;
+
+  function createSummary({
+    injected,
+    compactedContext,
+    budgetMode,
+    formattedProjectContext,
+    llmMessages,
+    providerRequestMessages,
+    projectContextNames,
+    projectContextSkippedReason,
+  }: {
+    injected: boolean;
+    compactedContext: boolean;
+    budgetMode: ContextBuildSummary['projectContextBudgetMode'];
+    formattedProjectContext: FormattedProjectContext;
+    llmMessages: LlmMessage[];
+    providerRequestMessages: LlmMessage[];
+    projectContextNames: string[];
+    projectContextSkippedReason?: string;
+  }): ContextBuildSummary {
+    const providerRequestTokenEstimate = estimateMessagesTokens(providerRequestMessages);
+    return {
+      injected,
+      compactedContext,
+      projectContextBudgetMode: budgetMode,
+      projectContextCount: injected ? resources.length : 0,
+      projectContextNames,
+      projectContextContentLength: injected ? formattedProjectContext.contentLength : 0,
+      projectContextOriginalContentLength: formattedProjectContext.originalContentLength,
+      projectContextMaxChars: compactedContext
+        ? Math.min(maxChars, DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS)
+        : maxChars,
+      projectContextConfiguredMaxChars: maxChars,
+      projectContextTruncated: injected ? formattedProjectContext.truncated : false,
+      projectContextSkippedReason,
+      inputLlmMessageCount: llmMessages.length,
+      providerRequestMessageCount: providerRequestMessages.length,
+      inputMessageCount: llmMessages.length,
+      requestMessageCount: providerRequestMessages.length,
+      builtAt: Date.now(),
+      providerRequestTokenEstimate,
+      requestTokenEstimate: providerRequestTokenEstimate,
+      projectContextTokenEstimate: estimateTextTokens(formattedProjectContext.content ?? ''),
+    };
+  }
 
   return {
     get latestBuild() {
       return latestBuild;
     },
+    get latestProviderRequestView() {
+      return latestProviderRequestView
+        ? {
+          messages: latestProviderRequestView.messages.slice(),
+          diagnostics: latestProviderRequestView.diagnostics.slice(),
+          summary: latestProviderRequestView.summary,
+        }
+        : null;
+    },
     get latestRequestMessages() {
-      return latestRequestMessages?.slice() ?? null;
+      return latestProviderRequestView?.messages.slice() ?? null;
     },
     projectContext: resources,
     projectContextMaxChars: maxChars,
-    build({ systemPrompt, messages }: BuildContextInput): BuildContextResult {
-      const compactedContext = isCompactedContext(messages);
+    build({ systemPrompt, llmMessages }: BuildProviderRequestViewInput): ProviderRequestView {
+      const compactedContext = isCompactedContext(llmMessages);
       const effectiveMaxChars = compactedContext
         ? Math.min(maxChars, DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS)
         : maxChars;
@@ -164,28 +232,19 @@ export function createContextBuilder({
         : 'normal';
       const formattedProjectContext = formatProjectContext(resources, effectiveMaxChars);
       if (!formattedProjectContext.content) {
-        const requestMessages = withSystemMessage(messages, systemPrompt);
-        latestRequestMessages = requestMessages.slice();
-        latestBuild = {
+        const providerRequestMessages = withSystemMessage(llmMessages, systemPrompt);
+        latestBuild = createSummary({
           injected: false,
           compactedContext,
-          projectContextBudgetMode: budgetMode,
-          projectContextCount: 0,
+          budgetMode,
+          formattedProjectContext,
+          llmMessages,
+          providerRequestMessages,
           projectContextNames: [],
-          projectContextContentLength: 0,
-          projectContextOriginalContentLength: formattedProjectContext.originalContentLength,
-          projectContextMaxChars: effectiveMaxChars,
-          projectContextConfiguredMaxChars: maxChars,
-          projectContextTruncated: false,
           projectContextSkippedReason: formattedProjectContext.skippedReason,
-          inputMessageCount: messages.length,
-          requestMessageCount: requestMessages.length,
-          builtAt: Date.now(),
-          requestTokenEstimate: estimateMessagesTokens(requestMessages),
-          projectContextTokenEstimate: estimateTextTokens(''),
-        };
-        return {
-          messages: requestMessages,
+        });
+        latestProviderRequestView = {
+          messages: providerRequestMessages,
           diagnostics: [createDiagnostic({
             source: 'context',
             level: 'info',
@@ -206,34 +265,26 @@ export function createContextBuilder({
           })],
           summary: latestBuild,
         };
+        return latestProviderRequestView;
       }
 
-      const requestMessages = insertAfterSystemMessage(
-        messages,
+      const providerRequestMessages = insertAfterSystemMessage(
+        llmMessages,
         { role: 'user', content: formattedProjectContext.content },
         systemPrompt,
       );
-      latestRequestMessages = requestMessages.slice();
-      latestBuild = {
+      latestBuild = createSummary({
         injected: true,
         compactedContext,
-        projectContextBudgetMode: budgetMode,
-        projectContextCount: resources.length,
+        budgetMode,
+        formattedProjectContext,
+        llmMessages,
+        providerRequestMessages,
         projectContextNames: resources.map((resource) => resource.name),
-        projectContextContentLength: formattedProjectContext.contentLength,
-        projectContextOriginalContentLength: formattedProjectContext.originalContentLength,
-        projectContextMaxChars: effectiveMaxChars,
-        projectContextConfiguredMaxChars: maxChars,
-        projectContextTruncated: formattedProjectContext.truncated,
-        inputMessageCount: messages.length,
-        requestMessageCount: requestMessages.length,
-        builtAt: Date.now(),
-        requestTokenEstimate: estimateMessagesTokens(requestMessages),
-        projectContextTokenEstimate: estimateTextTokens(formattedProjectContext.content),
-      };
+      });
 
-      return {
-        messages: requestMessages,
+      latestProviderRequestView = {
+        messages: providerRequestMessages,
         diagnostics: [createDiagnostic({
           source: 'context',
           level: 'info',
@@ -255,6 +306,7 @@ export function createContextBuilder({
         })],
         summary: latestBuild,
       };
+      return latestProviderRequestView;
     },
   };
 }

@@ -77,7 +77,7 @@ createRuntime()
 - 校验 provider 是否为 `anthropic`、`openai` 或 `google`；
 - 创建 retry 配置，并接入 provider diagnostic；
 - 通过 `createResourceLoader()` 加载 system prompt 和项目上下文资源；
-- 通过 `createContextBuilder()` 创建 LLM request messages 构造器；
+- 通过 `createContextBuilder()` 创建 provider request view 构造器；
 - 通过 `createContextManager()` 创建 context diagnostics 聚合器；
 - 通过 `createTokenCounter()` 创建 provider/local token count 边界；
 - 通过 `loadConfiguredTools()` 加载内置工具；
@@ -152,26 +152,26 @@ createRuntime()
 - 加载 workspace 根目录下的 `AGENTS.md` 作为 project context；
 - 对 skills、MCP 已配置但尚未实现 loader 的情况返回 warning diagnostics。
 
-当前 `AGENTS.md` 作为 `runtime.services.resourceLoader.projectContext` 暴露，并由 `ContextBuilder` 在每次 LLM call 前临时注入 request messages。它不会写回 `SessionManager` 的 durable session history。
+当前 `AGENTS.md` 作为 `runtime.services.resourceLoader.projectContext` 暴露，并由 `ContextBuilder` 在每次 provider call 前临时注入 provider request view。它不会写回 `SessionManager` 的 durable session history。
 
-`RuntimeServices.reloadResources()` 会重新创建 `ResourceLoader` 和 `ContextBuilder`，并更新 `ContextManager` 持有的 builder。当前 `AgentSession` 会继续保留原 session history，但下一次 LLM request 会使用 reload 后的 system prompt 和 project context。
+`RuntimeServices.reloadResources()` 会重新创建 `ResourceLoader` 和 `ContextBuilder`，并更新 `ContextManager` 持有的 builder。当前 `AgentSession` 会继续保留原 session history，但下一次 provider request view 会使用 reload 后的 system prompt 和 project context。
 
 ## Context Builder
 
-`src/core/context-builder.ts` 当前是无状态 request messages 构造器。
+`src/core/context-builder.ts` 当前是无状态 provider request view 构造器。
 
 它负责：
 
-- 接收 system prompt、durable session messages 和 project context；
+- 接收 system prompt、provider-facing `LlmMessage[]` 和 project context；
 - 在第一条 system message 后插入 transient project context user message；
 - 在没有 system message 时使用当前 system prompt 补一条 system message；
 - 按 `project_context_max_chars` 控制 project context 注入字符数，默认 20000；
 - 超预算时截断 project context，并保留截断说明和 closing tag；
 - 如果预算小到无法容纳 project context framing，则跳过注入并记录原因；
-- 返回用于本次 LLM call 的 request messages；
+- 返回用于本次 provider call 的 request view；
 - 返回 context diagnostics metadata；
 - 记录最近一次 context build 摘要；
-- 使用本地 tokenizer 记录最近一次 request messages 和 project context 的估算 token 数。
+- 使用本地 tokenizer 记录最近一次 provider request view 和 project context 的估算 token 数。
 - 当 active messages 已包含 compaction summary 时，对 project context 使用更保守的 post-compact 有效预算，避免 compact 后又被资源上下文撑大。
 
 当前注入格式：
@@ -340,7 +340,7 @@ JSONL 模式下：
 - `manifest.json` 记录 `latestSessionId`。
 - `listSessions()` 可列出当前 workspace 下的 session id、message count、updatedAt 和 latest 标记。
 - `getCompactionInfo()` 返回当前 session 最近一次 compaction metadata；如果尚未 compact，则返回 `compacted: false`。
-- `getUsageInfo()` 返回当前 session 累计 usage 和最近一次 usage；usage entries 不影响 message count，也不会进入 LLM request messages。
+- `getUsageInfo()` 返回当前 session 累计 usage 和最近一次 usage；usage entries 不影响 message count，也不会进入 provider request view。
 
 当前 session model 仍是扁平结构。它支持 flat JSONL 兼容的 compaction entry 和基于最新 compaction 的 context rebuild；还不支持 parent/child entries、fork、import/export，也不支持从 session tree 做确定性 context rebuild。
 

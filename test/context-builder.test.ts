@@ -24,7 +24,7 @@ test('ContextBuilder injects project context after the system message', () => {
 
   const result = builder.build({
     systemPrompt: 'system',
-    messages: durableMessages,
+    llmMessages: durableMessages,
   });
 
   assert.equal(result.messages.length, 3);
@@ -37,10 +37,11 @@ test('ContextBuilder injects project context after the system message', () => {
   assert.deepEqual(durableMessages.map((message) => message.content), ['system', 'hello']);
   assert.equal(result.diagnostics[0]?.code, 'project_context_injected');
   assert.equal(result.summary.injected, true);
-  assert.equal(result.summary.requestTokenEstimate.method, 'gpt-tokenizer');
-  assert.ok(result.summary.requestTokenEstimate.tokens > 0);
+  assert.equal(result.summary.providerRequestTokenEstimate.method, 'gpt-tokenizer');
+  assert.ok(result.summary.providerRequestTokenEstimate.tokens > 0);
   assert.ok(result.summary.projectContextTokenEstimate.tokens > 0);
   assert.deepEqual(builder.latestBuild, result.summary);
+  assert.deepEqual(builder.latestProviderRequestView?.messages, result.messages);
 });
 
 test('ContextBuilder returns a shallow message copy when project context is empty', () => {
@@ -52,15 +53,15 @@ test('ContextBuilder returns a shallow message copy when project context is empt
 
   const result = builder.build({
     systemPrompt: 'system',
-    messages: durableMessages,
+    llmMessages: durableMessages,
   });
 
   assert.notEqual(result.messages, durableMessages);
   assert.deepEqual(result.messages, durableMessages);
   assert.equal(result.diagnostics[0]?.code, 'project_context_empty');
   assert.equal(result.summary.injected, false);
-  assert.equal(result.summary.requestTokenEstimate.method, 'gpt-tokenizer');
-  assert.ok(result.summary.requestTokenEstimate.tokens > 0);
+  assert.equal(result.summary.providerRequestTokenEstimate.method, 'gpt-tokenizer');
+  assert.ok(result.summary.providerRequestTokenEstimate.tokens > 0);
   assert.equal(result.summary.projectContextTokenEstimate.tokens, 0);
   assert.deepEqual(builder.latestBuild, result.summary);
 });
@@ -76,7 +77,7 @@ test('ContextBuilder truncates project context to the configured budget', () => 
 
   const result = builder.build({
     systemPrompt: 'system',
-    messages: [{ role: 'system', content: 'system' }],
+    llmMessages: [{ role: 'system', content: 'system' }],
   });
 
   assert.equal(result.summary.injected, true);
@@ -98,7 +99,7 @@ test('ContextBuilder uses a conservative project context budget after compaction
 
   const result = builder.build({
     systemPrompt: 'system',
-    messages: [
+    llmMessages: [
       { role: 'system', content: 'system' },
       createCompactionSummaryMessage('Previous work summary.'),
       { role: 'user', content: 'continue' },
@@ -122,7 +123,7 @@ test('ContextBuilder skips project context when the budget cannot fit framing', 
 
   const result = builder.build({
     systemPrompt: 'system',
-    messages: [{ role: 'system', content: 'system' }],
+    llmMessages: [{ role: 'system', content: 'system' }],
   });
 
   assert.equal(result.summary.injected, false);

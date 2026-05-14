@@ -28,12 +28,12 @@ function createContextManagerMock({
     }) {
       const activeMessageTokenEstimate = estimateMessagesTokens(messages);
       const latestBuild = contextBuilder.latestBuild;
-      const contextUsageEstimate = latestBuild?.requestTokenEstimate ?? activeMessageTokenEstimate;
+      const contextUsageEstimate = latestBuild?.providerRequestTokenEstimate ?? activeMessageTokenEstimate;
       const contextUsage = {
         estimatedTokens: contextUsageEstimate.tokens,
         contextWindowTokens,
         percent: contextWindowTokens ? (contextUsageEstimate.tokens / contextWindowTokens) * 100 : null,
-        source: latestBuild ? 'latest_request' : 'active_messages',
+        source: latestBuild ? 'latest_provider_request_view' : 'active_messages',
         countSource: 'local',
         method: contextUsageEstimate.method,
       };
@@ -416,7 +416,7 @@ test('/diagnostics prints full runtime diagnostics', async () => {
   });
   contextBuilder.build({
     systemPrompt: 'system',
-    messages: [{ role: 'system', content: 'system' }],
+    llmMessages: [{ role: 'system', content: 'system' }],
   });
   const session = {
     maxSteps: null,
@@ -503,12 +503,12 @@ test('/diagnostics prints full runtime diagnostics', async () => {
   assert.match(text, /Custom instructions: yes/);
   assert.match(text, /Token usage: calls=1, prompt=100, completion=25, total=125/);
   assert.match(text, /Latest usage: source=compaction, prompt=100, completion=25, total=125, at=2026-05-10T00:01:00\.000Z/);
-  assert.match(text, /Context usage: estimated=\d+, window=100000, percent=\d+\.\d%, source=latest_request, count=local, method=gpt-tokenizer/);
+  assert.match(text, /Context usage: estimated=\d+, window=100000, percent=\d+\.\d%, source=latest_provider_request_view, count=local, method=gpt-tokenizer/);
   assert.match(text, /Compaction recommendation: no, reason=auto_disabled, auto=disabled/);
-  assert.match(text, /Estimated tokens: active=\d+, request=\d+, project_context=\d+, method=gpt-tokenizer/);
+  assert.match(text, /Estimated tokens: active=\d+, provider_request=\d+, project_context=\d+, method=gpt-tokenizer/);
   assert.match(text, /AGENTS\.md path=\/workspace\/AGENTS\.md chars=23/);
   assert.match(text, /Budget: 20000 chars/);
-  assert.match(text, /Last build: injected 1 resource\(s\).*estimated request tokens=\d+.*chars=85\/20000/);
+  assert.match(text, /Last build: injected 1 resource\(s\).*estimated provider request tokens=\d+.*chars=85\/20000/);
 });
 
 test('/reload reloads runtime resources through RuntimeHost', async () => {

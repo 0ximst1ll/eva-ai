@@ -30,12 +30,12 @@ function formatContextBuildStatus(latestBuild: ContextBuildSummary | null): stri
     const reason = latestBuild.projectContextSkippedReason
       ? `, reason=${latestBuild.projectContextSkippedReason}`
       : '';
-    return `not injected${reason}, request messages=${latestBuild.requestMessageCount}, estimated request tokens=${latestBuild.requestTokenEstimate.tokens}, ${budget}`;
+    return `not injected${reason}, provider request messages=${latestBuild.providerRequestMessageCount}, estimated provider request tokens=${latestBuild.providerRequestTokenEstimate.tokens}, ${budget}`;
   }
   const status = [
     `injected ${latestBuild.projectContextCount} resource(s)`,
-    `request messages=${latestBuild.requestMessageCount}`,
-    `estimated request tokens=${latestBuild.requestTokenEstimate.tokens}`,
+    `provider request messages=${latestBuild.providerRequestMessageCount}`,
+    `estimated provider request tokens=${latestBuild.providerRequestTokenEstimate.tokens}`,
     `chars=${latestBuild.projectContextContentLength}/${latestBuild.projectContextMaxChars}`,
   ];
   if (latestBuild.projectContextBudgetMode === 'post_compact') {
@@ -81,7 +81,7 @@ function formatTokenEstimateStatus(diagnostics: ContextDiagnostics): string {
   const latestBuild = diagnostics.latestBuild;
   const parts = [`active=${diagnostics.activeMessageTokenEstimate.tokens}`];
   if (latestBuild) {
-    parts.push(`request=${latestBuild.requestTokenEstimate.tokens}`);
+    parts.push(`provider_request=${latestBuild.providerRequestTokenEstimate.tokens}`);
     parts.push(`project_context=${latestBuild.projectContextTokenEstimate.tokens}`);
   }
   parts.push(`method=${diagnostics.activeMessageTokenEstimate.method}`);

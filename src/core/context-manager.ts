@@ -27,7 +27,7 @@ export interface ContextUsageDiagnostics {
   estimatedTokens: number;
   contextWindowTokens: number | null;
   percent: number | null;
-  source: 'latest_request' | 'active_messages';
+  source: 'latest_provider_request_view' | 'active_messages';
   countSource: TokenCountSource;
   method: TokenCountMethod;
 }
@@ -106,15 +106,15 @@ export function createContextManager({
         : { enabled: false };
       const activeMessageTokenEstimate = estimateMessagesTokens(messages);
       const latestBuild = currentContextBuilder.latestBuild;
-      const latestRequestMessages = usageSource === 'auto' ? currentContextBuilder.latestRequestMessages : null;
-      const contextUsageMessages = latestRequestMessages ?? messages;
+      const latestProviderRequestView = usageSource === 'auto' ? currentContextBuilder.latestProviderRequestView : null;
+      const contextUsageMessages = latestProviderRequestView?.messages ?? messages;
       const contextTokenCount = tokenCounter
         ? await tokenCounter.countMessages({ messages: contextUsageMessages })
         : countMessagesLocally(contextUsageMessages);
       const contextUsage = createContextUsageDiagnostics({
         tokenCount: contextTokenCount,
         contextWindowTokens: normalizedContextWindowTokens,
-        source: latestRequestMessages ? 'latest_request' : 'active_messages',
+        source: latestProviderRequestView ? 'latest_provider_request_view' : 'active_messages',
       });
 
       return {

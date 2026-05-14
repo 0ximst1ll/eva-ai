@@ -2,9 +2,9 @@
 
 ## 当前状态（2026-05-14）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x `AgentMessage` / `LlmMessage` 最小类型边界，以及规划文档中的长期架构域视图整理。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x `AgentMessage` / `LlmMessage` 最小类型边界、`ContextBuilder` provider request view 边界收敛，以及规划文档中的长期架构域视图整理。
 
-当前刚完成 M2.x Agent Core Alignment 的第一步：agent-loop 调用 provider 前会经过 `transformContext()` 和 `convertToLlm()`；provider-facing LLM 层已使用 `LlmMessage` 类型，内部 agent-loop/Agent 边界开始使用 `AgentMessage`。
+当前刚完成 M2.x Agent Core Alignment 的第二步：`ContextBuilder` 已明确接收 `LlmMessage[]`，输出 `ProviderRequestView`，并通过 `latestProviderRequestView` 供 `ContextManager` diagnostics 使用。
 
 ## 已完成
 
@@ -16,11 +16,11 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - runtime diagnostics 已统一为 `source`、`level`、`code`、`message`、`details` 结构。
 - `RuntimeServices` 已承载 workspace 绑定的 config、provider、tools、session manager、resource loader、context builder 和 diagnostics。
 - `ResourceLoader` 已支持 system prompt 与 `AGENTS.md` project context 加载，并对尚未接入的 skills、MCP 返回 diagnostics。
-- `ContextBuilder` 已在每次 LLM call 前构造 request messages。
+- `ContextBuilder` 已在每次 provider call 前构造 provider request view。
 - `AGENTS.md` 已作为 transient project context 注入模型请求，不写回 session history。
 - `ContextBuilder` 已支持 `project_context_max_chars` 字符预算、截断、跳过原因和最近一次 build 摘要。
 - `ContextBuilder` 已支持 compact 后的保守 project context 有效预算，避免 compact 后的 request view 重新被资源上下文撑大。
-- `ContextBuilder` 已记录最近一次 request messages 和 project context 的本地 token estimate。
+- `ContextBuilder` 已记录最近一次 provider request view 和 project context 的本地 token estimate。
 - `TokenCounter` 已支持 provider/local 计数边界，Anthropic 和 Gemini provider 优先使用 countTokens API，失败或不支持时回退本地估算。
 - `ContextManager` 已作为最小状态聚合器，汇总 `ContextBuilder.latestBuild`、active messages、step guard、compaction、usage、project context metadata、token count source、可选 context usage percent 和 compaction recommendation。
 - compaction recommendation 已使用 `compaction.enabled` / `compaction.reserve_tokens` 嵌套配置。
@@ -50,6 +50,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - provider transient error 已有最小 classification 和用户可读 message formatting，原始错误细节保留在 `error` event 的 `error` 字段。
 - `AgentSessionEvent` 已透传 `agent_start` / `agent_end`，CLI 以单行 `Working...` 展示 run 生命周期，不展示过细 provider lifecycle。
 - `AgentMessage` / `LlmMessage` 最小类型边界已引入，agent-loop 会在 provider call 前执行 `transformContext()` 和 `convertToLlm()`。
+- `ContextBuilder` 已收敛为 provider request view builder，`ContextManager` 优先使用 `latestProviderRequestView` 做 context usage diagnostics。
 
 ## 进行中
 
@@ -57,7 +58,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 下一步
 
-- 继续 M2.x Agent Core Alignment：将 `ContextBuilder` 更明确地定位为 provider request view builder，并逐步为 custom/internal `AgentMessage` 持久化和转换策略做准备。
+- 继续 M2.x Agent Core Alignment：为 custom/internal `AgentMessage` 持久化和转换策略做准备。
 
 ## 后续重点计划
 

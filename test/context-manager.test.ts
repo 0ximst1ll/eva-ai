@@ -61,7 +61,7 @@ test('ContextManager reports context diagnostics from builder and session metada
 
   contextBuilder.build({
     systemPrompt: 'system',
-    messages: sessionManager.getMessages(sessionId),
+    llmMessages: sessionManager.getMessages(sessionId),
   });
   const afterBuild = await contextManager.getDiagnostics({
     sessionId,
@@ -71,10 +71,10 @@ test('ContextManager reports context diagnostics from builder and session metada
   assert.deepEqual(afterBuild.stepGuard, { enabled: true, maxSteps: 8 });
   assert.equal(afterBuild.latestBuild?.injected, true);
   assert.equal(afterBuild.latestBuild?.projectContextCount, 1);
-  assert.ok((afterBuild.latestBuild?.requestTokenEstimate.tokens ?? 0) > 0);
+  assert.ok((afterBuild.latestBuild?.providerRequestTokenEstimate.tokens ?? 0) > 0);
   assert.ok((afterBuild.latestBuild?.projectContextTokenEstimate.tokens ?? 0) > 0);
-  assert.equal(afterBuild.contextUsage.source, 'latest_request');
-  assert.equal(afterBuild.contextUsage.estimatedTokens, afterBuild.latestBuild?.requestTokenEstimate.tokens);
+  assert.equal(afterBuild.contextUsage.source, 'latest_provider_request_view');
+  assert.equal(afterBuild.contextUsage.estimatedTokens, afterBuild.latestBuild?.providerRequestTokenEstimate.tokens);
 });
 
 test('ContextManager uses provider token counts when a TokenCounter is available', async () => {
@@ -86,7 +86,7 @@ test('ContextManager uses provider token counts when a TokenCounter is available
   const contextBuilder = createContextBuilder();
   contextBuilder.build({
     systemPrompt: 'system',
-    messages: sessionManager.getMessages(sessionId),
+    llmMessages: sessionManager.getMessages(sessionId),
   });
   const contextManager = createContextManager({
     contextBuilder,
@@ -123,7 +123,7 @@ test('ContextManager can force usage diagnostics from active messages', async ()
   const contextBuilder = createContextBuilder();
   contextBuilder.build({
     systemPrompt: 'system',
-    messages: sessionManager.getMessages(sessionId),
+    llmMessages: sessionManager.getMessages(sessionId),
   });
   await sessionManager.appendMessage(sessionId, { role: 'user', content: 'new input' });
   let countedMessages: string[] = [];
