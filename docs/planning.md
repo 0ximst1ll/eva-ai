@@ -555,17 +555,30 @@ user/assistant/tool: durable session history
 范围：
 
 - JSONL stdin/stdout 协议。
-- `prompt`
-- `get_state`
-- `abort`
-- `new_session`
-- 通过 RPC stream `AgentSessionEvent`。
+- 最小 request envelope：`{ id, method, params }`。
+- 最小 response/event envelope：`{ id, type, ... }`，其中 `type` 至少包含 `response`、`event`、`error`。
+- `prompt`：追加 user message，驱动 `AgentSession.run()`，并把 run lifecycle 作为 RPC events 输出。
+- `get_state`：返回当前 session id、message count、usage、compaction、step guard、provider/model 和 diagnostics 摘要。
+- `abort`：中断当前 active run；第一版只需要支持单 active run。
+- `new_session`：通过 `RuntimeHost.newSession()` 创建并切换 session。
+- `resume_session`：通过 `RuntimeHost.switchSession()` 切换指定 session；未传 id 时可恢复 latest session。
+- 通过 RPC stream 输出稳定的 session lifecycle events；第一版复用 `AgentSessionEvent` 字段，但包在 RPC envelope 内，避免外部直接绑定内部事件 transport。
 
 验收标准：
 
 - interactive、print、RPC 共享 `RuntimeHost`。
 - RPC 能驱动多轮 tool loop。
 - 非法 JSON 和未知命令返回结构化错误。
+- `prompt` 会输出 `agent_start` / message streaming / tool event / `agent_end` 或 `error`。
+- `get_state` 不触发 LLM 调用。
+- print/TUI/interactive 行为不因 RPC mode 引入而回归。
+
+非目标：
+
+- 第一版不实现完整 ACP。
+- 第一版不实现多 run 并发调度。
+- 第一版不实现远程 permission approval；遇到需要确认但无确认通道时仍沿用 fail-closed / pending permission 语义。
+- 第一版不升级 session tree。
 
 ### M4：Session Tree 与可恢复状态
 

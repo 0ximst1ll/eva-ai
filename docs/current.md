@@ -4,7 +4,7 @@
 
 Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`，以及 TUI 稳定化第一轮。
 
-当前刚完成 TUI 稳定化第一轮：CLI 会在非 TTY 环境自动回退 readline mode，TUI mode 退出不再直接 `process.exit()`，`ProcessTerminal` 会释放 process listeners，默认 event 展示收敛为低噪音摘要，并新增 `test/tui.test.ts` 覆盖 stdin buffer、文本工具、input、multiline input 和 renderer 基础行为。
+当前正在进入 M3 Headless RPC：已开始收敛最小 JSONL stdin/stdout 协议、命令集和事件输出边界，目标是在不新增第二套 agent 实现的前提下，让 RPC mode 共享当前 `RuntimeHost` / `AgentSession` 路径。
 
 ## 已完成
 
@@ -40,12 +40,13 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 进行中
 
-- 暂无正在实施的代码任务。
+- M3 Headless RPC 前置设计：固定最小 request/response envelope、`prompt` / `get_state` / `abort` / `new_session` / `resume_session` 命令和 event 输出边界。
 
 ## 下一步
 
-- 评估是否继续做 TUI 真实终端 smoke test 和组件级细化测试。
-- 进入 M3 Headless RPC 前置设计：定义最小 JSONL stdin/stdout 协议、命令集和事件输出边界。
+- 实现 `src/modes/rpc-mode.ts` 最小闭环。
+- CLI 增加 `--rpc`，RPC mode 共享 `RuntimeHost`。
+- 补 RPC JSON parse error、unknown method、`get_state` 和 `prompt` 测试。
 
 ## 后续重点计划
 
