@@ -1,6 +1,7 @@
 import type { LLMClient } from '../llm/llm-client.js';
-import type { Message } from '../schema.js';
+import type { AgentMessage } from '../schema.js';
 import type { Tool } from '../tools/base.js';
+import type { ConvertToLlm, TransformContext } from './agent-messages.js';
 import type { ContextBuilder } from './context-builder.js';
 import {
   type AfterToolCallContext,
@@ -20,15 +21,15 @@ type ActiveRun = {
 };
 
 class PendingMessageQueue {
-  private messages: Message[] = [];
+  private messages: AgentMessage[] = [];
 
   constructor(public mode: QueueMode = 'one-at-a-time') {}
 
-  enqueue(message: Message): void {
+  enqueue(message: AgentMessage): void {
     this.messages.push(message);
   }
 
-  drain(): Message[] {
+  drain(): AgentMessage[] {
     if (this.mode === 'all') {
       const drained = this.messages.slice();
       this.messages = [];
@@ -52,7 +53,7 @@ class PendingMessageQueue {
 
 export interface AgentState {
   systemPrompt: string;
-  messages: Message[];
+  messages: AgentMessage[];
   tools: Tool[];
   isStreaming: boolean;
   pendingToolCalls: Set<string>;
@@ -63,8 +64,10 @@ export interface AgentOptions {
   llmClient: LLMClient;
   systemPrompt: string;
   tools: Tool[];
-  messages?: Message[];
+  messages?: AgentMessage[];
   contextBuilder?: ContextBuilder;
+  transformContext?: TransformContext;
+  convertToLlm?: ConvertToLlm;
   maxSteps?: number | null;
   steeringMode?: QueueMode;
   followUpMode?: QueueMode;
@@ -85,6 +88,8 @@ export class Agent {
   private maxSteps?: number | null;
   private toolExecution?: ToolExecutionMode;
   private contextBuilder?: ContextBuilder;
+  private transformContext?: TransformContext;
+  private convertToLlm?: ConvertToLlm;
   private beforeToolCall?: AgentOptions['beforeToolCall'];
   private afterToolCall?: AgentOptions['afterToolCall'];
 
@@ -97,6 +102,8 @@ export class Agent {
     this.followUpQueue = new PendingMessageQueue(options.followUpMode ?? 'one-at-a-time');
     this.toolExecution = options.toolExecution;
     this.contextBuilder = options.contextBuilder;
+    this.transformContext = options.transformContext;
+    this.convertToLlm = options.convertToLlm;
     this.beforeToolCall = options.beforeToolCall;
     this.afterToolCall = options.afterToolCall;
     this._state = {
@@ -112,15 +119,15 @@ export class Agent {
     return this._state;
   }
 
-  get messages(): Message[] {
+  get messages(): AgentMessage[] {
     return this._state.messages;
   }
 
-  setMessages(messages: Message[]): void {
+  setMessages(messages: AgentMessage[]): void {
     this._state.messages = messages.slice();
   }
 
-  addMessage(message: Message): void {
+  addMessage(message: AgentMessage): void {
     this._state.messages = [...this._state.messages, message];
   }
 
@@ -136,6 +143,14 @@ export class Agent {
     this.contextBuilder = contextBuilder;
   }
 
+  setTransformContext(transformContext: TransformContext | undefined): void {
+    this.transformContext = transformContext;
+  }
+
+  setConvertToLlm(convertToLlm: ConvertToLlm | undefined): void {
+    this.convertToLlm = convertToLlm;
+  }
+
   setMaxSteps(maxSteps?: number | null): void {
     this.maxSteps = maxSteps;
   }
@@ -145,11 +160,11 @@ export class Agent {
     return () => this.listeners.delete(listener);
   }
 
-  steer(message: Message): void {
+  steer(message: AgentMessage): void {
     this.steeringQueue.enqueue(message);
   }
 
-  followUp(message: Message): void {
+  followUp(message: AgentMessage): void {
     this.followUpQueue.enqueue(message);
   }
 
@@ -198,7 +213,7 @@ export class Agent {
     return run;
   }
 
-  reset(messages?: Message[]): void {
+  reset(messages?: AgentMessage[]): void {
     this._state.messages = messages?.slice() ?? [{ role: 'system', content: this._state.systemPrompt }];
     this._state.isStreaming = false;
     this._state.pendingToolCalls = new Set<string>();
@@ -227,6 +242,8 @@ export class Agent {
       systemPrompt: this._state.systemPrompt,
       messages: this._state.messages,
       contextBuilder: this.contextBuilder,
+      transformContext: this.transformContext,
+      convertToLlm: this.convertToLlm,
       signal,
       emit: (event) => this.processEvent(event, signal),
       getSteeringMessages: () => this.steeringQueue.drain(),

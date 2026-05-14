@@ -1,5 +1,5 @@
 import type { LLMClient } from './llm/llm-client.js';
-import type { AgentSessionEvent, Message } from './schema.js';
+import type { AgentMessage, AgentSessionEvent } from './schema.js';
 import type { Tool } from './tools/base.js';
 import { AgentSession } from './core/agent-session.js';
 import { SessionManager } from './core/session-manager.js';
@@ -50,11 +50,11 @@ export class Agent {
         });
     }
 
-    get messages(): Message[] {
+    get messages(): AgentMessage[] {
         return this.session.messages;
     }
 
-    set messages(nextMessages: Message[]) {
+    set messages(nextMessages: AgentMessage[]) {
         void nextMessages;
         throw new Error('Direct message replacement is no longer supported. Use SessionManager APIs.');
     }
@@ -78,7 +78,7 @@ export class Agent {
         return this.session.run(signalOrOptions);
     }
 
-    getHistory(): Message[] {
+    getHistory(): AgentMessage[] {
         return this.messages;
     }
 }

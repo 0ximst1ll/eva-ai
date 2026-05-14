@@ -20,7 +20,7 @@ export interface ToolCall {
     };
 }
 
-export type Message = 
+export type LlmMessage =
     | { role: 'system'; content: string }
     | { role: 'user'; content: string }
     | { 
@@ -35,6 +35,13 @@ export type Message =
         tool_call_id: string;
         name?: string;
     };
+
+export type Message = LlmMessage;
+
+export interface CustomAgentMessages {
+}
+
+export type AgentMessage = LlmMessage | CustomAgentMessages[keyof CustomAgentMessages];
 
 export interface TokenUsage {
     prompt_tokens: number;
@@ -67,7 +74,7 @@ export interface ToolExecutionResult {
 
 export type AgentSessionEvent =
     | { type: 'agent_start' }
-    | { type: 'agent_end'; messages: Message[]; finalContent: string }
+    | { type: 'agent_end'; messages: AgentMessage[]; finalContent: string }
     | { type: 'message_start'; step: number; maxSteps?: number | null }
     | { type: 'thinking_delta'; text: string }
     | { type: 'content_delta'; text: string }

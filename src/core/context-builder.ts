@@ -1,5 +1,5 @@
 import { createDiagnostic, type RuntimeDiagnostic } from '../diagnostics.js';
-import type { Message } from '../schema.js';
+import type { LlmMessage } from '../schema.js';
 import { isCompactionSummaryMessage } from './compaction.js';
 import type { ProjectContextResource } from './resource-loader.js';
 import { estimateMessagesTokens, estimateTextTokens, type TokenEstimate } from './token-estimator.js';
@@ -11,17 +11,17 @@ export interface ContextBuilder {
   readonly projectContext: ProjectContextResource[];
   readonly projectContextMaxChars: number;
   readonly latestBuild: ContextBuildSummary | null;
-  readonly latestRequestMessages: Message[] | null;
+  readonly latestRequestMessages: LlmMessage[] | null;
   build(input: BuildContextInput): BuildContextResult;
 }
 
 export interface BuildContextInput {
   systemPrompt: string;
-  messages: Message[];
+  messages: LlmMessage[];
 }
 
 export interface BuildContextResult {
-  messages: Message[];
+  messages: LlmMessage[];
   diagnostics: RuntimeDiagnostic[];
   summary: ContextBuildSummary;
 }
@@ -45,7 +45,7 @@ export interface ContextBuildSummary {
   projectContextTokenEstimate: TokenEstimate;
 }
 
-function isCompactedContext(messages: Message[]): boolean {
+function isCompactedContext(messages: LlmMessage[]): boolean {
   return messages.some(isCompactionSummaryMessage);
 }
 
@@ -121,13 +121,17 @@ function formatProjectContext(resources: ProjectContextResource[], maxChars: num
   };
 }
 
-function withSystemMessage(messages: Message[], systemPrompt: string): Message[] {
+function withSystemMessage(messages: LlmMessage[], systemPrompt: string): LlmMessage[] {
   const [first, ...rest] = messages;
   if (first?.role === 'system') return [{ role: 'system', content: systemPrompt }, ...rest];
   return [{ role: 'system', content: systemPrompt }, ...messages];
 }
 
-function insertAfterSystemMessage(messages: Message[], projectContextMessage: Message, systemPrompt: string): Message[] {
+function insertAfterSystemMessage(
+  messages: LlmMessage[],
+  projectContextMessage: LlmMessage,
+  systemPrompt: string,
+): LlmMessage[] {
   const [first, ...rest] = withSystemMessage(messages, systemPrompt);
   return [first, projectContextMessage, ...rest];
 }
@@ -139,7 +143,7 @@ export function createContextBuilder({
   const resources = projectContext.slice();
   const maxChars = normalizeBudget(projectContextMaxChars);
   let latestBuild: ContextBuildSummary | null = null;
-  let latestRequestMessages: Message[] | null = null;
+  let latestRequestMessages: LlmMessage[] | null = null;
 
   return {
     get latestBuild() {

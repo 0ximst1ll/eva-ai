@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createContextBuilder } from '../src/core/context-builder.js';
 import { runAgentLoop, type AgentLoopEvent } from '../src/core/agent-loop.js';
 import type { LLMClient } from '../src/llm/llm-client.js';
-import type { LLMResponse, LLMStreamEvent, Message } from '../src/schema.js';
+import type { AgentMessage, LLMResponse, LLMStreamEvent, LlmMessage } from '../src/schema.js';
 import type { Tool } from '../src/tools/base.js';
 
 type ScriptedLLMStep = LLMResponse | Error;
@@ -17,12 +17,12 @@ function toolCall(id: string, name: string, args: Record<string, unknown> = {}) 
 }
 
 class ScriptedLLM {
-  calls: Message[][] = [];
+  calls: LlmMessage[][] = [];
 
   constructor(private readonly responses: ScriptedLLMStep[]) {}
 
-  async *generateStream(messages: Message[]): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
-    this.calls.push(messages.map((message) => ({ ...message })) as Message[]);
+  async *generateStream(messages: LlmMessage[]): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
+    this.calls.push(messages.map((message) => ({ ...message })) as LlmMessage[]);
     const response = this.responses.shift();
     if (!response) throw new Error('No scripted response');
     if (response instanceof Error) throw response;
@@ -108,6 +108,40 @@ test('runAgentLoop sends transient project context to the LLM without persisting
   assert.match(llm.calls[0]?.[1]?.content ?? '', /Contents of AGENTS\.md:/);
   assert.deepEqual(
     result.messages.map((message) => message.content),
+    ['system', 'run', 'done'],
+  );
+});
+
+test('runAgentLoop transforms agent messages before converting them to provider messages', async () => {
+  const llm = new ScriptedLLM([{ content: 'done', finish_reason: 'stop' }]);
+  const convertInputs: AgentMessage[][] = [];
+
+  const result = await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [],
+    maxSteps: 3,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+    transformContext(messages) {
+      return [...messages, { role: 'user', content: 'transient request context' }];
+    },
+    convertToLlm(messages) {
+      convertInputs.push(messages.map((message) => ({ ...message })) as AgentMessage[]);
+      return messages.filter((message): message is LlmMessage => 'role' in message);
+    },
+  });
+
+  assert.deepEqual(convertInputs[0]?.map((message) => 'role' in message ? message.content : ''), [
+    'system',
+    'run',
+    'transient request context',
+  ]);
+  assert.deepEqual(llm.calls[0]?.map((message) => message.content), [
+    'system',
+    'run',
+    'transient request context',
+  ]);
+  assert.deepEqual(
+    result.messages.map((message) => 'role' in message ? message.content : ''),
     ['system', 'run', 'done'],
   );
 });

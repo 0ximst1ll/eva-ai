@@ -1,6 +1,6 @@
 import type { LLMClient } from '../llm/llm-client.js';
 import { LLMProvider } from '../schema.js';
-import type { Message } from '../schema.js';
+import type { LlmMessage } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { estimateMessagesTokens } from './token-estimator.js';
 
@@ -15,7 +15,7 @@ export interface TokenCountResult {
 
 export interface TokenCounter {
   countMessages(input: {
-    messages: Message[];
+    messages: LlmMessage[];
     tools?: Tool[] | null;
   }): Promise<TokenCountResult>;
 }
@@ -47,7 +47,7 @@ function getProviderCountMethod(provider: LLMProvider | undefined): TokenCountMe
   return 'anthropic_count_tokens';
 }
 
-export function countMessagesLocally(messages: Message[]): TokenCountResult {
+export function countMessagesLocally(messages: LlmMessage[]): TokenCountResult {
   const estimate = estimateMessagesTokens(messages);
   return {
     tokens: estimate.tokens,

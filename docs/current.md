@@ -2,9 +2,9 @@
 
 ## 当前状态（2026-05-14）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环，以及规划文档中的长期架构域视图整理。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x `AgentMessage` / `LlmMessage` 最小类型边界，以及规划文档中的长期架构域视图整理。
 
-当前刚完成 provider 错误展示收敛，并已将 `AgentMessage` / `LlmMessage` 双层消息模型补入规划，作为 RPC/TUI/MCP/Extensions 之前的 M2.x 核心骨架对齐任务。
+当前刚完成 M2.x Agent Core Alignment 的第一步：agent-loop 调用 provider 前会经过 `transformContext()` 和 `convertToLlm()`；provider-facing LLM 层已使用 `LlmMessage` 类型，内部 agent-loop/Agent 边界开始使用 `AgentMessage`。
 
 ## 已完成
 
@@ -49,6 +49,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - print/headless 当前没有确认通道时会将需要确认的 tool call 视为 pending permission 并 fail-closed。
 - provider transient error 已有最小 classification 和用户可读 message formatting，原始错误细节保留在 `error` event 的 `error` 字段。
 - `AgentSessionEvent` 已透传 `agent_start` / `agent_end`，CLI 以单行 `Working...` 展示 run 生命周期，不展示过细 provider lifecycle。
+- `AgentMessage` / `LlmMessage` 最小类型边界已引入，agent-loop 会在 provider call 前执行 `transformContext()` 和 `convertToLlm()`。
 
 ## 进行中
 
@@ -56,7 +57,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 下一步
 
-- 开始 M2.x Agent Core Alignment：引入 `AgentMessage` / `LlmMessage` 双层消息模型，补齐 `transformContext()` / `convertToLlm()` 边界。
+- 继续 M2.x Agent Core Alignment：将 `ContextBuilder` 更明确地定位为 provider request view builder，并逐步为 custom/internal `AgentMessage` 持久化和转换策略做准备。
 
 ## 后续重点计划
 
@@ -72,7 +73,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 - `logger.ts` 仍是占位文件。
 - `ResourceLoader` 仍是最小骨架，尚未支持自动监听或更细粒度 reload。
-- 当前 Eva 仍是单层 `Message[]`，session history、agent-loop working messages 和 provider request messages 尚未分离。
+- 当前 `AgentMessage` 仍只是最小边界，尚未支持 custom/internal message 持久化或 session entry schema。
 - `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。
 - manual `/compact` 仍是最小版：没有工具结果 micro-compaction。
 - skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。

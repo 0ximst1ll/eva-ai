@@ -1,8 +1,15 @@
 import type { LLMClient } from '../llm/llm-client.js';
 import { formatProviderError } from '../llm/provider-errors.js';
 import { RetryExhaustedError } from '../retry.js';
-import type { LLMResponse, Message, ToolCall, ToolExecutionResult } from '../schema.js';
+import type { AgentMessage, LLMResponse, LlmMessage, ToolCall, ToolExecutionResult } from '../schema.js';
 import type { Tool } from '../tools/base.js';
+import {
+  defaultConvertToLlm,
+  defaultTransformContext,
+  isLlmMessage,
+  type ConvertToLlm,
+  type TransformContext,
+} from './agent-messages.js';
 import type { ContextBuilder } from './context-builder.js';
 
 export type ToolExecutionMode = 'parallel' | 'sequential';
@@ -11,7 +18,7 @@ export interface BeforeToolCallContext {
   toolCall: ToolCall;
   tool?: Tool;
   args: Record<string, unknown>;
-  messages: Message[];
+  messages: AgentMessage[];
 }
 
 export interface BeforeToolCallResult {
@@ -24,7 +31,7 @@ export interface AfterToolCallContext {
   tool: Tool;
   args: Record<string, unknown>;
   result: ToolExecutionResult;
-  messages: Message[];
+  messages: AgentMessage[];
 }
 
 export type AfterToolCallResult = Partial<Pick<ToolExecutionResult, 'success' | 'content' | 'error'>>;
@@ -32,9 +39,9 @@ export type AfterToolCallResult = Partial<Pick<ToolExecutionResult, 'success' | 
 export type AgentLoopEvent =
   | { type: 'agent_start' }
   | { type: 'turn_start'; step: number; maxSteps?: number | null }
-  | { type: 'input_message'; message: Message }
+  | { type: 'input_message'; message: AgentMessage }
   | { type: 'message_start'; step: number; maxSteps?: number | null }
-  | { type: 'assistant_message'; message: Extract<Message, { role: 'assistant' }> }
+  | { type: 'assistant_message'; message: Extract<AgentMessage, { role: 'assistant' }> }
   | { type: 'thinking_delta'; text: string }
   | { type: 'content_delta'; text: string }
   | { type: 'tool_call'; tool_call: ToolCall }
@@ -44,7 +51,7 @@ export type AgentLoopEvent =
   | { type: 'usage'; usage: NonNullable<LLMResponse['usage']> }
   | { type: 'message_end'; step: number; elapsedMs: number; totalElapsedMs: number; response: LLMResponse }
   | { type: 'turn_end'; step: number; response?: LLMResponse; toolResults: ToolExecutionResult[] }
-  | { type: 'agent_end'; messages: Message[]; finalContent: string }
+  | { type: 'agent_end'; messages: AgentMessage[]; finalContent: string }
   | { type: 'error'; message: string; error?: string };
 
 export type AgentLoopEventSink = (event: AgentLoopEvent) => void | Promise<void>;
@@ -54,13 +61,15 @@ export interface AgentLoopConfig {
   tools: Tool[];
   maxSteps?: number | null;
   systemPrompt?: string;
-  messages: Message[];
+  messages: AgentMessage[];
   contextBuilder?: ContextBuilder;
+  transformContext?: TransformContext;
+  convertToLlm?: ConvertToLlm;
   signal?: AbortSignal;
   emit?: AgentLoopEventSink;
   toolExecution?: ToolExecutionMode;
-  getSteeringMessages?: () => Message[] | Promise<Message[]>;
-  getFollowUpMessages?: () => Message[] | Promise<Message[]>;
+  getSteeringMessages?: () => AgentMessage[] | Promise<AgentMessage[]>;
+  getFollowUpMessages?: () => AgentMessage[] | Promise<AgentMessage[]>;
   beforeToolCall?: (
     context: BeforeToolCallContext,
     signal?: AbortSignal,
@@ -72,7 +81,7 @@ export interface AgentLoopConfig {
 }
 
 export interface AgentLoopResult {
-  messages: Message[];
+  messages: AgentMessage[];
   finalContent: string;
   apiTotalTokens: number;
 }
@@ -81,7 +90,7 @@ async function emit(sink: AgentLoopEventSink | undefined, event: AgentLoopEvent)
   await sink?.(event);
 }
 
-async function drainMessages(callback?: () => Message[] | Promise<Message[]>): Promise<Message[]> {
+async function drainMessages(callback?: () => AgentMessage[] | Promise<AgentMessage[]>): Promise<AgentMessage[]> {
   return (await callback?.()) ?? [];
 }
 
@@ -92,7 +101,7 @@ async function generateResponseWithStreaming({
   emit: eventSink,
 }: {
   llmClient: LLMClient;
-  messages: Message[];
+  messages: LlmMessage[];
   tools: Tool[];
   emit?: AgentLoopEventSink;
 }): Promise<LLMResponse> {
@@ -149,7 +158,7 @@ function createBlockedToolResult(toolCall: ToolCall, reason?: string): ToolExecu
 async function executeToolCall(
   toolCall: ToolCall,
   toolMap: Map<string, Tool>,
-  messages: Message[],
+  messages: AgentMessage[],
   config: AgentLoopConfig,
 ): Promise<ToolExecutionResult> {
   const { id: toolCallId, function: fn } = toolCall;
@@ -218,7 +227,7 @@ function shouldRunSequential(toolCalls: ToolCall[], toolMap: Map<string, Tool>, 
 async function executeToolCalls(
   toolCalls: ToolCall[],
   toolMap: Map<string, Tool>,
-  messages: Message[],
+  messages: AgentMessage[],
   config: AgentLoopConfig,
 ): Promise<ToolExecutionResult[]> {
   if (shouldRunSequential(toolCalls, toolMap, config.toolExecution)) {
@@ -233,8 +242,8 @@ async function executeToolCalls(
 }
 
 async function appendInputMessages(
-  messages: Message[],
-  pendingMessages: Message[],
+  messages: AgentMessage[],
+  pendingMessages: AgentMessage[],
   eventSink?: AgentLoopEventSink,
 ): Promise<void> {
   for (const message of pendingMessages) {
@@ -243,13 +252,13 @@ async function appendInputMessages(
   }
 }
 
-function abortResult(messages: Message[], finalContent: string, apiTotalTokens: number): AgentLoopResult {
+function abortResult(messages: AgentMessage[], finalContent: string, apiTotalTokens: number): AgentLoopResult {
   return { messages, finalContent, apiTotalTokens };
 }
 
-function getSystemPromptForContext(config: AgentLoopConfig, messages: Message[]): string {
+function getSystemPromptForContext(config: AgentLoopConfig, messages: AgentMessage[]): string {
   if (config.systemPrompt !== undefined) return config.systemPrompt;
-  const systemMessage = messages.find((message) => message.role === 'system');
+  const systemMessage = messages.find((message) => isLlmMessage(message) && message.role === 'system');
   return systemMessage?.content ?? '';
 }
 
@@ -299,12 +308,17 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
 
       let response: LLMResponse;
       try {
+        const transformedMessages = await (config.transformContext ?? defaultTransformContext)(
+          messages,
+          config.signal,
+        );
+        const llmMessages = await (config.convertToLlm ?? defaultConvertToLlm)(transformedMessages);
         const requestMessages = config.contextBuilder
           ? config.contextBuilder.build({
-            systemPrompt: getSystemPromptForContext(config, messages),
-            messages,
+            systemPrompt: getSystemPromptForContext(config, transformedMessages),
+            messages: llmMessages,
           }).messages
-          : messages;
+          : llmMessages;
         response = await generateResponseWithStreaming({
           llmClient: config.llmClient,
           messages: requestMessages,
@@ -336,7 +350,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         content: response.content,
         thinking: response.thinking,
         tool_calls: response.tool_calls,
-      } satisfies Extract<Message, { role: 'assistant' }>;
+      } satisfies Extract<AgentMessage, { role: 'assistant' }>;
       messages.push(assistantMessage);
       await emit(config.emit, { type: 'assistant_message', message: assistantMessage });
 

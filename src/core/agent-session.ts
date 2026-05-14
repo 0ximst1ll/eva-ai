@@ -1,5 +1,5 @@
 import type { LLMClient } from '../llm/llm-client.js';
-import type { AgentSessionEvent, Message } from '../schema.js';
+import type { AgentMessage, AgentSessionEvent, Message } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { Agent } from './agent.js';
 import {
@@ -98,7 +98,7 @@ export class AgentSession {
     this.apiTotalTokens = this.sessionManager.getUsageInfo(sessionId).total.total_tokens;
   }
 
-  get messages(): Message[] {
+  get messages(): AgentMessage[] {
     return this.sessionManager.getMessages(this.sessionId);
   }
 

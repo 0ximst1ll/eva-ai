@@ -1,4 +1,4 @@
-import type { LLMResponse, LLMStreamEvent, Message } from "../schema.js";
+import type { LLMResponse, LLMStreamEvent, LlmMessage } from "../schema.js";
 import type {Tool} from "../tools/base.js";
 import { RetryConfig } from "../retry.js";
 
@@ -23,14 +23,14 @@ export abstract class LLMClientBase {
         this.retryConfig = retryConfig || new RetryConfig() ;
     }
 
-    abstract generate(messages: Message[], tool?: Tool[] | null): Promise<LLMResponse>;
+    abstract generate(messages: LlmMessage[], tool?: Tool[] | null): Promise<LLMResponse>;
 
-    async countTokens(_messages: Message[], _tool?: Tool[] | null): Promise<number | null> {
+    async countTokens(_messages: LlmMessage[], _tool?: Tool[] | null): Promise<number | null> {
         return null;
     }
 
     async *generateStream(
-        messages: Message[],
+        messages: LlmMessage[],
         tool?: Tool[] | null,
     ): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
         const response = await this.generate(messages, tool);
@@ -54,9 +54,9 @@ export abstract class LLMClientBase {
         return response;
     }
 
-    protected abstract _prepareRequest(messages: Message[], tool?: Tool[] | null): Record<string, unknown>;
+    protected abstract _prepareRequest(messages: LlmMessage[], tool?: Tool[] | null): Record<string, unknown>;
 
     protected abstract _convertMessages(
-        messages: Message[],
+        messages: LlmMessage[],
     ): [string | null, Record<string, unknown>[]];
 }

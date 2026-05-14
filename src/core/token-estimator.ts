@@ -1,5 +1,5 @@
 import { encode } from 'gpt-tokenizer';
-import type { Message } from '../schema.js';
+import type { LlmMessage } from '../schema.js';
 
 export const TOKEN_ESTIMATE_METHOD = 'gpt-tokenizer';
 
@@ -15,7 +15,7 @@ export function estimateTextTokens(text: string): TokenEstimate {
   };
 }
 
-export function estimateMessageTokens(message: Message): TokenEstimate {
+export function estimateMessageTokens(message: LlmMessage): TokenEstimate {
   const parts = [message.role, message.content];
   if (message.role === 'assistant') {
     if (message.thinking) parts.push(message.thinking);
@@ -28,7 +28,7 @@ export function estimateMessageTokens(message: Message): TokenEstimate {
   return estimateTextTokens(parts.join('\n'));
 }
 
-export function estimateMessagesTokens(messages: Message[]): TokenEstimate {
+export function estimateMessagesTokens(messages: LlmMessage[]): TokenEstimate {
   let tokens = 0;
   for (const message of messages) {
     tokens += estimateMessageTokens(message).tokens;

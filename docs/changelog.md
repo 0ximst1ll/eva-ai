@@ -14,6 +14,21 @@
 14. Manual `/compact` 最小闭环
 15. ContextBuilder / ContextManager 上下文管理分层
 16. TokenCounter provider/local 计数边界
+17. AgentMessage / LlmMessage 最小消息边界
+
+
+# AgentMessage / LlmMessage 最小消息边界
+
+引入 M2.x Agent Core Alignment 的第一步，把 agent 内部消息边界和 provider 请求消息边界拆开。
+
+核心变化：
+
+- 新增 `AgentMessage` / `LlmMessage` 类型边界，保留旧 `Message` 作为兼容别名。
+- 新增默认 `transformContext()` 和 `convertToLlm()`。
+- `runAgentLoop()` 在每次 provider call 前执行 `transformContext -> convertToLlm -> ContextBuilder.build -> LLMClient.generateStream`。
+- `LLMClient` / `LLMClientBase` / token counting 路径改为接收 provider-facing `LlmMessage[]`。
+
+当前仍是最小骨架：`AgentMessage` 尚未扩展 custom/internal message，session entry schema 和完整 path-aware context rebuild 仍未实现。
 
 
 

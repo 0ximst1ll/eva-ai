@@ -1,6 +1,6 @@
 // LLM client wrapper — mirrors eva_ai/llm/llm_wrapper.py
 
-import type { LLMResponse, LLMStreamEvent, Message } from '../schema.js';
+import type { LLMResponse, LLMStreamEvent, LlmMessage } from '../schema.js';
 import { LLMProvider } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { RetryConfig } from '../retry.js';
@@ -69,16 +69,16 @@ export class LLMClient {
     }
   }
 
-  async generate(messages: Message[], tools?: Tool[] | null): Promise<LLMResponse> {
+  async generate(messages: LlmMessage[], tools?: Tool[] | null): Promise<LLMResponse> {
     return this._client.generate(messages, tools);
   }
 
-  async countTokens(messages: Message[], tools?: Tool[] | null): Promise<number | null> {
+  async countTokens(messages: LlmMessage[], tools?: Tool[] | null): Promise<number | null> {
     return this._client.countTokens(messages, tools);
   }
 
   async *generateStream(
-    messages: Message[],
+    messages: LlmMessage[],
     tools?: Tool[] | null,
   ): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
     return yield* this._client.generateStream(messages, tools);
