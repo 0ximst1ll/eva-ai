@@ -136,31 +136,32 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
   });
 
   // ── Event renderer ────────────────────────────────────────
-  let streamingThinking: Text | null = null;
   let streamingContent: Markdown | null = null;
   let abortController: AbortController | null = null;
+  let stopped = false;
+  let resolveStopped: (() => void) | undefined;
+  const stoppedPromise = new Promise<void>((resolve) => {
+    resolveStopped = resolve;
+  });
+
+  const stopTui = (): void => {
+    if (stopped) return;
+    stopped = true;
+    tui.stop();
+    resolveStopped?.();
+  };
 
   const handleEvent = (event: AgentSessionEvent): void => {
     switch (event.type) {
 
       case 'message_start': {
         chatContainer.addChild(new Spacer());
-        streamingThinking = null;
         streamingContent = null;
         tui.requestRender();
         break;
       }
 
       case 'thinking_delta': {
-        if (!streamingThinking) {
-          chatContainer.addChild(
-            new Text(`${Colors.MAGENTA}${Colors.DIM}Thinking…${Colors.RESET}`, { wrap: false }),
-          );
-          streamingThinking = new Text('', { wrap: true, dim: true });
-          chatContainer.addChild(streamingThinking);
-        }
-        streamingThinking.append(event.text);
-        tui.requestRender();
         break;
       }
 
@@ -186,11 +187,6 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
             { wrap: false },
           ),
         );
-        // Show key args (skip very large values)
-        for (const [k, v] of Object.entries(event.tool_call.function.arguments)) {
-          const s = String(v);
-          if (s.length > 0) chatContainer.addChild(new Text(formatArg(k, v), { wrap: false }));
-        }
         tui.requestRender();
         break;
       }
@@ -198,15 +194,10 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
       case 'tool_result': {
         const r = event.result;
         if (r.success) {
-          const lines = r.content.split('\n');
-          // Show at most 6 lines; fold the rest
-          const shown = lines.slice(0, 6);
-          const hidden = lines.length - shown.length;
-          const preview = shown.join('\n');
           chatContainer.addChild(
             new Text(
-              `${Colors.BRIGHT_GREEN}✓${Colors.RESET} ${Colors.DIM}${preview}${hidden > 0 ? `\n  … ${hidden} more line${hidden > 1 ? 's' : ''}` : ''}${Colors.RESET}`,
-              { wrap: true },
+              `${Colors.BRIGHT_GREEN}✓${Colors.RESET} ${Colors.DIM}${r.toolName} completed${Colors.RESET}`,
+              { wrap: false },
             ),
           );
         } else {
@@ -222,7 +213,6 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
       }
 
       case 'message_end': {
-        streamingThinking = null;
         streamingContent = null;
         const elapsed = (event.elapsedMs / 1000).toFixed(1);
         chatContainer.addChild(
@@ -339,8 +329,8 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
     });
 
     if (commandResult === 'exit') {
-      tui.stop();
-      process.exit(0);
+      stopTui();
+      return;
     }
 
     if (commandResult === 'continue') {
@@ -397,14 +387,13 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
           new Text(`${Colors.DIM}Goodbye!${Colors.RESET}`, { wrap: false }),
         );
         tui.requestRender(true);
-        setTimeout(() => { tui.stop(); process.exit(0); }, 80);
+        setTimeout(stopTui, 80);
       }
       return;
     }
     if (matchesKey(data, 'ctrl-d')) {
       if (!abortController && input.value.trim().length === 0) {
-        tui.stop();
-        process.exit(0);
+        stopTui();
       }
     }
   });
@@ -413,5 +402,5 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
   tui.setFocus(input);
   tui.start();
 
-  await new Promise<void>((resolve) => { process.on('exit', resolve); });
+  await stoppedPromise;
 }

@@ -9,20 +9,25 @@ export class ProcessTerminal {
   private stdinBuffer = new StdinBuffer();
   private dataListeners: ((data: string) => void)[] = [];
   private resizeListeners: (() => void)[] = [];
+  private readonly stdinDataHandler: (chunk: Buffer) => void;
+  private readonly stdoutResizeHandler: () => void;
   private rawModeEnabled = false;
 
   constructor() {
-    process.stdin.on('data', (chunk: Buffer) => {
+    this.stdinDataHandler = (chunk: Buffer) => {
       this.stdinBuffer.push(chunk.toString('utf8'));
-    });
+    };
+    this.stdoutResizeHandler = () => {
+      for (const fn of this.resizeListeners) fn();
+    };
+
+    process.stdin.on('data', this.stdinDataHandler);
 
     this.stdinBuffer.on('data', (seq: string) => {
       for (const fn of this.dataListeners) fn(seq);
     });
 
-    process.stdout.on('resize', () => {
-      for (const fn of this.resizeListeners) fn();
-    });
+    process.stdout.on('resize', this.stdoutResizeHandler);
   }
 
   enableRawMode(): void {
@@ -81,6 +86,8 @@ export class ProcessTerminal {
   destroy(): void {
     this.showCursor();
     this.disableRawMode();
+    process.stdin.off('data', this.stdinDataHandler);
+    process.stdout.off('resize', this.stdoutResizeHandler);
     this.stdinBuffer.destroy();
     this.dataListeners = [];
     this.resizeListeners = [];

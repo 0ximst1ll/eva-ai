@@ -53,6 +53,7 @@ const args = process.argv.slice(2);
 const noTuiFlag = args.includes('--no-tui');
 const remainingArgs = args.filter((a) => a !== '--no-tui');
 const task = remainingArgs.join(' ').trim();
+const canUseTui = process.stdin.isTTY && process.stdout.isTTY;
 
 const host = await createHost(workspaceDir, task ? undefined : null);
 if (host) {
@@ -60,7 +61,7 @@ if (host) {
 
   if (task) {
     await runPrintMode({ host, task });
-  } else if (noTuiFlag) {
+  } else if (noTuiFlag || !canUseTui) {
     await runInteractiveMode({
       host,
       setToolConfirmationHandler: (handler) => {

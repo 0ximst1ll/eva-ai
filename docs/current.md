@@ -2,9 +2,9 @@
 
 ## 当前状态（2026-05-14）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics，以及自建最小 TUI 框架与 `tui-mode.ts`。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`，以及 TUI 稳定化第一轮。
 
-当前刚从远程 `origin/eva-tui-cc` 合入 TUI 框架。CLI 在无 task 时默认启动 TUI，`--no-tui` 回退到原 readline interactive mode；print/headless task 路径保持不变。TUI mode 复用 `RuntimeHost`、`AgentSession`、`handleInteractiveCommand()` 和当前 `allow` / `deny` / `ask` 权限模型。
+当前刚完成 TUI 稳定化第一轮：CLI 会在非 TTY 环境自动回退 readline mode，TUI mode 退出不再直接 `process.exit()`，`ProcessTerminal` 会释放 process listeners，默认 event 展示收敛为低噪音摘要，并新增 `test/tui.test.ts` 覆盖 stdin buffer、文本工具、input、multiline input 和 renderer 基础行为。
 
 ## 已完成
 
@@ -32,16 +32,20 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - 自建最小 TUI 框架 `src/tui/`：差量渲染引擎、`Component` / `Container`、terminal 输入解析、文本/markdown/input/footer/spinner/select-list 等基础组件。
 - 新增 `tui-mode.ts`，布局为 header、chat、status、input、footer，复用 slash command 处理和 session lifecycle。
 - TUI mode 支持 tool confirmation、Ctrl-C abort/exit、`/sessions` 选择器和 streaming event 渲染。
+- CLI 在无 task 且 stdin/stdout 都是 TTY 时默认启动 TUI；`--no-tui` 或非 TTY 环境会回退 readline interactive mode。
+- TUI mode 已改为通过 promise resolve 结束，不再直接 `process.exit()`。
+- `ProcessTerminal.destroy()` 会移除 stdin/stdout process listeners，避免重复创建 TUI 时泄漏监听器。
+- TUI 默认事件展示已收敛：忽略 thinking delta，只显示 assistant content、tool call 摘要、tool result 摘要和 error message。
+- `test/tui.test.ts` 已覆盖 `StdinBuffer`、text utils、`Input`、`MultilineInput` 和 `TUI` renderer 基础行为。
 
 ## 进行中
 
-- 正在验证远程 TUI 合并后的当前代码是否仍通过 typecheck 和 test。
+- 暂无正在实施的代码任务。
 
 ## 下一步
 
-- 若验证通过，提交 TUI 合并。
-- 进入 TUI 稳定化：补最小 TUI 测试，并评估默认 TUI 的终端兼容性。
-- 之后进入 M3 Headless RPC 前置设计：定义最小 JSONL stdin/stdout 协议、命令集和事件输出边界。
+- 评估是否继续做 TUI 真实终端 smoke test 和组件级细化测试。
+- 进入 M3 Headless RPC 前置设计：定义最小 JSONL stdin/stdout 协议、命令集和事件输出边界。
 
 ## 后续重点计划
 
@@ -64,4 +68,4 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - RPC mode 尚不存在。
 - session history 仍是 flat JSONL，尚未升级为 session tree。
 - tool result budget、超大输出持久化、完整 permission pipeline 尚未实现。
-- TUI 框架尚未覆盖测试。
+- TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。
