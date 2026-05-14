@@ -7,6 +7,7 @@ import {
   extractCompactionSummary,
   type CompactionResult,
 } from './compaction.js';
+import { createInternalAgentMessage } from './agent-messages.js';
 import type { ContextBuilder } from './context-builder.js';
 import type { ContextManager } from './context-manager.js';
 import type {
@@ -38,6 +39,26 @@ function isContextOverflowErrorMessage(message: string): boolean {
     /too many tokens/i,
     /request too large/i,
   ].some((pattern) => pattern.test(message));
+}
+
+function createCompactionSummaryMarker({
+  result,
+  customInstructions,
+}: {
+  result: CompactionResult;
+  customInstructions?: string;
+}): AgentMessage {
+  return createInternalAgentMessage({
+    kind: 'compaction_summary',
+    content: result.summary,
+    metadata: {
+      summaryLength: result.summary.length,
+      firstKeptMessageIndex: result.firstKeptMessageIndex,
+      messagesBefore: result.messagesBefore,
+      messagesAfter: result.messagesAfter,
+      customInstructions: Boolean(customInstructions?.trim()),
+    },
+  });
 }
 
 export class AgentSession {
@@ -158,7 +179,10 @@ export class AgentSession {
       customInstructions,
     });
 
-    this.agent.setMessages(this.sessionManager.getMessages(this.sessionId));
+    this.agent.setMessages([
+      ...this.sessionManager.getMessages(this.sessionId),
+      createCompactionSummaryMarker({ result, customInstructions }),
+    ]);
     if (response.usage) {
       await this.sessionManager.appendUsage({
         sessionId: this.sessionId,

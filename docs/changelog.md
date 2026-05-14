@@ -30,6 +30,8 @@
 - `ContextBuilder` 收敛为 provider request view builder，接收 `LlmMessage[]` 并返回 `ProviderRequestView`。
 - `ContextManager` diagnostics 优先使用 `latestProviderRequestView` 计算 context usage。
 - 新增 internal `AgentMessage` 最小类型，默认 `convertToLlm()` 会过滤 internal message，避免污染 provider request view。
+- `ContextBuilder` 构造 provider request view 后，agent-loop 会追加 `resource_context` internal marker，用于记录 transient resource 注入摘要。
+- `AgentSession.compact()` 成功后会向 Agent working history 追加 `compaction_summary` internal marker，用于记录压缩摘要和 compaction metadata。
 
 当前仍是最小骨架：internal message 尚未持久化到 flat JSONL message log，session entry schema 和完整 path-aware context rebuild 仍未实现。
 

@@ -4,13 +4,14 @@ import { RetryExhaustedError } from '../retry.js';
 import type { AgentMessage, LLMResponse, LlmMessage, ToolCall, ToolExecutionResult } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import {
+  createInternalAgentMessage,
   defaultConvertToLlm,
   defaultTransformContext,
   isLlmMessage,
   type ConvertToLlm,
   type TransformContext,
 } from './agent-messages.js';
-import type { ContextBuilder } from './context-builder.js';
+import type { ContextBuilder, ProviderRequestView } from './context-builder.js';
 
 export type ToolExecutionMode = 'parallel' | 'sequential';
 
@@ -266,6 +267,23 @@ function hasStepLimit(maxSteps: number | null | undefined): maxSteps is number {
   return typeof maxSteps === 'number' && Number.isFinite(maxSteps) && maxSteps > 0;
 }
 
+function createResourceContextMarker(providerRequestView: ProviderRequestView): AgentMessage {
+  const { summary } = providerRequestView;
+  return createInternalAgentMessage({
+    kind: 'resource_context',
+    metadata: {
+      injected: summary.injected,
+      resources: summary.projectContextNames,
+      providerRequestMessageCount: summary.providerRequestMessageCount,
+      providerRequestTokens: summary.providerRequestTokenEstimate.tokens,
+      projectContextTokens: summary.projectContextTokenEstimate.tokens,
+      projectContextBudgetMode: summary.projectContextBudgetMode,
+      projectContextTruncated: summary.projectContextTruncated,
+      projectContextSkippedReason: summary.projectContextSkippedReason,
+    },
+  });
+}
+
 export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopResult> {
   const runStart = Date.now();
   const messages = [...config.messages];
@@ -313,12 +331,17 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           config.signal,
         );
         const llmMessages = await (config.convertToLlm ?? defaultConvertToLlm)(transformedMessages);
-        const requestMessages = config.contextBuilder
-          ? config.contextBuilder.build({
+        let requestMessages: LlmMessage[];
+        if (config.contextBuilder) {
+          const providerRequestView = config.contextBuilder.build({
             systemPrompt: getSystemPromptForContext(config, transformedMessages),
             llmMessages,
-          }).messages
-          : llmMessages;
+          });
+          requestMessages = providerRequestView.messages;
+          messages.push(createResourceContextMarker(providerRequestView));
+        } else {
+          requestMessages = llmMessages;
+        }
         response = await generateResponseWithStreaming({
           llmClient: config.llmClient,
           messages: requestMessages,

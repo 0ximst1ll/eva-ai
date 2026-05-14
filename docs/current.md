@@ -2,9 +2,9 @@
 
 ## 当前状态（2026-05-14）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x `AgentMessage` / `LlmMessage` 最小类型边界、`ContextBuilder` provider request view 边界收敛、internal `AgentMessage` 最小闭环，以及规划文档中的长期架构域视图整理。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x `AgentMessage` / `LlmMessage` 最小类型边界、`ContextBuilder` provider request view 边界收敛、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker，以及规划文档中的长期架构域视图整理。
 
-当前刚完成 M2.x Agent Core Alignment 的第三步：新增 internal `AgentMessage`，默认 `convertToLlm()` 会过滤 internal message，确保 provider request view 不被内部消息污染。
+当前刚完成 M2.x Agent Core Alignment 的 resource context marker 与 compaction summary marker 最小闭环，证明 internal `AgentMessage` 可以承载真实 harness 状态，同时保持 provider request 和 flat JSONL message log 不被 internal message 污染。
 
 ## 已完成
 
@@ -52,6 +52,8 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - `AgentMessage` / `LlmMessage` 最小类型边界已引入，agent-loop 会在 provider call 前执行 `transformContext()` 和 `convertToLlm()`。
 - `ContextBuilder` 已收敛为 provider request view builder，`ContextManager` 优先使用 `latestProviderRequestView` 做 context usage diagnostics。
 - internal `AgentMessage` 最小类型已可存在于 agent-loop working history，默认不会发送给 provider，也不会写入当前 flat JSONL message log。
+- 每次 `ContextBuilder` 构造 provider request view 后，agent-loop 会追加 `resource_context` internal marker，用于记录注入资源、provider request message count 和 token estimate。
+- `AgentSession.compact()` 成功后会向 Agent working history 追加 `compaction_summary` internal marker，用于记录压缩摘要和 compaction metadata。
 
 ## 进行中
 
@@ -59,7 +61,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 下一步
 
-- 继续 M2.x Agent Core Alignment：规划哪些能力先迁入 internal `AgentMessage`，例如 compaction summary、permission pending 或 resource marker。
+- 继续 M2.x Agent Core Alignment：评估是否迁入 permission pending internal marker，或先收敛 session entry schema 与 durable internal message 策略。
 
 ## 后续重点计划
 

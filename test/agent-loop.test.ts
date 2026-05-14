@@ -107,10 +107,11 @@ test('runAgentLoop sends transient project context to the LLM without persisting
   assert.equal(llm.calls.length, 1);
   assert.deepEqual(llm.calls[0]?.map((message) => message.role), ['system', 'user', 'user']);
   assert.match(llm.calls[0]?.[1]?.content ?? '', /Contents of AGENTS\.md:/);
-  assert.deepEqual(
-    result.messages.map((message) => message.content),
-    ['system', 'run', 'done'],
-  );
+  assert.deepEqual(result.messages.map((message) => message.role), ['system', 'user', 'internal', 'assistant']);
+  const marker = result.messages.find((message) => message.role === 'internal');
+  assert.equal(marker?.kind, 'resource_context');
+  assert.deepEqual(marker?.metadata?.['resources'], ['AGENTS.md']);
+  assert.equal(marker?.metadata?.['injected'], true);
 });
 
 test('runAgentLoop transforms agent messages before converting them to provider messages', async () => {

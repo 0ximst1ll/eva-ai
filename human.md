@@ -13,6 +13,9 @@
 - pi-mono AgentMessage可扩展
 - 处理max_tokens，参考pi_mono的模型 max_tokens传入，默认值计算，thinking补偿模式，调用方覆盖，截断检测
 
+- 可观测性
+
+
 
 - Terminal-Bench 2.0评估
 

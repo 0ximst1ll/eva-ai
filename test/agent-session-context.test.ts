@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { isInternalAgentMessage } from '../src/core/agent-messages.js';
 import { AgentSession } from '../src/core/agent-session.js';
 import {
   DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS,
@@ -8,7 +9,7 @@ import {
 import { createContextManager } from '../src/core/context-manager.js';
 import { SessionManager } from '../src/core/session-manager.js';
 import type { LLMClient } from '../src/llm/llm-client.js';
-import type { LLMResponse, LLMStreamEvent, Message } from '../src/schema.js';
+import type { AgentMessage, InternalAgentMessage, LLMResponse, LLMStreamEvent, Message } from '../src/schema.js';
 
 type ScriptedLLMStep = LLMResponse | Error;
 
@@ -66,11 +67,19 @@ test('AgentSession keeps transient project context out of session history', asyn
     sessionManager,
     sessionId,
   });
+  const events = [] as string[];
 
   await session.addUserMessage('run');
-  assert.equal(await session.run(), 'done');
+  assert.equal(await session.run({
+    onEvent(event) {
+      if (event.type === 'agent_end') {
+        events.push(...event.messages.map((message) => message.role));
+      }
+    },
+  }), 'done');
 
   assert.match(llm.calls[0]?.[1]?.content ?? '', /Contents of AGENTS\.md:/);
+  assert.deepEqual(events, ['system', 'user', 'internal', 'assistant']);
   assert.deepEqual(
     sessionManager.getMessages(sessionId).map((message) => message.content),
     ['system', 'run', 'done'],
@@ -154,6 +163,50 @@ test('AgentSession compacts history into a summary message and keeps recent cont
   assert.equal(session.apiTotalTokens, 15);
   assert.equal(session.usage.count, 1);
   assert.equal(session.usage.latestSource, 'compaction');
+});
+
+test('AgentSession keeps compaction summary marker internal and out of persisted session history', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-1');
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'first task' });
+  await sessionManager.appendMessage(sessionId, { role: 'assistant', content: 'first answer' });
+  await sessionManager.appendMessage(sessionId, { role: 'user', content: 'second task' });
+  await sessionManager.appendMessage(sessionId, { role: 'assistant', content: 'second answer' });
+  const llm = new ScriptedLLM([
+    { content: 'Compacted work summary.', finish_reason: 'stop' },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [],
+    maxSteps: 3,
+    sessionManager,
+    sessionId,
+  });
+  const agentEndMessages: AgentMessage[] = [];
+
+  await session.compact('keep current task');
+  await session.addUserMessage('continue');
+  assert.equal(await session.run({
+    onEvent(event) {
+      if (event.type === 'agent_end') {
+        agentEndMessages.push(...event.messages);
+      }
+    },
+  }), 'done');
+
+  const marker = agentEndMessages.find((message): message is InternalAgentMessage => (
+    isInternalAgentMessage(message) && message.kind === 'compaction_summary'
+  ));
+  assert.equal(marker?.content, 'Compacted work summary.');
+  assert.equal(marker?.metadata?.['summaryLength'], 'Compacted work summary.'.length);
+  assert.equal(marker?.metadata?.['customInstructions'], true);
+  assert.equal(llm.calls[0]?.map((message) => message.role as string).includes('internal'), false);
+  assert.equal(sessionManager.getMessages(sessionId).map((message) => message.role as string).includes('internal'), false);
 });
 
 test('AgentSession uses the post-compact project context budget on the next run', async () => {
