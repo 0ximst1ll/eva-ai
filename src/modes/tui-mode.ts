@@ -20,6 +20,34 @@ export interface TuiModeOptions {
   setToolConfirmationHandler: (handler: (request: ToolConfirmationRequest) => Promise<ToolPermissionDecision>) => void;
 }
 
+export interface CtrlCExitState {
+  pending: boolean;
+  lastPressedAt: number;
+}
+
+export type CtrlCExitAction = 'prompt' | 'exit';
+
+const CTRL_C_EXIT_WINDOW_MS = 2000;
+
+export function handleIdleCtrlCExit({
+  state,
+  now = Date.now(),
+  windowMs = CTRL_C_EXIT_WINDOW_MS,
+}: {
+  state: CtrlCExitState;
+  now?: number;
+  windowMs?: number;
+}): CtrlCExitAction {
+  if (state.pending && now - state.lastPressedAt <= windowMs) {
+    state.pending = false;
+    state.lastPressedAt = now;
+    return 'exit';
+  }
+  state.pending = true;
+  state.lastPressedAt = now;
+  return 'prompt';
+}
+
 // ── Helpers ────────────────────────────────────────────────
 
 function toolIcon(toolName: string): string {
@@ -139,6 +167,7 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
   let streamingContent: Markdown | null = null;
   let abortController: AbortController | null = null;
   let stopped = false;
+  const ctrlCExitState: CtrlCExitState = { pending: false, lastPressedAt: 0 };
   let resolveStopped: (() => void) | undefined;
   const stoppedPromise = new Promise<void>((resolve) => {
     resolveStopped = resolve;
@@ -334,6 +363,7 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
     }
 
     if (commandResult === 'continue') {
+      ctrlCExitState.pending = false;
       footer.update({
         model: host.runtime.config.llm.model,
         provider: host.runtime.config.llm.provider,
@@ -344,6 +374,7 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
     }
 
     // Plain message
+    ctrlCExitState.pending = false;
     chatContainer.addChild(new Spacer());
     chatContainer.addChild(
       new Text(
@@ -381,13 +412,22 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
   terminal.onData((data: string) => {
     if (matchesKey(data, 'ctrl-c')) {
       if (abortController) {
+        ctrlCExitState.pending = false;
         abortController.abort();
       } else {
-        chatContainer.addChild(
-          new Text(`${Colors.DIM}Goodbye!${Colors.RESET}`, { wrap: false }),
-        );
-        tui.requestRender(true);
-        setTimeout(stopTui, 80);
+        const action = handleIdleCtrlCExit({ state: ctrlCExitState });
+        if (action === 'exit') {
+          chatContainer.addChild(
+            new Text(`${Colors.DIM}Goodbye!${Colors.RESET}`, { wrap: false }),
+          );
+          tui.requestRender(true);
+          setTimeout(stopTui, 80);
+        } else {
+          chatContainer.addChild(
+            new Text(`${Colors.DIM}Press Ctrl-C again to exit.${Colors.RESET}`, { wrap: false }),
+          );
+          tui.requestRender();
+        }
       }
       return;
     }

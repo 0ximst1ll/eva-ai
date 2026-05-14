@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { handleIdleCtrlCExit, type CtrlCExitState } from '../src/modes/tui-mode.js';
 import { Input } from '../src/tui/components/input.js';
 import { MultilineInput } from '../src/tui/components/multiline-input.js';
 import { Text } from '../src/tui/components/text.js';
@@ -149,4 +150,17 @@ test('TUI renders, forwards input to focus, and cleans up', () => {
   assert.equal(terminal.rawModeEnabled, false);
   assert.equal(terminal.cursorVisible, true);
   assert.equal(terminal.destroyed, true);
+});
+
+test('idle Ctrl-C requires a second press within the exit window', () => {
+  const state: CtrlCExitState = { pending: false, lastPressedAt: 0 };
+
+  assert.equal(handleIdleCtrlCExit({ state, now: 1000 }), 'prompt');
+  assert.equal(state.pending, true);
+  assert.equal(handleIdleCtrlCExit({ state, now: 2500 }), 'exit');
+  assert.equal(state.pending, false);
+
+  assert.equal(handleIdleCtrlCExit({ state, now: 5000 }), 'prompt');
+  assert.equal(handleIdleCtrlCExit({ state, now: 8001 }), 'prompt');
+  assert.equal(state.pending, true);
 });
