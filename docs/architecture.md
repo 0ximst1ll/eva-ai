@@ -47,10 +47,25 @@ createRuntime()
 
 - `src/cli.ts` 将 workspace 解析为 `process.cwd()`，创建 `RuntimeHost`，渲染启动 diagnostics，然后选择运行 mode。
 - 如果命令行参数非空，则通过 `runPrintMode()` 执行单次任务后退出。
-- 如果没有命令行参数，则通过 `runInteractiveMode()` 启动 readline 交互循环。
+- 如果没有命令行参数，则通过 `runTuiMode()` 启动 TUI；`--no-tui` 回退到 `runInteractiveMode()` readline 交互循环。
 - CLI 默认不启用固定 step 上限；只有显式配置 `max_steps` 的 print/headless 运行才会启用单次 run guard。
 - mode 层只负责终端输入输出，不直接持有 runtime/session 的内部装配逻辑。
 - `src/modes/cli-ui.ts` 负责渲染 `AgentSessionEvent`，以低噪音 `Working...` 展示 run 生命周期，并在 interactive mode 中提供工具确认提示。
+- `src/modes/tui-mode.ts` 负责 TUI 编排，复用 `RuntimeHost`、`AgentSession`、`handleInteractiveCommand()` 和当前 tool permission decision。
+
+## TUI
+
+`src/tui/` 是 Eva 自建的最小 terminal UI 框架，不引入第二套 agent/runtime 实现。
+
+当前 TUI 框架包含：
+
+- `TUI` 差量渲染器，支持 16ms render 节流、terminal resize、cursor marker 和 synchronized output；
+- `ProcessTerminal` 与 `StdinBuffer`，负责 raw mode、bracketed paste 和 ESC/key sequence 分发；
+- `Component` / `Container` 组件模型；
+- 基础组件：Text、Markdown、Input、MultilineInput、Footer、Spinner、SelectList；
+- 输入编辑辅助：kill ring、undo stack 和 key matching。
+
+`tui-mode.ts` 采用 header、chat、status、input、footer 布局。普通消息通过 `AgentSession.addUserMessage()` 和 `AgentSession.run()` 驱动；slash commands 复用 readline interactive mode 的 `handleInteractiveCommand()`；tool confirmation 在 TUI 内替换 input 区域并返回 `allow` 或 `deny`。TUI 当前仍是最小框架，尚未覆盖组件级测试，也未做完整终端兼容性矩阵验证。
 
 当前 interactive slash commands：
 

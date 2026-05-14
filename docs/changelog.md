@@ -17,6 +17,20 @@
 17. AgentMessage / LlmMessage 最小消息边界
 
 
+# TUI 最小框架
+
+引入自建 terminal UI 框架，并将无 task 的 CLI 默认入口切换为 TUI mode。
+
+核心变化：
+
+- 新增 `src/tui/`，包含差量渲染器、terminal 输入解析、组件模型和基础 UI 组件。
+- 新增 `src/modes/tui-mode.ts`，复用 `RuntimeHost`、`AgentSession` 和 interactive slash command 处理。
+- CLI 无 task 时默认进入 TUI；`--no-tui` 回退到原 readline interactive mode。
+- TUI tool confirmation 适配当前 `allow` / `deny` / `ask` 权限模型。
+
+当前仍是最小框架：TUI 组件尚未覆盖单元测试，终端兼容性和更细的 diagnostics 展示仍需后续完善。
+
+
 # AgentMessage / LlmMessage 最小消息边界
 
 引入 M2.x Agent Core Alignment 的第一步，把 agent 内部消息边界和 provider 请求消息边界拆开。

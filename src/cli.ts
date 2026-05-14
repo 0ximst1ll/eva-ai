@@ -6,7 +6,7 @@ import {
   type ToolConfirmationRequest,
 } from './core/runtime.js';
 import { RuntimeHost } from './core/runtime-host.js';
-import { renderRuntimeDiagnostics, runInteractiveMode, runPrintMode } from './modes/index.js';
+import { renderRuntimeDiagnostics, runInteractiveMode, runPrintMode, runTuiMode } from './modes/index.js';
 import { Colors } from './utils/terminal.js';
 
 let askToolConfirmation: ((request: ToolConfirmationRequest) => Promise<ToolPermissionDecision>) | undefined;
@@ -49,15 +49,26 @@ async function createHost(workspaceDir: string, maxSteps?: number | null): Promi
 const workspaceDir = process.cwd();
 fs.mkdirSync(workspaceDir, { recursive: true });
 
-const task = process.argv.slice(2).join(' ').trim();
+const args = process.argv.slice(2);
+const noTuiFlag = args.includes('--no-tui');
+const remainingArgs = args.filter((a) => a !== '--no-tui');
+const task = remainingArgs.join(' ').trim();
+
 const host = await createHost(workspaceDir, task ? undefined : null);
 if (host) {
   renderRuntimeDiagnostics(host.runtime.diagnostics);
 
   if (task) {
     await runPrintMode({ host, task });
-  } else {
+  } else if (noTuiFlag) {
     await runInteractiveMode({
+      host,
+      setToolConfirmationHandler: (handler) => {
+        askToolConfirmation = handler;
+      },
+    });
+  } else {
+    await runTuiMode({
       host,
       setToolConfirmationHandler: (handler) => {
         askToolConfirmation = handler;
