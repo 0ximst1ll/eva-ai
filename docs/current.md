@@ -2,9 +2,9 @@
 
 ## 当前状态（2026-05-14）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x `AgentMessage` / `LlmMessage` 最小类型边界、`ContextBuilder` provider request view 边界收敛、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker，以及规划文档中的长期架构域视图整理。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x `AgentMessage` / `LlmMessage` 最小类型边界、`ContextBuilder` provider request view 边界收敛、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界，以及规划文档中的长期架构域视图整理。
 
-当前刚完成 M2.x Agent Core Alignment 的 resource context marker 与 compaction summary marker 最小闭环，证明 internal `AgentMessage` 可以承载真实 harness 状态，同时保持 provider request 和 flat JSONL message log 不被 internal message 污染。
+当前刚完成 M2.x Agent Core Alignment 的 session entry schema 收敛：`SessionManager` 支持独立 durable `internal` entry，用于后续 permission、resource 和 harness metadata 跨 resume 恢复，同时保持 `getMessages()` 与 provider request 不被 internal entry 污染。
 
 ## 已完成
 
@@ -54,6 +54,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - internal `AgentMessage` 最小类型已可存在于 agent-loop working history，默认不会发送给 provider，也不会写入当前 flat JSONL message log。
 - 每次 `ContextBuilder` 构造 provider request view 后，agent-loop 会追加 `resource_context` internal marker，用于记录注入资源、provider request message count 和 token estimate。
 - `AgentSession.compact()` 成功后会向 Agent working history 追加 `compaction_summary` internal marker，用于记录压缩摘要和 compaction metadata。
+- `SessionManager` 已支持 durable `internal` session entry，并提供 `appendInternalEntry()` / `getInternalEntries()`；reload/resume 后可恢复 internal entries，但它们不会进入 `getMessages()` 或 provider request view。
 
 ## 进行中
 
@@ -61,7 +62,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 下一步
 
-- 继续 M2.x Agent Core Alignment：评估是否迁入 permission pending internal marker，或先收敛 session entry schema 与 durable internal message 策略。
+- 继续 M2.x Agent Core Alignment：评估是否将 permission pending 状态写入 durable `internal` session entry，并补齐对应 diagnostics。
 
 ## 后续重点计划
 
@@ -77,7 +78,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 - `logger.ts` 仍是占位文件。
 - `ResourceLoader` 仍是最小骨架，尚未支持自动监听或更细粒度 reload。
-- 当前 internal `AgentMessage` 仍不持久化到 flat JSONL message log；完整持久化需要后续 session entry schema。
+- 运行期 `resource_context` / `compaction_summary` internal marker 仍默认不持久化；只有明确需要跨 resume 恢复的 harness metadata 才应写入 durable `internal` entry。
 - `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。
 - manual `/compact` 仍是最小版：没有工具结果 micro-compaction。
 - skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。

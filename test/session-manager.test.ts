@@ -199,3 +199,59 @@ test('SessionManager appends compaction entries and rebuilds compacted context',
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test('SessionManager persists internal entries without adding provider messages', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-internal-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+
+  try {
+    const first = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    const sessionId = await first.createSession('system', 'session-internal');
+    await first.appendMessage(sessionId, { role: 'user', content: 'hello' });
+
+    const entry = await first.appendInternalEntry({
+      sessionId,
+      kind: 'permission_pending',
+      content: 'Tool approval required',
+      metadata: {
+        toolName: 'bash',
+        callId: 'call-1',
+      },
+    });
+
+    assert.equal(entry.kind, 'permission_pending');
+    assert.deepEqual(first.getInternalEntries(sessionId), [{
+      timestamp: entry.timestamp,
+      kind: 'permission_pending',
+      content: 'Tool approval required',
+      metadata: {
+        toolName: 'bash',
+        callId: 'call-1',
+      },
+    }]);
+    assert.deepEqual(first.getInternalEntries(sessionId, 'resource_context'), []);
+    assert.deepEqual(
+      first.getMessages(sessionId).map((message) => message.content),
+      ['system', 'hello'],
+    );
+
+    const workspaceKey = encodeURIComponent(path.resolve(workspaceDir));
+    const rawLog = await fs.readFile(
+      path.join(baseDir, workspaceKey, 'session-internal.jsonl'),
+      'utf-8',
+    );
+    assert.match(rawLog, /"type":"internal"/);
+    assert.match(rawLog, /"kind":"permission_pending"/);
+
+    const second = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    assert.equal(await second.loadSession(sessionId), true);
+    assert.deepEqual(second.getMessages(sessionId), first.getMessages(sessionId));
+    assert.deepEqual(second.getInternalEntries(sessionId), first.getInternalEntries(sessionId));
+
+    await second.resetSession(sessionId, 'reset system');
+    assert.deepEqual(second.getInternalEntries(sessionId), []);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});

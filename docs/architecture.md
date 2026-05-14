@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环，以及 `resource_context` / `compaction_summary` internal marker。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，且不会写入当前 flat JSONL message log。完整 RPC mode、session tree、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker，以及 durable `internal` session entry 最小边界。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。完整 RPC mode、session tree、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -338,12 +338,14 @@ JSONL 模式下：
 - 每条 message 都写成一个 `message` entry；
 - manual compact 会追加 `compaction` entry，包含 summary、`firstKeptMessageIndex`、压缩前后 message 数和可选 custom instructions；
 - provider 返回的 token usage 会追加 `usage` entry，包含 source、timestamp 和 prompt/completion/total token 数；
+- durable harness metadata 可以追加 `internal` entry，包含 kind、timestamp、可选 content 和 metadata；这些 entries 可 reload/resume，但不会进入 `getMessages()` 或 provider request view；
 - `manifest.json` 记录 `latestSessionId`。
 - `listSessions()` 可列出当前 workspace 下的 session id、message count、updatedAt 和 latest 标记。
 - `getCompactionInfo()` 返回当前 session 最近一次 compaction metadata；如果尚未 compact，则返回 `compacted: false`。
 - `getUsageInfo()` 返回当前 session 累计 usage 和最近一次 usage；usage entries 不影响 message count，也不会进入 provider request view。
+- `getInternalEntries()` 返回当前 session 的 durable internal entries，可按 kind 过滤；internal entries 不影响 message count，也不会进入 provider request view。
 
-当前 session model 仍是扁平结构。它支持 flat JSONL 兼容的 compaction entry 和基于最新 compaction 的 context rebuild；还不支持 parent/child entries、fork、import/export，也不支持从 session tree 做确定性 context rebuild。
+当前 session model 仍是扁平结构。它支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry 和基于最新 compaction 的 context rebuild；还不支持 parent/child entries、fork、import/export，也不支持从 session tree 做确定性 context rebuild。
 
 ## Tools
 

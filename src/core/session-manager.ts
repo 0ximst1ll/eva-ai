@@ -16,21 +16,21 @@ interface SessionManifest {
   updatedAt: number;
 }
 
-interface SessionStartEntry {
+export interface SessionStartEntry {
   type: 'session_start';
   sessionId: string;
   workspaceDir: string;
   createdAt: number;
 }
 
-interface MessageEntry {
+export interface MessageEntry {
   type: 'message';
   sessionId: string;
   timestamp: number;
   message: Message;
 }
 
-interface CompactionEntry {
+export interface CompactionEntry {
   type: 'compaction';
   sessionId: string;
   timestamp: number;
@@ -43,7 +43,7 @@ interface CompactionEntry {
 
 export type SessionUsageSource = 'assistant' | 'compaction';
 
-interface UsageEntry {
+export interface UsageEntry {
   type: 'usage';
   sessionId: string;
   timestamp: number;
@@ -51,7 +51,16 @@ interface UsageEntry {
   usage: TokenUsage;
 }
 
-type SessionLogEntry = SessionStartEntry | MessageEntry | CompactionEntry | UsageEntry;
+export interface InternalEntry {
+  type: 'internal';
+  sessionId: string;
+  timestamp: number;
+  kind: string;
+  content?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export type SessionEntry = SessionStartEntry | MessageEntry | CompactionEntry | UsageEntry | InternalEntry;
 
 interface SessionMetadata {
   createdAt: number;
@@ -76,6 +85,8 @@ export interface SessionUsageInfo {
   latestSource?: SessionUsageSource;
 }
 
+export type SessionInternalEntry = Omit<InternalEntry, 'type' | 'sessionId'>;
+
 export interface SessionListItem {
   sessionId: string;
   messageCount: number;
@@ -92,6 +103,7 @@ export class SessionManager {
   private readonly sessionMetadata = new Map<string, SessionMetadata>();
   private readonly sessionCompactions = new Map<string, SessionCompactionInfo>();
   private readonly sessionUsage = new Map<string, SessionUsageInfo>();
+  private readonly sessionInternalEntries = new Map<string, SessionInternalEntry[]>();
   private latestSessionId?: string;
 
   constructor({
@@ -117,6 +129,7 @@ export class SessionManager {
     this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
     this.sessionCompactions.delete(id);
     this.sessionUsage.delete(id);
+    this.sessionInternalEntries.delete(id);
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
@@ -163,6 +176,7 @@ export class SessionManager {
       });
       this.sessionCompactions.set(sessionId, parsed.compaction);
       this.sessionUsage.set(sessionId, parsed.usage);
+      this.sessionInternalEntries.set(sessionId, parsed.internalEntries);
       await this.markLatestSession(sessionId);
       return true;
     } catch {
@@ -180,6 +194,13 @@ export class SessionManager {
 
   getUsageInfo(sessionId: string): SessionUsageInfo {
     return this.sessionUsage.get(sessionId) ?? createEmptyUsageInfo();
+  }
+
+  getInternalEntries(sessionId: string, kind?: string): SessionInternalEntry[] {
+    const entries = this.sessionInternalEntries.get(sessionId) ?? [];
+    return entries
+      .filter((entry) => !kind || entry.kind === kind)
+      .map(copyInternalEntry);
   }
 
   async appendMessage(sessionId: string, message: Message): Promise<void> {
@@ -233,6 +254,50 @@ export class SessionManager {
       });
       await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
+  }
+
+  async appendInternalEntry({
+    sessionId,
+    kind,
+    content,
+    metadata,
+  }: {
+    sessionId: string;
+    kind: string;
+    content?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<SessionInternalEntry> {
+    if (!this.sessions.has(sessionId)) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    if (!kind.trim()) {
+      throw new Error('Internal entry kind is required');
+    }
+
+    const normalizedKind = kind.trim();
+    const now = Date.now();
+    const entry: SessionInternalEntry = {
+      timestamp: now,
+      kind: normalizedKind,
+      content,
+      metadata: metadata ? { ...metadata } : undefined,
+    };
+    this.sessionInternalEntries.set(sessionId, [
+      ...(this.sessionInternalEntries.get(sessionId) ?? []),
+      copyInternalEntry(entry),
+    ]);
+    this.touchSession(sessionId, now);
+
+    if (this.mode === 'jsonl') {
+      await this.appendEntry({
+        type: 'internal',
+        sessionId,
+        ...entry,
+      });
+      await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
+    }
+
+    return copyInternalEntry(entry);
   }
 
   async appendCompaction({
@@ -303,6 +368,7 @@ export class SessionManager {
     this.sessions.set(sessionId, resetMessages);
     this.sessionCompactions.delete(sessionId);
     this.sessionUsage.delete(sessionId);
+    this.sessionInternalEntries.delete(sessionId);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -386,7 +452,7 @@ export class SessionManager {
     await fs.writeFile(this.getSessionFilePath(sessionId), `${JSON.stringify(entry)}\n`, 'utf-8');
   }
 
-  private async appendEntry(entry: SessionLogEntry): Promise<void> {
+  private async appendEntry(entry: SessionEntry): Promise<void> {
     await this.ensureWorkspaceDir();
     await fs.appendFile(this.getSessionFilePath(entry.sessionId), `${JSON.stringify(entry)}\n`, 'utf-8');
   }
@@ -433,18 +499,20 @@ export class SessionManager {
     updatedAt: number;
     compaction: SessionCompactionInfo;
     usage: SessionUsageInfo;
+    internalEntries: SessionInternalEntry[];
   } {
     const messages: Message[] = [];
     let createdAt: number | undefined;
     let updatedAt = 0;
     let compaction: SessionCompactionInfo = { compacted: false };
     let usage = createEmptyUsageInfo();
+    const internalEntries: SessionInternalEntry[] = [];
 
     for (const line of content.split('\n')) {
       const trimmed = line.trim();
       if (!trimmed) continue;
       try {
-        const entry = JSON.parse(trimmed) as SessionLogEntry;
+        const entry = JSON.parse(trimmed) as SessionEntry;
         if (entry.sessionId !== sessionId) continue;
         if (entry.type === 'session_start') {
           createdAt = entry.createdAt;
@@ -481,18 +549,32 @@ export class SessionManager {
         if (entry.type === 'usage') {
           updatedAt = Math.max(updatedAt, entry.timestamp);
           usage = addUsage(usage, entry.usage, entry.timestamp, entry.source);
+          continue;
+        }
+        if (entry.type === 'internal') {
+          updatedAt = Math.max(updatedAt, entry.timestamp);
+          internalEntries.push(copyInternalEntry(entry));
         }
       } catch {
         continue;
       }
     }
 
-    return { messages, createdAt, updatedAt, compaction, usage };
+    return { messages, createdAt, updatedAt, compaction, usage, internalEntries };
   }
 
   private sortSessionList(sessions: SessionListItem[]): SessionListItem[] {
     return sessions.sort((a, b) => b.updatedAt - a.updatedAt || a.sessionId.localeCompare(b.sessionId));
   }
+}
+
+function copyInternalEntry(entry: SessionInternalEntry): SessionInternalEntry {
+  return {
+    timestamp: entry.timestamp,
+    kind: entry.kind,
+    content: entry.content,
+    metadata: entry.metadata ? { ...entry.metadata } : undefined,
+  };
 }
 
 function createEmptyUsageInfo(): SessionUsageInfo {
