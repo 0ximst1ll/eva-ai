@@ -66,6 +66,8 @@ export interface ToolExecutionResult {
 }
 
 export type AgentSessionEvent =
+    | { type: 'agent_start' }
+    | { type: 'agent_end'; messages: Message[]; finalContent: string }
     | { type: 'message_start'; step: number; maxSteps?: number | null }
     | { type: 'thinking_delta'; text: string }
     | { type: 'content_delta'; text: string }

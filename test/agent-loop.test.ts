@@ -6,6 +6,8 @@ import type { LLMClient } from '../src/llm/llm-client.js';
 import type { LLMResponse, LLMStreamEvent, Message } from '../src/schema.js';
 import type { Tool } from '../src/tools/base.js';
 
+type ScriptedLLMStep = LLMResponse | Error;
+
 function toolCall(id: string, name: string, args: Record<string, unknown> = {}) {
   return {
     id,
@@ -17,12 +19,13 @@ function toolCall(id: string, name: string, args: Record<string, unknown> = {}) 
 class ScriptedLLM {
   calls: Message[][] = [];
 
-  constructor(private readonly responses: LLMResponse[]) {}
+  constructor(private readonly responses: ScriptedLLMStep[]) {}
 
   async *generateStream(messages: Message[]): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
     this.calls.push(messages.map((message) => ({ ...message })) as Message[]);
     const response = this.responses.shift();
     if (!response) throw new Error('No scripted response');
+    if (response instanceof Error) throw response;
     yield { type: 'done', response };
     return response;
   }
@@ -153,4 +156,28 @@ test('runAgentLoop can run without a max step guard', async () => {
 
   assert.equal(result.finalContent, 'done');
   assert.equal(llm.calls.length, 4);
+});
+
+test('runAgentLoop emits friendly provider error messages and preserves raw details', async () => {
+  const providerError = new Error(
+    'ApiError: {"error":{"message":"{\\n  \\"error\\": {\\n    \\"code\\": 503,\\n    \\"message\\": \\"This model is currently experiencing high demand. Please try again later.\\",\\n    \\"status\\": \\"UNAVAILABLE\\"\\n  }\\n}\\n","code":503,"status":"Service Unavailable"}}',
+  );
+  const llm = new ScriptedLLM([providerError]);
+  const events: AgentLoopEvent[] = [];
+
+  const result = await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [],
+    maxSteps: 3,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+    emit: (event) => {
+      events.push(event);
+    },
+  });
+
+  const errorEvent = events.find((event) => event.type === 'error');
+  assert.equal(errorEvent?.type, 'error');
+  assert.match(result.finalContent, /Provider unavailable/);
+  assert.match(errorEvent.message, /Provider unavailable/);
+  assert.match(errorEvent.error ?? '', /high demand/);
 });

@@ -93,6 +93,30 @@ test('AgentSession keeps transient project context out of session history', asyn
   assert.equal(session.apiTotalTokens, 9);
 });
 
+test('AgentSession forwards agent lifecycle events to the UI boundary', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-1');
+  const llm = new ScriptedLLM([{ content: 'done', finish_reason: 'stop' }]);
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [],
+    maxSteps: 3,
+    sessionManager,
+    sessionId,
+  });
+  const events: string[] = [];
+
+  await session.addUserMessage('run');
+  assert.equal(await session.run({ onEvent: (event) => events.push(event.type) }), 'done');
+
+  assert.equal(events[0], 'agent_start');
+  assert.equal(events.at(-1), 'agent_end');
+});
+
 test('AgentSession compacts history into a summary message and keeps recent context', async () => {
   const sessionManager = new SessionManager({
     workspaceDir: '/workspace',
@@ -383,6 +407,8 @@ test('AgentSession compacts and retries once after a context overflow error', as
   assert.match(session.messages[1]?.content ?? '', /Previous work was summarized/);
   assert.equal(session.messages.at(-1)?.content, 'done after retry');
   assert.deepEqual(events.filter((event) => event === 'error'), []);
+  assert.deepEqual(events.filter((event) => event === 'agent_start'), ['agent_start']);
+  assert.deepEqual(events.filter((event) => event === 'agent_end'), ['agent_end']);
 });
 
 test('AgentSession returns the original context overflow error when recovery compaction fails', async () => {

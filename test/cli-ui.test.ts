@@ -95,3 +95,16 @@ test('createCliRenderer prints unbounded steps without a max suffix', () => {
   assert.match(output, /Step 2/);
   assert.doesNotMatch(output, /Step 2\//);
 });
+
+test('createCliRenderer prints a low-noise working state once per run', () => {
+  const render = createCliRenderer();
+
+  const output = captureConsoleAndStdout(() => {
+    render({ type: 'agent_start' });
+    render({ type: 'agent_start' });
+    render({ type: 'agent_end', messages: [], finalContent: 'done' });
+    render({ type: 'agent_start' });
+  });
+
+  assert.equal(output.match(/Working\.\.\./g)?.length, 2);
+});

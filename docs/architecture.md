@@ -4,11 +4,11 @@
 
 ## 当前快照
 
-当前版本：2026-05-11
+当前版本：2026-05-14
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact` 和 provider usage 持久化。完整 RPC mode、session tree、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化和 provider 错误展示收敛。当前消息模型仍是单层 `Message[]`，session history、agent-loop working messages 和 provider request messages 尚未分离。完整 RPC mode、session tree、MCP loader、skills system、OpenAI provider countTokens、`AgentMessage` / `LlmMessage` 双层消息模型和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -48,7 +48,7 @@ createRuntime()
 - 如果没有命令行参数，则通过 `runInteractiveMode()` 启动 readline 交互循环。
 - CLI 默认不启用固定 step 上限；只有显式配置 `max_steps` 的 print/headless 运行才会启用单次 run guard。
 - mode 层只负责终端输入输出，不直接持有 runtime/session 的内部装配逻辑。
-- `src/modes/cli-ui.ts` 负责渲染 `AgentSessionEvent`，并在 interactive mode 中提供工具确认提示。
+- `src/modes/cli-ui.ts` 负责渲染 `AgentSessionEvent`，以低噪音 `Working...` 展示 run 生命周期，并在 interactive mode 中提供工具确认提示。
 
 当前 interactive slash commands：
 
@@ -267,6 +267,8 @@ interactive mode 当前通过 `ContextManager` 展示 context 状态：
 
 `maxSteps` 在 agent-loop 层是可选 guard。`number` 表示启用单次 run 上限，`null` 或 `undefined` 表示不限制。当前配置未显式设置 `max_steps` 时默认无上限；interactive mode 会覆盖为无上限，print/headless 只有在显式配置 `max_steps` 时才启用 guard。
 
+LLM 调用失败时，agent-loop 会把 provider 原始错误格式化成用户可读的 `error.message`，同时把原始错误细节保留在 `error.error`。当前最小 classification 覆盖 context overflow、rate limit、provider unavailable、timeout 和常见 transient status code。CLI 只展示友好文本；原始错误供日志、测试或未来 RPC 消费。
+
 工具执行策略具备基础并发感知：
 
 - 如果 `toolExecution` 是 `sequential`，所有 tool call 串行执行；
@@ -287,6 +289,8 @@ interactive mode 当前通过 `ContextManager` 展示 context 状态：
 - pending tool-call IDs；
 - active run 的 abort controller；
 - steering 和 follow-up 队列。
+
+当前 `Agent` 和 `AgentSession` 仍直接使用 provider-facing `Message[]` 作为内部工作消息。规划中的 M2.x 会引入 `AgentMessage` / `LlmMessage` 双层消息模型，把 session/harness 内部消息与 provider request messages 分离。
 
 `src/core/agent-session.ts` 中的 `AgentSession` 负责在 `Agent`、持久化和 UI-facing events 之间做桥接。
 
@@ -312,7 +316,7 @@ interactive mode 当前通过 `ContextManager` 展示 context 状态：
 - `compaction` getter 暴露最近一次 compaction metadata，用于 `/stats` 和 `/diagnostics`；
 - `usage` getter 暴露累计 usage、最近一次 usage、来源和时间；没有 provider usage 时返回 count 为 0 的空状态；
 - `maxSteps` getter 暴露当前 session 的有效 step guard，`null` / `undefined` 表示无固定上限；
-- legacy UI events 会转发给 mode renderer。
+- UI-facing events 会转发给 mode renderer，包括 `agent_start`、`agent_end`、message streaming、tool result、usage 和 error。`AgentSession` 在 prompt-too-long recovery 成功时会抑制第一次隐藏 overflow attempt 的 error 和 agent end，只暴露 retry 后的最终 lifecycle。
 
 ## Sessions
 

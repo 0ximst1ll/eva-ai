@@ -22,6 +22,7 @@ import { SessionManager, type SessionCompactionInfo, type SessionUsageInfo } fro
 type AgentRunAttempt = {
   result: string;
   contextOverflowError?: Extract<AgentLoopEvent, { type: 'error' }>;
+  contextOverflowEnd?: Extract<AgentLoopEvent, { type: 'agent_end' }>;
 };
 
 function isContextOverflowErrorMessage(message: string): boolean {
@@ -196,11 +197,17 @@ export class AgentSession {
       await this.compact();
     } catch {
       onEvent?.(firstAttempt.contextOverflowError);
+      if (firstAttempt.contextOverflowEnd) onEvent?.(firstAttempt.contextOverflowEnd);
       this.syncUsageFromSession();
       return firstAttempt.result;
     }
 
-    const retryAttempt = await this.runAgentOnce({ signal, onEvent, suppressContextOverflowError: false });
+    const retryAttempt = await this.runAgentOnce({
+      signal,
+      onEvent,
+      suppressContextOverflowError: false,
+      suppressAgentStart: true,
+    });
     this.syncUsageFromSession();
     return retryAttempt.result;
   }
@@ -209,25 +216,31 @@ export class AgentSession {
     signal,
     onEvent,
     suppressContextOverflowError,
+    suppressAgentStart,
   }: {
     signal?: AbortSignal;
     onEvent?: (event: AgentSessionEvent) => void;
     suppressContextOverflowError: boolean;
+    suppressAgentStart?: boolean;
   }): Promise<AgentRunAttempt> {
     let contextOverflowError: Extract<AgentLoopEvent, { type: 'error' }> | undefined;
+    let contextOverflowEnd: Extract<AgentLoopEvent, { type: 'agent_end' }> | undefined;
     const unsubscribe = this.agent.subscribe(async (event) => {
-      if (event.type === 'error' && isContextOverflowErrorMessage(event.message)) {
+      if (event.type === 'error' && isContextOverflowErrorMessage(`${event.message}\n${event.error ?? ''}`)) {
         contextOverflowError = event;
       }
-      await this.handleAgentEvent(
-        event,
-        suppressContextOverflowError && event === contextOverflowError ? undefined : onEvent,
-      );
+      if (event.type === 'agent_end' && contextOverflowError) {
+        contextOverflowEnd = event;
+      }
+
+      const shouldSuppress = (event.type === 'agent_start' && suppressAgentStart)
+        || (suppressContextOverflowError && (event === contextOverflowError || event === contextOverflowEnd));
+      await this.handleAgentEvent(event, shouldSuppress ? undefined : onEvent);
     });
 
     try {
       const result = await this.agent.continue({ signal });
-      return { result, contextOverflowError };
+      return { result, contextOverflowError, contextOverflowEnd };
     } finally {
       unsubscribe();
     }
@@ -300,6 +313,8 @@ export class AgentSession {
 
   private isLegacySessionEvent(event: AgentLoopEvent): event is AgentSessionEvent {
     return [
+      'agent_start',
+      'agent_end',
       'message_start',
       'thinking_delta',
       'content_delta',

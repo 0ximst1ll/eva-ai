@@ -7,6 +7,7 @@ const BOX_WIDTH = 58;
 type RenderState = {
   printedThinkingHeader: boolean;
   printedAssistantHeader: boolean;
+  working: boolean;
 };
 
 export type CliPrompt = (question: string) => Promise<string>;
@@ -15,11 +16,25 @@ export function createCliRenderer() {
   let state: RenderState = {
     printedThinkingHeader: false,
     printedAssistantHeader: false,
+    working: false,
   };
 
   return (event: AgentSessionEvent): void => {
+    if (event.type === 'agent_start') {
+      if (!state.working) {
+        state.working = true;
+        console.log(`\n${Colors.DIM}Working...${Colors.RESET}`);
+      }
+      return;
+    }
+
+    if (event.type === 'agent_end') {
+      state.working = false;
+      return;
+    }
+
     if (event.type === 'message_start') {
-      state = { printedThinkingHeader: false, printedAssistantHeader: false };
+      state = { ...state, printedThinkingHeader: false, printedAssistantHeader: false };
       const stepLabel = event.maxSteps ? `Step ${event.step}/${event.maxSteps}` : `Step ${event.step}`;
       const stepText = `${Colors.BOLD}${Colors.BRIGHT_CYAN}💭 ${stepLabel}${Colors.RESET}`;
       const stepWidth = calculateDisplayWidth(stepText);

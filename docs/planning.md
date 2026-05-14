@@ -40,11 +40,13 @@ Eva AI 不应该在 `pi-mono` 和 `claude-code` 之间二选一。
 - `agent-loop`：LLM turn、tool execution、event emission、abort handling。
 - `Agent`：有状态 wrapper，管理 messages、tools、队列、active run。
 - `AgentSession`：连接 Agent、session persistence、tool governance 和 UI-facing events。
+- `AgentMessage` / `LlmMessage` 双层消息模型：内部/session/harness 消息与 provider 请求消息分离。
 - `RuntimeHost` / `RuntimeServices`：管理当前 runtime、cwd 绑定服务、session 切换与 reload。
 
 参考策略：
 
 - 结构边界优先参考 `pi-mono` 的 `agent` / `AgentSessionRuntime` / `AgentSessionServices`。
+- 消息边界优先参考 `pi-mono` 的 `AgentMessage[] -> transformContext() -> AgentMessage[] -> convertToLlm() -> Message[]`。
 - 事件和 hook 点保留足够扩展性，但不提前复制 `claude-code` 的复杂运行时。
 
 ### 2. Session / Recovery
@@ -69,7 +71,7 @@ Eva AI 不应该在 `pi-mono` 和 `claude-code` 之间二选一。
 
 范围：
 
-- `ContextBuilder`：无状态构造 request messages。
+- `ContextBuilder`：无状态构造 provider request view。
 - `ContextManager`：后续承接 token budget、manual/auto compaction、summary、prompt-too-long recovery。
 - project context / skills / tool result budgets。
 - context diagnostics、usage accounting、post-compact reinjection。
@@ -227,6 +229,26 @@ Eva AI 的主 agent loop 参考 `pi-mono`，后续应保持同样的自然停止
 - interactive mode 默认不启用固定 100 步硬上限；
 - 保留可选 runaway guard，用于非交互自动化、测试或未来 RPC 调用；
 - 文档和配置示例应避免把该 guard 描述成会话总轮数限制。
+
+### AgentMessage / LlmMessage 双层消息模型
+
+当前 Eva AI 仍是单层 `Message[]`：session history、agent-loop working messages、`ContextBuilder` 输入输出和 provider request messages 使用同一类型。这是早期最小闭环的取舍，不是长期目标。
+
+后续核心骨架应对齐 `pi-mono`，把内部消息和 provider 请求消息分离：
+
+```text
+AgentMessage[] -> transformContext() -> AgentMessage[] -> convertToLlm() -> LlmMessage[] -> provider
+```
+
+目标语义：
+
+- `AgentMessage` 是 Eva 内部/session/harness 消息层，可承载普通 user/assistant/tool，也可承载 compaction summary、permission pending、resource/context marker、tool execution metadata、UI-only state 和未来 MCP/skills/extensions 产生的消息。
+- `LlmMessage` 是 provider 请求消息层，只包含模型 API 能理解的 system/user/assistant/tool 结构。
+- `transformContext()` 在 `AgentMessage` 层完成 context pruning、compaction summary、resource/skills reinjection 和预算策略。
+- `convertToLlm()` 是唯一把内部消息转换为 provider request messages 的边界；不能发送给模型的内部消息必须在这里过滤或降级。
+- `AgentSessionEvent` 仍是事件流，不替代 `AgentMessage`；UI/RPC 可基于事件渲染，也可读取 session 中的 `AgentMessage` 状态。
+
+该能力属于核心骨架，不应等到完整 session tree 才引入。它应先于 RPC/TUI/MCP/Extensions 的完整形态落地，避免后续接口绑定当前临时的单层 `Message[]`。
 
 ### Resource Loading
 
@@ -487,6 +509,36 @@ user/assistant/tool: durable session history
 - resource diagnostics 默认非致命。
 - builtin tool loading 与 resource loading 保持分离。
 - reload 后当前 session 保持不变，下一次 LLM request 使用新的 request-time context。
+
+### M2.x：Agent Core Alignment
+
+目标：在继续扩展 RPC、TUI、MCP/Skills/Extensions 之前，先把 Eva 的核心 agent/message 边界对齐 `pi-mono`。
+
+涉及架构域：
+
+- Agent Runtime
+- Session / Recovery
+- Context Management
+- Modes / Interfaces
+- Provider / Config / Observability
+
+范围：
+
+- 引入 `AgentMessage` / `LlmMessage` 双层消息模型。
+- 将现有 provider-facing `Message` 逐步收敛为 `LlmMessage` 或同等命名。
+- 让 `Agent`、`AgentSession`、`SessionManager` 和 agent-loop 的 durable/working history 围绕 `AgentMessage[]` 工作。
+- 增加 `transformContext(AgentMessage[]) -> AgentMessage[]` 边界，用于后续 budget、compaction、resource/skills reinjection。
+- 增加 `convertToLlm(AgentMessage[]) -> LlmMessage[]` 边界，并让 `ContextBuilder` 输出 provider request view。
+- 保持现有 flat JSONL session 兼容，不在本阶段强行完成 session tree。
+- 保持现有 CLI 行为、context diagnostics 和 provider usage 持久化不回归。
+
+验收标准：
+
+- agent-loop 不再直接把 session history 当作 provider request messages。
+- LLM mock 能观察到 `convertToLlm()` 后的 request view。
+- transient project context、compaction summary 和 tool results 的写回边界清晰可测。
+- `AgentSessionEvent` 与 `AgentMessage` 职责分离：事件用于流式展示，消息用于 session/harness 状态。
+- 后续 RPC/TUI 可以基于 `AgentMessage` 暴露状态，而不是绑定 provider `Message`。
 
 ### M3：Headless RPC
 

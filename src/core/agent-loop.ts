@@ -1,4 +1,5 @@
 import type { LLMClient } from '../llm/llm-client.js';
+import { formatProviderError } from '../llm/provider-errors.js';
 import { RetryExhaustedError } from '../retry.js';
 import type { LLMResponse, Message, ToolCall, ToolExecutionResult } from '../schema.js';
 import type { Tool } from '../tools/base.js';
@@ -312,12 +313,17 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         });
       } catch (e) {
         let message: string;
+        let rawError: string;
         if (e instanceof RetryExhaustedError) {
-          message = `LLM call failed after ${e.attempts} retries\nLast error: ${e.lastException.message}`;
+          const formatted = formatProviderError(e.lastException);
+          message = `LLM call failed after ${e.attempts} retries: ${formatted.message}`;
+          rawError = formatted.raw;
         } else {
-          message = `LLM call failed: ${String(e)}`;
+          const formatted = formatProviderError(e);
+          message = `LLM call failed: ${formatted.message}`;
+          rawError = formatted.raw;
         }
-        await emit(config.emit, { type: 'error', message, error: e instanceof Error ? e.stack : String(e) });
+        await emit(config.emit, { type: 'error', message, error: rawError });
         await emit(config.emit, { type: 'agent_end', messages, finalContent: message });
         return { messages, finalContent: message, apiTotalTokens };
       }
