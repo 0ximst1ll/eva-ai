@@ -29,8 +29,9 @@
 - `LLMClient` / `LLMClientBase` / token counting 路径改为接收 provider-facing `LlmMessage[]`。
 - `ContextBuilder` 收敛为 provider request view builder，接收 `LlmMessage[]` 并返回 `ProviderRequestView`。
 - `ContextManager` diagnostics 优先使用 `latestProviderRequestView` 计算 context usage。
+- 新增 internal `AgentMessage` 最小类型，默认 `convertToLlm()` 会过滤 internal message，避免污染 provider request view。
 
-当前仍是最小骨架：`AgentMessage` 尚未扩展 custom/internal message，session entry schema 和完整 path-aware context rebuild 仍未实现。
+当前仍是最小骨架：internal message 尚未持久化到 flat JSONL message log，session entry schema 和完整 path-aware context rebuild 仍未实现。
 
 
 

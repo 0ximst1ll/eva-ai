@@ -274,7 +274,9 @@ export class AgentSession {
     onEvent?: (event: AgentSessionEvent) => void,
   ): Promise<void> {
     if (event.type === 'input_message') {
-      await this.sessionManager.appendMessage(this.sessionId, event.message);
+      if (event.message.role !== 'internal') {
+        await this.sessionManager.appendMessage(this.sessionId, event.message);
+      }
       return;
     }
 

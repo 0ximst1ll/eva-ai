@@ -3,6 +3,7 @@ import test from 'node:test';
 import { createContextBuilder } from '../src/core/context-builder.js';
 import { RuntimeSessionNotFoundError } from '../src/core/runtime.js';
 import type { RuntimeHost } from '../src/core/runtime-host.js';
+import { defaultConvertToLlm } from '../src/core/agent-messages.js';
 import { estimateMessagesTokens } from '../src/core/token-estimator.js';
 import { handleInteractiveCommand } from '../src/modes/interactive-mode.js';
 
@@ -26,7 +27,7 @@ function createContextManagerMock({
       messages: RuntimeHost['session']['messages'];
       maxSteps?: number | null;
     }) {
-      const activeMessageTokenEstimate = estimateMessagesTokens(messages);
+      const activeMessageTokenEstimate = estimateMessagesTokens(defaultConvertToLlm(messages));
       const latestBuild = contextBuilder.latestBuild;
       const contextUsageEstimate = latestBuild?.providerRequestTokenEstimate ?? activeMessageTokenEstimate;
       const contextUsage = {

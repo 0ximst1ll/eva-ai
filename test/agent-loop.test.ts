@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createInternalAgentMessage, defaultConvertToLlm } from '../src/core/agent-messages.js';
 import { createContextBuilder } from '../src/core/context-builder.js';
 import { runAgentLoop, type AgentLoopEvent } from '../src/core/agent-loop.js';
 import type { LLMClient } from '../src/llm/llm-client.js';
@@ -144,6 +145,52 @@ test('runAgentLoop transforms agent messages before converting them to provider 
     result.messages.map((message) => 'role' in message ? message.content : ''),
     ['system', 'run', 'done'],
   );
+});
+
+test('runAgentLoop keeps internal agent messages out of provider requests', async () => {
+  const llm = new ScriptedLLM([{ content: 'done', finish_reason: 'stop' }]);
+  const internalMessage = createInternalAgentMessage({
+    kind: 'context_marker',
+    content: 'internal only',
+    metadata: { source: 'test' },
+  });
+  const events: AgentLoopEvent[] = [];
+
+  const result = await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [],
+    maxSteps: 3,
+    messages: [
+      { role: 'system', content: 'system' },
+      internalMessage,
+      { role: 'user', content: 'run' },
+    ],
+    emit: (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.deepEqual(llm.calls[0]?.map((message) => message.content), ['system', 'run']);
+  assert.deepEqual(
+    result.messages.map((message) => message.role),
+    ['system', 'internal', 'user', 'assistant'],
+  );
+  assert.deepEqual(
+    events
+      .filter((event) => event.type === 'agent_end')
+      .flatMap((event) => event.messages.map((message) => message.role)),
+    ['system', 'internal', 'user', 'assistant'],
+  );
+});
+
+test('defaultConvertToLlm filters internal agent messages', () => {
+  const llmMessages = defaultConvertToLlm([
+    { role: 'system', content: 'system' },
+    createInternalAgentMessage({ kind: 'ui_state', content: 'do not send' }),
+    { role: 'user', content: 'hello' },
+  ]);
+
+  assert.deepEqual(llmMessages.map((message) => message.content), ['system', 'hello']);
 });
 
 test('runAgentLoop can run without a max step guard', async () => {

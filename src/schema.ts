@@ -38,7 +38,15 @@ export type LlmMessage =
 
 export type Message = LlmMessage;
 
+export interface InternalAgentMessage {
+    role: 'internal';
+    kind: string;
+    content?: string;
+    metadata?: Record<string, unknown>;
+}
+
 export interface CustomAgentMessages {
+    internal: InternalAgentMessage;
 }
 
 export type AgentMessage = LlmMessage | CustomAgentMessages[keyof CustomAgentMessages];

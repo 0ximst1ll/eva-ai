@@ -1,4 +1,5 @@
-import type { Message } from '../schema.js';
+import type { AgentMessage } from '../schema.js';
+import { defaultConvertToLlm } from './agent-messages.js';
 import type { ContextBuildSummary, ContextBuilder } from './context-builder.js';
 import type { ProjectContextResource } from './resource-loader.js';
 import type { SessionCompactionInfo, SessionManager, SessionUsageInfo } from './session-manager.js';
@@ -7,7 +8,7 @@ import { estimateMessagesTokens, type TokenEstimate } from './token-estimator.js
 
 export interface ContextDiagnosticsInput {
   sessionId: string;
-  messages: Message[];
+  messages: AgentMessage[];
   maxSteps?: number | null;
   usageSource?: 'auto' | 'active_messages';
 }
@@ -104,10 +105,11 @@ export function createContextManager({
       const stepGuard = typeof maxSteps === 'number' && Number.isFinite(maxSteps) && maxSteps > 0
         ? { enabled: true, maxSteps }
         : { enabled: false };
-      const activeMessageTokenEstimate = estimateMessagesTokens(messages);
+      const activeLlmMessages = defaultConvertToLlm(messages);
+      const activeMessageTokenEstimate = estimateMessagesTokens(activeLlmMessages);
       const latestBuild = currentContextBuilder.latestBuild;
       const latestProviderRequestView = usageSource === 'auto' ? currentContextBuilder.latestProviderRequestView : null;
-      const contextUsageMessages = latestProviderRequestView?.messages ?? messages;
+      const contextUsageMessages = latestProviderRequestView?.messages ?? activeLlmMessages;
       const contextTokenCount = tokenCounter
         ? await tokenCounter.countMessages({ messages: contextUsageMessages })
         : countMessagesLocally(contextUsageMessages);
