@@ -15,6 +15,22 @@
 15. ContextBuilder / ContextManager 上下文管理分层
 16. TokenCounter provider/local 计数边界
 17. AgentMessage / LlmMessage 最小消息边界
+18. Headless RPC 最小闭环
+
+
+# Headless RPC 最小闭环
+
+新增 JSONL stdin/stdout RPC mode，让 Eva 可以在无交互场景下通过稳定 envelope 驱动同一套 `RuntimeHost` / `AgentSession` 核心路径。
+
+核心变化：
+
+- 新增 `src/modes/rpc-mode.ts`，提供 `response`、`event` 和 `error` 三类 RPC envelope。
+- CLI 增加 `--rpc` 入口，并在 RPC 模式下保持 stdout 只输出 JSONL 协议内容。
+- RPC 支持 `prompt`、`get_state`、`abort`、`new_session` 和 `resume_session`。
+- `prompt` 运行中会输出包裹后的 `AgentSessionEvent`，结束后返回 final response 和当前 state。
+- RPC mode 允许 active prompt 期间处理 `abort` 和 `get_state`，但同一时间只允许一个 active prompt run。
+
+当前仍是最小闭环：RPC 尚未支持远程 permission approval，也没有完整 ACP 兼容层。
 
 
 # TUI 最小框架

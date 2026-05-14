@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界，以及 permission pending durable diagnostics。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。完整 RPC mode、session tree、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界、permission pending durable diagnostics，以及最小 Headless RPC mode。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。session tree、MCP loader、skills system、OpenAI provider countTokens、完整 context budget engine 和 RPC permission approval 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -48,10 +48,12 @@ createRuntime()
 - `src/cli.ts` 将 workspace 解析为 `process.cwd()`，创建 `RuntimeHost`，渲染启动 diagnostics，然后选择运行 mode。
 - 如果命令行参数非空，则通过 `runPrintMode()` 执行单次任务后退出。
 - 如果没有命令行参数，则通过 `runTuiMode()` 启动 TUI；`--no-tui` 回退到 `runInteractiveMode()` readline 交互循环。
+- 如果传入 `--rpc`，则通过 `runRpcMode()` 启动 JSONL stdin/stdout RPC；RPC 模式会抑制 stdout 上的启动 diagnostics 和 retry 文本，避免污染协议输出。
 - CLI 默认不启用固定 step 上限；只有显式配置 `max_steps` 的 print/headless 运行才会启用单次 run guard。
 - mode 层只负责终端输入输出，不直接持有 runtime/session 的内部装配逻辑。
 - `src/modes/cli-ui.ts` 负责渲染 `AgentSessionEvent`，以低噪音 `Working...` 展示 run 生命周期，并在 interactive mode 中提供工具确认提示。
 - `src/modes/tui-mode.ts` 负责 TUI 编排，复用 `RuntimeHost`、`AgentSession`、`handleInteractiveCommand()` 和当前 tool permission decision。
+- `src/modes/rpc-mode.ts` 负责 Headless RPC 编排，复用 `RuntimeHost` 和 `AgentSession`，不重新装配 runtime。
 
 ## TUI
 
@@ -65,7 +67,7 @@ createRuntime()
 - 基础组件：Text、Markdown、Input、MultilineInput、Footer、Spinner、SelectList；
 - 输入编辑辅助：kill ring、undo stack 和 key matching。
 
-`tui-mode.ts` 采用 header、chat、status、input、footer 布局。普通消息通过 `AgentSession.addUserMessage()` 和 `AgentSession.run()` 驱动；slash commands 复用 readline interactive mode 的 `handleInteractiveCommand()`；tool confirmation 在 TUI 内替换 input 区域并返回 `allow` 或 `deny`。TUI 当前仍是最小框架，尚未覆盖组件级测试，也未做完整终端兼容性矩阵验证。
+`tui-mode.ts` 采用 header、chat、status、input、footer 布局。普通消息通过 `AgentSession.addUserMessage()` 和 `AgentSession.run()` 驱动；slash commands 复用 readline interactive mode 的 `handleInteractiveCommand()`；tool confirmation 在 TUI 内替换 input 区域并返回 `allow` 或 `deny`。TUI 当前仍是最小框架，已有基础组件和 renderer 单元测试，但尚未做完整终端兼容性矩阵验证。
 
 当前 interactive slash commands：
 
@@ -80,6 +82,28 @@ createRuntime()
 - `/reload`：重新加载 runtime resources，并保持当前 session 不变。
 - `/sessions`：列出当前 workspace 下的 sessions，并标记当前 active session 和 latest session。
 - `/log`：当前是忽略型占位命令。
+
+## Headless RPC
+
+`src/modes/rpc-mode.ts` 是当前最小 Headless RPC mode。它使用 JSONL stdin/stdout 协议，每行输入一个 request，每行输出一个 envelope。
+
+当前 envelope 类型：
+
+- `response`：命令完成后的结构化结果；
+- `event`：运行中的 `AgentSessionEvent`，包在 RPC envelope 内输出；
+- `error`：结构化错误，包含稳定 `code` 和 `message`。
+
+当前命令：
+
+- `prompt`：追加 user message，调用 `AgentSession.run()`，运行中输出 event envelope，结束后输出 final response。
+- `get_state`：返回 session id、message count、usage、compaction、step guard、provider/model 和 diagnostics 摘要。
+- `abort`：中止当前 active prompt run；没有 active run 时返回 `aborted: false`。
+- `new_session`：通过 `RuntimeHost.newSession()` 创建并切换新 session。
+- `resume_session`：无 `session_id` 时恢复 latest session；有 `session_id` 时通过 `RuntimeHost.switchSession()` 切换。
+
+RPC mode 允许 `prompt` 运行期间继续处理 `abort` 和 `get_state`，但同一时间只允许一个 active prompt run。其他会改变 session 的命令会在 active run 期间返回 `run_in_progress`。
+
+当前 RPC mode 没有远程 permission approval 通道。如果工具治理需要确认且当前没有 confirmation handler，仍沿用 runtime 的 fail-closed 行为，并写入 durable `permission_pending` internal entry。后续 RPC/ACP 可在此基础上增加 pending permission event 和审批命令。
 
 ## Runtime
 
@@ -396,7 +420,7 @@ JSONL 模式下：
 - 对显式要求确认的工具，或 risk level 命中 `confirm_risk_levels` 的工具，执行前请求确认。
 - tool permission decision 已统一为 `allow`、`deny`、`ask`，并保留 boolean confirmation handler 兼容。
 
-如果某个 tool 需要确认但当前没有 confirmation handler，runtime 会把它视为 pending permission 并 fail-closed，返回被阻止的 tool result。在 interactive mode 中，`createToolConfirmationPrompt()` 会提供确认 handler，并把用户输入转换为 `allow` 或 `deny`。print/headless 当前没有交互确认通道，因此遇到 `ask` 时会阻止 tool call。未来 RPC/ACP mode 可以把 `ask` 映射为 pending permission event。
+如果某个 tool 需要确认但当前没有 confirmation handler，runtime 会把它视为 pending permission 并 fail-closed，返回被阻止的 tool result。在 interactive mode 中，`createToolConfirmationPrompt()` 会提供确认 handler，并把用户输入转换为 `allow` 或 `deny`。print/headless/RPC 当前没有交互确认通道，因此遇到 `ask` 时会阻止 tool call。未来 RPC/ACP mode 可以把 `ask` 映射为 pending permission event。
 
 当 tool governance 返回 permission pending 时，如果当前 runtime 已绑定 session，`SessionManager` 会追加 `kind: 'permission_pending'` 的 durable `internal` entry，记录 reason、tool name、tool call id、risk level、source、category 和 read-only metadata。该 entry 可通过 reload/resume 恢复，并由 `ContextManager` 汇总到 diagnostics；它不会进入 `getMessages()` 或 provider request view。
 
@@ -446,6 +470,6 @@ AgentSession 持久化已发射的 assistant/tool messages 和 usage metadata
 
 - MCP loader
 - skills loader
-- RPC mode
+- RPC permission approval
 - session tree / fork
 - 完整 permission pipeline

@@ -6,21 +6,30 @@ import {
   type ToolConfirmationRequest,
 } from './core/runtime.js';
 import { RuntimeHost } from './core/runtime-host.js';
-import { renderRuntimeDiagnostics, runInteractiveMode, runPrintMode, runTuiMode } from './modes/index.js';
+import { renderRuntimeDiagnostics, runInteractiveMode, runPrintMode, runRpcMode, runTuiMode } from './modes/index.js';
 import { Colors } from './utils/terminal.js';
 
 let askToolConfirmation: ((request: ToolConfirmationRequest) => Promise<ToolPermissionDecision>) | undefined;
 
-async function createHost(workspaceDir: string, maxSteps?: number | null): Promise<RuntimeHost | null> {
+interface CreateHostOptions {
+  quiet?: boolean;
+}
+
+async function createHost(
+  workspaceDir: string,
+  maxSteps?: number | null,
+  options: CreateHostOptions = {},
+): Promise<RuntimeHost | null> {
+  const log = options.quiet ? console.error : console.log;
 
   try {
     const host = await RuntimeHost.create({
       workspaceDir,
       maxSteps,
       confirmToolCall: (request) => askToolConfirmation?.(request) ?? 'ask',
-      onLlmRetry: ({ error, attempt, nextDelay }) => {
-        console.log(`\n${Colors.BRIGHT_YELLOW}⚠️  LLM call failed (attempt ${attempt}): ${error.message}${Colors.RESET}`);
-        console.log(
+      onLlmRetry: options.quiet ? undefined : ({ error, attempt, nextDelay }) => {
+        log(`\n${Colors.BRIGHT_YELLOW}⚠️  LLM call failed (attempt ${attempt}): ${error.message}${Colors.RESET}`);
+        log(
           `${Colors.DIM}   Retrying in ${nextDelay.toFixed(1)}s (attempt ${attempt + 1})...${Colors.RESET}`,
         );
       },
@@ -29,19 +38,19 @@ async function createHost(workspaceDir: string, maxSteps?: number | null): Promi
     return host;
   } catch (e) {
     if (e instanceof RuntimeConfigNotFoundError) {
-      console.log(`${Colors.RED}❌ Configuration file not found${Colors.RESET}`);
-      console.log(`\n${Colors.BRIGHT_YELLOW}📝 Manual Setup:${Colors.RESET}`);
-      console.log(`  ${Colors.DIM}mkdir -p ${e.userConfigDir}${Colors.RESET}`);
-      console.log(`  ${Colors.DIM}# Place config.yaml in ${e.userConfigDir}${Colors.RESET}`);
+      log(`${Colors.RED}❌ Configuration file not found${Colors.RESET}`);
+      log(`\n${Colors.BRIGHT_YELLOW}📝 Manual Setup:${Colors.RESET}`);
+      log(`  ${Colors.DIM}mkdir -p ${e.userConfigDir}${Colors.RESET}`);
+      log(`  ${Colors.DIM}# Place config.yaml in ${e.userConfigDir}${Colors.RESET}`);
       return null;
     }
 
     if (e instanceof UnsupportedProviderError) {
-      console.log(`${Colors.RED}❌ Unsupported provider: ${e.provider}${Colors.RESET}`);
+      log(`${Colors.RED}❌ Unsupported provider: ${e.provider}${Colors.RESET}`);
       return null;
     }
 
-    console.log(`${Colors.RED}❌ Error: ${e}${Colors.RESET}`);
+    log(`${Colors.RED}❌ Error: ${e}${Colors.RESET}`);
     return null;
   }
 }
@@ -51,15 +60,18 @@ fs.mkdirSync(workspaceDir, { recursive: true });
 
 const args = process.argv.slice(2);
 const noTuiFlag = args.includes('--no-tui');
-const remainingArgs = args.filter((a) => a !== '--no-tui');
+const rpcFlag = args.includes('--rpc');
+const remainingArgs = args.filter((a) => a !== '--no-tui' && a !== '--rpc');
 const task = remainingArgs.join(' ').trim();
 const canUseTui = process.stdin.isTTY && process.stdout.isTTY;
 
-const host = await createHost(workspaceDir, task ? undefined : null);
+const host = await createHost(workspaceDir, task || rpcFlag ? undefined : null, { quiet: rpcFlag });
 if (host) {
-  renderRuntimeDiagnostics(host.runtime.diagnostics);
+  if (!rpcFlag) renderRuntimeDiagnostics(host.runtime.diagnostics);
 
-  if (task) {
+  if (rpcFlag) {
+    await runRpcMode({ host });
+  } else if (task) {
     await runPrintMode({ host, task });
   } else if (noTuiFlag || !canUseTui) {
     await runInteractiveMode({
