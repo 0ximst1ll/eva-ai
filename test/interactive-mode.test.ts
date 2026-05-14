@@ -56,6 +56,7 @@ function createContextManagerMock({
           : { enabled: false },
         compaction: session.compaction,
         usage: session.usage,
+        permissionPending: { count: 0, latest: null },
         projectContext: {
           count: contextBuilder.projectContext.length,
           resources: contextBuilder.projectContext,

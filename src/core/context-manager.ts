@@ -2,7 +2,7 @@ import type { AgentMessage } from '../schema.js';
 import { defaultConvertToLlm } from './agent-messages.js';
 import type { ContextBuildSummary, ContextBuilder } from './context-builder.js';
 import type { ProjectContextResource } from './resource-loader.js';
-import type { SessionCompactionInfo, SessionManager, SessionUsageInfo } from './session-manager.js';
+import type { SessionCompactionInfo, SessionInternalEntry, SessionManager, SessionUsageInfo } from './session-manager.js';
 import { type TokenCounter, type TokenCountMethod, type TokenCountSource, countMessagesLocally } from './token-counter.js';
 import { estimateMessagesTokens, type TokenEstimate } from './token-estimator.js';
 
@@ -54,6 +54,11 @@ export interface CompactionRecommendationDiagnostics {
   usagePercent: number | null;
 }
 
+export interface PermissionPendingDiagnostics {
+  count: number;
+  latest: SessionInternalEntry | null;
+}
+
 export interface ContextDiagnostics {
   activeMessageCount: number;
   activeMessageTokenEstimate: TokenEstimate;
@@ -62,6 +67,7 @@ export interface ContextDiagnostics {
   stepGuard: ContextStepGuardDiagnostics;
   compaction: SessionCompactionInfo;
   usage: SessionUsageInfo;
+  permissionPending: PermissionPendingDiagnostics;
   projectContext: ProjectContextDiagnostics;
   latestBuild: ContextBuildSummary | null;
 }
@@ -130,6 +136,9 @@ export function createContextManager({
         stepGuard,
         compaction: sessionManager.getCompactionInfo(sessionId),
         usage: sessionManager.getUsageInfo(sessionId),
+        permissionPending: createPermissionPendingDiagnostics(
+          sessionManager.getInternalEntries(sessionId, 'permission_pending'),
+        ),
         projectContext: {
           count: currentContextBuilder.projectContext.length,
           resources: currentContextBuilder.projectContext,
@@ -138,6 +147,14 @@ export function createContextManager({
         latestBuild,
       };
     },
+  };
+}
+
+function createPermissionPendingDiagnostics(entries: SessionInternalEntry[]): PermissionPendingDiagnostics {
+  const sorted = entries.slice().sort((a, b) => b.timestamp - a.timestamp);
+  return {
+    count: sorted.length,
+    latest: sorted[0] ? { ...sorted[0], metadata: sorted[0].metadata ? { ...sorted[0].metadata } : undefined } : null,
   };
 }
 

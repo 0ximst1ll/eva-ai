@@ -33,6 +33,7 @@
 - `ContextBuilder` 构造 provider request view 后，agent-loop 会追加 `resource_context` internal marker，用于记录 transient resource 注入摘要。
 - `AgentSession.compact()` 成功后会向 Agent working history 追加 `compaction_summary` internal marker，用于记录压缩摘要和 compaction metadata。
 - `SessionManager` 新增 durable `internal` session entry 边界，提供 `appendInternalEntry()` / `getInternalEntries()`，用于后续跨 resume 恢复 harness metadata，同时保持 provider-facing messages 不被 internal entry 污染。
+- tool governance 在 permission pending 时会写入 `permission_pending` durable internal entry，`ContextManager` 与 interactive diagnostics 会展示 pending 概要。
 
 当前仍是最小骨架：运行期 internal marker 默认仍不写入 flat JSONL message log，durable `internal` entry 只提供最小 metadata 恢复边界，完整 path-aware context rebuild 仍未实现。
 

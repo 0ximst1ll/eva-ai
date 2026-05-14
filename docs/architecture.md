@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker，以及 durable `internal` session entry 最小边界。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。完整 RPC mode、session tree、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界，以及 permission pending durable diagnostics。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。完整 RPC mode、session tree、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -211,6 +211,7 @@ Contents of AGENTS.md:
 - 汇总 step guard 状态；
 - 读取 session compaction metadata；
 - 读取 session usage metadata；
+- 读取 durable `permission_pending` internal entries；
 - 暴露 active messages 的估算 token 数；
 - 暴露 project context 资源、字符预算和最近一次 context build 摘要；
 - 暴露最近一次 request/project context token estimate。
@@ -381,6 +382,8 @@ JSONL 模式下：
 - tool permission decision 已统一为 `allow`、`deny`、`ask`，并保留 boolean confirmation handler 兼容。
 
 如果某个 tool 需要确认但当前没有 confirmation handler，runtime 会把它视为 pending permission 并 fail-closed，返回被阻止的 tool result。在 interactive mode 中，`createToolConfirmationPrompt()` 会提供确认 handler，并把用户输入转换为 `allow` 或 `deny`。print/headless 当前没有交互确认通道，因此遇到 `ask` 时会阻止 tool call。未来 RPC/ACP mode 可以把 `ask` 映射为 pending permission event。
+
+当 tool governance 返回 permission pending 时，如果当前 runtime 已绑定 session，`SessionManager` 会追加 `kind: 'permission_pending'` 的 durable `internal` entry，记录 reason、tool name、tool call id、risk level、source、category 和 read-only metadata。该 entry 可通过 reload/resume 恢复，并由 `ContextManager` 汇总到 diagnostics；它不会进入 `getMessages()` 或 provider request view。
 
 ## 核心数据流
 

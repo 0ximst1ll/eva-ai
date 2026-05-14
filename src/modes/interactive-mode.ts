@@ -118,6 +118,15 @@ function formatCompactionRecommendationStatus(diagnostics: ContextDiagnostics): 
   ].join(', ');
 }
 
+function formatPermissionPendingStatus(diagnostics: ContextDiagnostics): string {
+  const pending = diagnostics.permissionPending;
+  if (!pending.count) return 'none';
+  const metadata = pending.latest?.metadata ?? {};
+  const toolName = typeof metadata['toolName'] === 'string' ? metadata['toolName'] : 'unknown';
+  const reason = pending.latest?.content ?? 'permission pending';
+  return `count=${pending.count}, latest tool=${toolName}, reason=${reason}`;
+}
+
 function writeContextDiagnostics(
   diagnostics: ContextDiagnostics,
   writeLine: (message?: string) => void,
@@ -136,6 +145,7 @@ function writeContextDiagnostics(
   writeLine(`  Latest usage: ${formatLatestUsageStatus(diagnostics.usage)}`);
   writeLine(`  Context usage: ${formatContextUsageStatus(diagnostics)}`);
   writeLine(`  Compaction recommendation: ${formatCompactionRecommendationStatus(diagnostics)}`);
+  writeLine(`  Permission pending: ${formatPermissionPendingStatus(diagnostics)}`);
   writeLine(`  Estimated tokens: ${formatTokenEstimateStatus(diagnostics)}`);
   writeLine(`  Project context resources: ${diagnostics.projectContext.count}`);
   for (const resource of diagnostics.projectContext.resources) {

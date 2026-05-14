@@ -58,6 +58,7 @@ test('ContextManager reports context diagnostics from builder and session metada
   assert.equal(beforeBuild.usage.count, 1);
   assert.equal(beforeBuild.usage.total.total_tokens, 14);
   assert.equal(beforeBuild.compaction.compacted, false);
+  assert.deepEqual(beforeBuild.permissionPending, { count: 0, latest: null });
 
   contextBuilder.build({
     systemPrompt: 'system',
@@ -75,6 +76,35 @@ test('ContextManager reports context diagnostics from builder and session metada
   assert.ok((afterBuild.latestBuild?.projectContextTokenEstimate.tokens ?? 0) > 0);
   assert.equal(afterBuild.contextUsage.source, 'latest_provider_request_view');
   assert.equal(afterBuild.contextUsage.estimatedTokens, afterBuild.latestBuild?.providerRequestTokenEstimate.tokens);
+});
+
+test('ContextManager reports pending permission diagnostics from durable internal entries', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-context');
+  const pending = await sessionManager.appendInternalEntry({
+    sessionId,
+    kind: 'permission_pending',
+    content: 'Tool permission pending: approval required',
+    metadata: {
+      toolName: 'write_file',
+      toolCallId: 'call-1',
+    },
+  });
+  const contextManager = createContextManager({
+    contextBuilder: createContextBuilder(),
+    sessionManager,
+  });
+
+  const diagnostics = await contextManager.getDiagnostics({
+    sessionId,
+    messages: sessionManager.getMessages(sessionId),
+  });
+
+  assert.equal(diagnostics.permissionPending.count, 1);
+  assert.deepEqual(diagnostics.permissionPending.latest, pending);
 });
 
 test('ContextManager uses provider token counts when a TokenCounter is available', async () => {
