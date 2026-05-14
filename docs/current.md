@@ -4,7 +4,7 @@
 
 Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x `AgentMessage` / `LlmMessage` 最小类型边界、`ContextBuilder` provider request view 边界收敛、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界、permission pending durable diagnostics，以及规划文档中的长期架构域视图整理。
 
-当前刚完成 M2.x Agent Core Alignment 的 permission pending durable diagnostics：tool governance 在 pending permission 时写入 `permission_pending` internal entry，`ContextManager` 和 interactive diagnostics 能展示 pending 概要，同时保持 `getMessages()` 与 provider request 不被 internal entry 污染。
+当前 M2.x Agent Core Alignment 已完成最小闭环：agent-loop 不再直接把 session history 当作 provider request，`AgentMessage` / `LlmMessage` 边界、provider request view、internal marker、durable internal entry、permission pending diagnostics 和事件/消息职责边界都已有可测试路径。
 
 ## 已完成
 
@@ -56,6 +56,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - `AgentSession.compact()` 成功后会向 Agent working history 追加 `compaction_summary` internal marker，用于记录压缩摘要和 compaction metadata。
 - `SessionManager` 已支持 durable `internal` session entry，并提供 `appendInternalEntry()` / `getInternalEntries()`；reload/resume 后可恢复 internal entries，但它们不会进入 `getMessages()` 或 provider request view。
 - tool governance 在 permission pending 时会写入 `permission_pending` durable internal entry，`ContextManager` 会聚合 pending 数量和最近一条记录，interactive `/diagnostics` 会显示 pending 概要。
+- M2.x Agent Core Alignment 已完成最小闭环，后续 RPC/TUI 可以基于当前 `AgentMessage` / session entry 边界继续演进。
 
 ## 进行中
 
@@ -63,12 +64,12 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 下一步
 
-- 收口 M2.x Agent Core Alignment：复查 planning/architecture/current 中的 M2.x 未完成项，确认是否还有必须实现的核心骨架缺口。
+- 进入 M3 Headless RPC 前置设计：定义最小 JSONL stdin/stdout 协议、命令集和事件输出边界。
 
 ## 后续重点计划
 
 - 当前 manual `/compact`、auto compaction、prompt-too-long recovery 和 post-compact resource budget 都只做最小闭环。
-- M2.x 应先于 RPC/TUI/MCP/Extensions 完成核心消息边界对齐，避免后续接口绑定当前临时的单层 `Message[]`。
+- RPC/TUI/MCP/Extensions 应基于当前 M2.x 消息边界继续演进，避免重新绑定 provider-facing `LlmMessage[]`。
 - ContextManager 后续再承接完整 token budget 和 skills/resource reinjection 策略。
 - 当前 `max_steps` 后续应进一步迁移为 print/headless/RPC 场景下的命名更明确的可选 runaway guard。
 - 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 逐步建立。

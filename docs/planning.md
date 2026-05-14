@@ -510,7 +510,7 @@ user/assistant/tool: durable session history
 - builtin tool loading 与 resource loading 保持分离。
 - reload 后当前 session 保持不变，下一次 LLM request 使用新的 request-time context。
 
-### M2.x：Agent Core Alignment
+### M2.x：Agent Core Alignment（已完成最小闭环）
 
 目标：在继续扩展 RPC、TUI、MCP/Skills/Extensions 之前，先把 Eva 的核心 agent/message 边界对齐 `pi-mono`。
 
@@ -526,7 +526,8 @@ user/assistant/tool: durable session history
 
 - 引入 `AgentMessage` / `LlmMessage` 双层消息模型。
 - 将现有 provider-facing `Message` 逐步收敛为 `LlmMessage` 或同等命名。
-- 让 `Agent`、`AgentSession`、`SessionManager` 和 agent-loop 的 durable/working history 围绕 `AgentMessage[]` 工作。
+- 让 `Agent`、`AgentSession` 和 agent-loop 的 working history 围绕 `AgentMessage[]` 工作。
+- `SessionManager` 保持 provider-visible `message` entry 兼容，同时通过 durable `internal` entry 承载需要跨 resume 恢复的 harness metadata。
 - 增加 `transformContext(AgentMessage[]) -> AgentMessage[]` 边界，用于后续 budget、compaction、resource/skills reinjection。
 - 增加 `convertToLlm(AgentMessage[]) -> LlmMessage[]` 边界，并让 `ContextBuilder` 输出 provider request view。
 - 保持现有 flat JSONL session 兼容，不在本阶段强行完成 session tree。
@@ -537,6 +538,7 @@ user/assistant/tool: durable session history
 - agent-loop 不再直接把 session history 当作 provider request messages。
 - LLM mock 能观察到 `convertToLlm()` 后的 request view。
 - transient project context、compaction summary 和 tool results 的写回边界清晰可测。
+- permission pending 可以写入 durable `internal` entry，并通过 diagnostics 暴露。
 - `AgentSessionEvent` 与 `AgentMessage` 职责分离：事件用于流式展示，消息用于 session/harness 状态。
 - 后续 RPC/TUI 可以基于 `AgentMessage` 暴露状态，而不是绑定 provider `Message`。
 
