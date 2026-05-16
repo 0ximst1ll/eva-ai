@@ -2,11 +2,11 @@
 
 ## 当前状态（2026-05-16）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork schema。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork schema 和 `SessionContextRebuilder` snapshot 边界。
 
 当前 M3 Headless RPC 已完成最小实现：`--rpc` 启动 JSONL stdin/stdout 协议，RPC mode 共享 `RuntimeHost` / `AgentSession` 路径，不新增第二套 agent 实现。RPC 真实 CLI 子进程 smoke test 已补齐，用于验证 stdout 协议纯净性。M3.1 RPC permission pending approval 最小闭环已实现：默认 fail-closed，`permission_mode=request` 时可通过 RPC event 和审批命令完成 tool permission 决策。
 
-当前 M4 已完成第一步：`SessionManager` 支持向后兼容的 lineage metadata、`forkSession()`、旧 JSONL root fallback；`RuntimeHost` 暴露 `forkSession()`；interactive/TUI 可通过 `/fork [id]` 创建当前 session 分支。
+当前 M4 已完成前两步：`SessionManager` 支持向后兼容的 lineage metadata、`forkSession()`、旧 JSONL root fallback；`RuntimeHost` 暴露 `forkSession()`；interactive/TUI 可通过 `/fork [id]` 创建当前 session 分支；`SessionContextRebuilder` 已提供最小 `flat_snapshot` rebuild 边界。
 
 ## 已完成
 
@@ -54,6 +54,8 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - `SessionManager.forkSession()` 会复制当前 active context messages 到新 session，并写入 lineage metadata；父子 session 后续消息互不影响。
 - `RuntimeHost.forkSession()` 已作为 mode 层统一 fork 边界。
 - interactive/TUI slash command 已支持 `/fork [id]`。
+- `SessionContextRebuilder` 已支持旧 flat JSONL、forked session 和 compacted fork session 的 snapshot rebuild。
+- `SessionContextRebuilder` 当前返回 active messages、lineage、branch path、compaction、usage 和 internal entries。
 
 ## 进行中
 
@@ -61,7 +63,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 下一步
 
-- 继续 M4 path-aware context rebuild 设计，或先补 `/fork` 在 RPC/TUI 展示层的细节测试。
+- 继续 M4 path-aware context rebuild 设计，或先将 `SessionContextRebuilder` 接入 `SessionManager.loadSession()` 内部路径。
 - 后续进入 MCP/Skills/Extensions 前置骨架。
 
 ## 后续重点计划

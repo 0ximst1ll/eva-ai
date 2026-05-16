@@ -18,6 +18,21 @@
 18. Headless RPC 最小闭环
 19. RPC Permission Pending Approval 最小闭环
 20. Session Tree Lineage / Fork 最小 schema
+21. SessionContextRebuilder 最小边界
+
+
+# SessionContextRebuilder 最小边界
+
+为 M4 Session Tree 增加独立的 session context rebuild 边界，先保持现有 flat JSONL 行为不变。
+
+核心变化：
+
+- 新增 `src/core/session-context-rebuilder.ts`。
+- 当前 rebuild strategy 为 `flat_snapshot`。
+- snapshot 返回 active messages、lineage、branch path、compaction、usage 和 internal entries。
+- 测试覆盖旧 flat JSONL session、forked session 和 compacted fork session。
+
+当前仍未实现真正的 path-aware context rebuild；该边界用于后续替换现有 flat snapshot 逻辑。
 
 
 # Session Tree Lineage / Fork 最小 schema

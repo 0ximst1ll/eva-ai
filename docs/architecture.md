@@ -394,7 +394,9 @@ JSONL 模式下：
 - `getLineageInfo()` 返回当前 session 的 root/parent/fork point 信息；旧 JSONL session 会被视为 root session。
 - `forkSession()` 会复制当前 active context messages 到新 session，并写入 lineage metadata；fork 后父子 session 的后续消息互不影响。
 
-当前 session model 仍主要是扁平 JSONL 文件，但已经有最小 lineage schema 和 fork session 能力。它支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry、lineage metadata、fork session 和基于最新 compaction 的 context rebuild；还不支持完整 parent/child entry graph、clone、import/export，也不支持从 session tree 做确定性 path-aware context rebuild。
+`src/core/session-context-rebuilder.ts` 是当前最小 session context rebuild 边界。它从 `SessionManager` 读取当前 session snapshot，返回 active messages、lineage、branch path、compaction、usage 和 internal entries。当前策略标记为 `flat_snapshot`，用于保持现有 flat JSONL 兼容；后续 path-aware rebuild 可以替换该边界，而不让 mode 或 agent loop 直接拼 session entries。
+
+当前 session model 仍主要是扁平 JSONL 文件，但已经有最小 lineage schema、fork session 能力和 `SessionContextRebuilder` snapshot 边界。它支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry、lineage metadata、fork session 和基于最新 compaction 的 context rebuild；还不支持完整 parent/child entry graph、clone、import/export，也不支持从 session tree 做确定性 path-aware context rebuild。
 
 ## Tools
 

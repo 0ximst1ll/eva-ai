@@ -653,6 +653,7 @@ user/assistant/tool: durable session history
 - `SessionManager.forkSession()` 复制当前 active context messages 到新 session，并写入 lineage metadata。
 - `RuntimeHost.forkSession()` 暴露 fork 边界，mode 层不需要直接访问 `SessionManager`。
 - interactive/TUI slash command 可通过 `/fork [id]` 创建当前 session 分支。
+- `SessionContextRebuilder` 已提供最小 rebuild 边界，当前策略为 `flat_snapshot`，返回 active messages、lineage、branch path、compaction、usage 和 internal entries。
 
 后续仍需：
 
