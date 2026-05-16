@@ -2,6 +2,7 @@ import * as readline from 'node:readline';
 import { RuntimeSessionNotFoundError, type ToolConfirmationRequest, type ToolPermissionDecision } from '../core/runtime.js';
 import type { ContextBuildSummary } from '../core/context-builder.js';
 import type { ContextDiagnostics } from '../core/context-manager.js';
+import type { SessionTreeNode } from '../core/session-manager.js';
 import type { RuntimeHost } from '../core/runtime-host.js';
 import { Colors } from '../utils/terminal.js';
 import { createCliRenderer, createToolConfirmationPrompt, formatRuntimeDiagnostic } from './cli-ui.js';
@@ -155,6 +156,38 @@ function writeContextDiagnostics(
   writeLine(`  Last build: ${formatContextBuildStatus(diagnostics.latestBuild)}`);
 }
 
+function writeSessionTree({
+  nodes,
+  currentSessionId,
+  writeLine,
+  depth = 0,
+}: {
+  nodes: SessionTreeNode[];
+  currentSessionId: string;
+  writeLine: (message?: string) => void;
+  depth?: number;
+}): void {
+  for (const node of nodes) {
+    const session = node.session;
+    const currentMarker = session.sessionId === currentSessionId ? '*' : ' ';
+    const latestMarker = session.isLatest ? ' latest' : '';
+    const updatedAt = session.updatedAt > 0 ? new Date(session.updatedAt).toISOString() : 'unknown';
+    const indent = '  '.repeat(depth);
+    const forkInfo = typeof session.forkedFromMessageIndex === 'number'
+      ? ` forked_from=${session.forkedFromMessageIndex}`
+      : '';
+    writeLine(
+      `${indent}${currentMarker} ${session.sessionId} messages=${session.messageCount} updated=${updatedAt}${latestMarker}${forkInfo}`,
+    );
+    writeSessionTree({
+      nodes: node.children,
+      currentSessionId,
+      writeLine,
+      depth: depth + 1,
+    });
+  }
+}
+
 export async function handleInteractiveCommand({
   userInput,
   host,
@@ -218,6 +251,18 @@ export async function handleInteractiveCommand({
     await host.cloneSession(requestedSessionId);
     writeLine(`${Colors.GREEN}✅ Cloned session: ${host.sessionId}${Colors.RESET}`);
     writeLine(`${Colors.DIM}Source session: ${previousSessionId}${Colors.RESET}\n`);
+    return 'continue';
+  }
+
+  if (cmd === '/parent') {
+    const previousSessionId = host.sessionId;
+    const parentRuntime = await host.switchToParentSession();
+    if (!parentRuntime) {
+      writeLine(`${Colors.YELLOW}No parent session for current session: ${previousSessionId}${Colors.RESET}\n`);
+      return 'continue';
+    }
+    writeLine(`${Colors.GREEN}✅ Switched to parent session: ${host.sessionId}${Colors.RESET}`);
+    writeLine(`${Colors.DIM}Previous session: ${previousSessionId}${Colors.RESET}\n`);
     return 'continue';
   }
 
@@ -335,21 +380,18 @@ export async function handleInteractiveCommand({
   }
 
   if (cmd === '/sessions') {
-    const sessions = await host.runtime.sessionManager.listSessions();
-    if (!sessions.length) {
+    const sessionTree = await host.runtime.sessionManager.listSessionTree();
+    if (!sessionTree.length) {
       writeLine(`\n${Colors.YELLOW}No sessions found for this workspace.${Colors.RESET}\n`);
       return 'continue';
     }
 
-    writeLine(`\n${Colors.BRIGHT_CYAN}Workspace sessions:${Colors.RESET}`);
-    for (const session of sessions) {
-      const currentMarker = session.sessionId === host.sessionId ? '*' : ' ';
-      const latestMarker = session.isLatest ? ' latest' : '';
-      const updatedAt = session.updatedAt > 0 ? new Date(session.updatedAt).toISOString() : 'unknown';
-      writeLine(
-        `${currentMarker} ${session.sessionId} messages=${session.messageCount} updated=${updatedAt}${latestMarker}`,
-      );
-    }
+    writeLine(`\n${Colors.BRIGHT_CYAN}Workspace session tree:${Colors.RESET}`);
+    writeSessionTree({
+      nodes: sessionTree,
+      currentSessionId: host.sessionId,
+      writeLine,
+    });
     writeLine();
     return 'continue';
   }

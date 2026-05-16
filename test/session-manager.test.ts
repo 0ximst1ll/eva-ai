@@ -512,6 +512,38 @@ test('SessionManager clones sessions using current fork lineage semantics', asyn
   }
 });
 
+test('SessionManager lists sessions as a lineage tree', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-tree-list-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+
+  try {
+    const manager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    const rootSessionId = await manager.createSession('system', 'session-root');
+    await manager.appendMessage(rootSessionId, { role: 'user', content: 'root task' });
+    const forkSessionId = await manager.forkSession({
+      sourceSessionId: rootSessionId,
+      sessionId: 'session-fork',
+    });
+    await manager.appendMessage(forkSessionId, { role: 'user', content: 'fork task' });
+    const cloneSessionId = await manager.cloneSession({
+      sourceSessionId: forkSessionId,
+      sessionId: 'session-clone',
+    });
+
+    const tree = await manager.listSessionTree();
+
+    assert.equal(tree.length, 1);
+    assert.equal(tree[0]?.session.sessionId, rootSessionId);
+    assert.equal(tree[0]?.children.length, 1);
+    assert.equal(tree[0]?.children[0]?.session.sessionId, forkSessionId);
+    assert.equal(tree[0]?.children[0]?.children.length, 1);
+    assert.equal(tree[0]?.children[0]?.children[0]?.session.sessionId, cloneSessionId);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('SessionManager exports and imports JSONL sessions', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-import-export-'));
   const sourceWorkspaceDir = path.join(tempDir, 'source-workspace');

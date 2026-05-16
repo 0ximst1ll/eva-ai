@@ -293,6 +293,55 @@ test('/import reports missing path without throwing', async () => {
   assert.match(output.join('\n'), /Import requires a JSONL path/);
 });
 
+test('/parent switches to the parent runtime session', async () => {
+  let sessionId = 'session-child';
+  let switchToParentCalls = 0;
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return sessionId;
+    },
+    async switchToParentSession() {
+      switchToParentCalls += 1;
+      sessionId = 'session-parent';
+      return {};
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/parent',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.equal(switchToParentCalls, 1);
+  assert.equal(sessionId, 'session-parent');
+  assert.match(output.join('\n'), /Switched to parent session: .*session-parent/);
+  assert.match(output.join('\n'), /Previous session: .*session-child/);
+});
+
+test('/parent reports when the current session has no parent', async () => {
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-root';
+    },
+    async switchToParentSession() {
+      return null;
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/parent',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.match(output.join('\n'), /No parent session/);
+});
+
 test('/history prints current session id and message count', async () => {
   const output: string[] = [];
   const host = {
@@ -462,28 +511,39 @@ test('/stats prints compacted context details', async () => {
   assert.match(text, /Compaction:.*compacted messages 10 -> 5, summary chars=42/);
 });
 
-test('/sessions prints workspace session list and marks the current session', async () => {
+test('/sessions prints workspace session tree and marks the current session', async () => {
   const output: string[] = [];
   const host = {
     get sessionId() {
-      return 'session-current';
+      return 'session-child';
     },
     get runtime() {
       return {
         sessionManager: {
-          async listSessions() {
+          async listSessionTree() {
             return [
               {
-                sessionId: 'session-current',
-                messageCount: 3,
-                updatedAt: Date.parse('2026-05-08T00:00:00.000Z'),
-                isLatest: true,
-              },
-              {
-                sessionId: 'session-old',
-                messageCount: 1,
-                updatedAt: Date.parse('2026-05-07T00:00:00.000Z'),
-                isLatest: false,
+                session: {
+                  sessionId: 'session-root',
+                  messageCount: 1,
+                  updatedAt: Date.parse('2026-05-07T00:00:00.000Z'),
+                  isLatest: false,
+                  rootSessionId: 'session-root',
+                },
+                children: [
+                  {
+                    session: {
+                      sessionId: 'session-child',
+                      messageCount: 3,
+                      updatedAt: Date.parse('2026-05-08T00:00:00.000Z'),
+                      isLatest: true,
+                      parentSessionId: 'session-root',
+                      rootSessionId: 'session-root',
+                      forkedFromMessageIndex: 1,
+                    },
+                    children: [],
+                  },
+                ],
               },
             ];
           },
@@ -500,9 +560,9 @@ test('/sessions prints workspace session list and marks the current session', as
   const text = output.join('\n');
 
   assert.equal(result, 'continue');
-  assert.match(text, /Workspace sessions:/);
-  assert.match(text, /\* session-current messages=3 updated=2026-05-08T00:00:00\.000Z latest/);
-  assert.match(text, /  session-old messages=1 updated=2026-05-07T00:00:00\.000Z/);
+  assert.match(text, /Workspace session tree:/);
+  assert.match(text, /  session-root messages=1 updated=2026-05-07T00:00:00\.000Z/);
+  assert.match(text, /\* session-child messages=3 updated=2026-05-08T00:00:00\.000Z latest forked_from=1/);
 });
 
 test('/sessions reports when the workspace has no sessions', async () => {
@@ -511,7 +571,7 @@ test('/sessions reports when the workspace has no sessions', async () => {
     get runtime() {
       return {
         sessionManager: {
-          async listSessions() {
+          async listSessionTree() {
             return [];
           },
         },

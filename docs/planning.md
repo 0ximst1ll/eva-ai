@@ -663,10 +663,13 @@ user/assistant/tool: durable session history
 - `SessionManager.getEntryPath()` 已可从 active entry leaf 回溯当前 session 文件内的 path entries。
 - `SessionContextRebuilder` 已提供最小 rebuild 边界：新 session 使用 `entry_path` 策略从 active leaf 构造 messages，旧 JSONL 无 entry metadata 时回退 `flat_snapshot`。
 - `SessionManager.loadSession()` 已在主加载路径中使用 active entry path 重建 active messages，`RuntimeHost` resume/switch 后的 `AgentSession` 会使用 path-aware context。
+- `SessionManager.listSessionTree()` 已支持基于 `parentSessionId` 的 workspace session-level lineage tree。
+- interactive `/sessions` 已改为展示 session tree，并标记 current/latest session。
+- `RuntimeHost.switchToParentSession()` 已提供 mode 层向 parent session 导航边界，interactive `/parent` 可切换到当前 session 的 parent session。
 
 后续仍需：
 
-- session tree 展示与 branch navigation。
+- 更完整的 child branch navigation。
 - 跨 session parent/child entry graph 与 sidecar metadata。
 
 验收标准：

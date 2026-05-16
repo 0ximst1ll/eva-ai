@@ -24,6 +24,22 @@
 24. Session Entry Path Resume 主路径
 25. Session Clone 最小边界
 26. Session Import / Export 最小边界
+27. Session Tree 展示与 Parent Navigation 最小边界
+
+
+# Session Tree 展示与 Parent Navigation 最小边界
+
+为 M4 Session Tree 增加 workspace session-level tree 展示和向 parent session 导航能力。
+
+核心变化：
+
+- 新增 `SessionManager.listSessionTree()`，基于 `parentSessionId` 组织当前 workspace sessions。
+- interactive `/sessions` 改为 tree 输出，并标记 current/latest session。
+- 新增 `RuntimeHost.switchToParentSession()`，mode 层不直接读取并切换 session manager。
+- interactive `/parent` 可切换到当前 session 的 parent session；没有 parent 时打印提示。
+- 测试覆盖 `SessionManager`、`RuntimeHost` 和 slash command 路径。
+
+当前仍是 session-level lineage tree；尚未实现跨 session parent/child entry graph、sidecar metadata 或完整 child branch navigation。
 
 
 # Session Import / Export 最小边界

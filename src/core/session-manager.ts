@@ -134,6 +134,11 @@ export interface SessionListItem {
   forkedFromMessageIndex?: number;
 }
 
+export interface SessionTreeNode {
+  session: SessionListItem;
+  children: SessionTreeNode[];
+}
+
 export interface SessionLineageInfo {
   sessionId: string;
   parentSessionId?: string;
@@ -769,6 +774,38 @@ export class SessionManager {
     }
 
     return this.sortSessionList(sessions);
+  }
+
+  async listSessionTree(): Promise<SessionTreeNode[]> {
+    const sessions = await this.listSessions();
+    const nodes = new Map<string, SessionTreeNode>();
+    for (const session of sessions) {
+      nodes.set(session.sessionId, { session, children: [] });
+    }
+
+    const roots: SessionTreeNode[] = [];
+    for (const node of nodes.values()) {
+      const parentSessionId = node.session.parentSessionId;
+      const parent = parentSessionId ? nodes.get(parentSessionId) : undefined;
+      if (parent) {
+        parent.children.push(node);
+      } else {
+        roots.push(node);
+      }
+    }
+
+    const sortNodes = (treeNodes: SessionTreeNode[]): SessionTreeNode[] => {
+      treeNodes.sort((a, b) => (
+        b.session.updatedAt - a.session.updatedAt
+        || a.session.sessionId.localeCompare(b.session.sessionId)
+      ));
+      for (const node of treeNodes) {
+        sortNodes(node.children);
+      }
+      return treeNodes;
+    };
+
+    return sortNodes(roots);
   }
 
   private getWorkspaceDataDir(): string {

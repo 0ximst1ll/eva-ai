@@ -76,6 +76,12 @@ export class RuntimeHost {
     return this.currentRuntime;
   }
 
+  async switchToParentSession(): Promise<Runtime | null> {
+    const parentSessionId = this.currentRuntime.sessionManager.getLineageInfo(this.sessionId).parentSessionId;
+    if (!parentSessionId) return null;
+    return this.switchSession(parentSessionId);
+  }
+
   async forkSession(sessionId?: string): Promise<Runtime> {
     const forkedSessionId = await this.currentRuntime.sessionManager.forkSession({
       sourceSessionId: this.sessionId,

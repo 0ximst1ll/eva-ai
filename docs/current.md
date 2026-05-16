@@ -2,11 +2,11 @@
 
 ## 当前状态（2026-05-17）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork/clone schema、entry tree schema、entry-path rebuild、resume 主路径接入和 JSONL import/export。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork/clone schema、entry tree schema、entry-path rebuild、resume 主路径接入、JSONL import/export、session tree 展示和 parent navigation。
 
 当前 M3 Headless RPC 已完成最小实现：`--rpc` 启动 JSONL stdin/stdout 协议，RPC mode 共享 `RuntimeHost` / `AgentSession` 路径，不新增第二套 agent 实现。RPC 真实 CLI 子进程 smoke test 已补齐，用于验证 stdout 协议纯净性。M3.1 RPC permission pending approval 最小闭环已实现：默认 fail-closed，`permission_mode=request` 时可通过 RPC event 和审批命令完成 tool permission 决策。
 
-当前 M4 已完成前三步：`SessionManager` 支持向后兼容的 lineage metadata、`forkSession()`、`cloneSession()`、`exportSession()`、`importSession()`、旧 JSONL root fallback；RuntimeHost 暴露 `forkSession()`、`cloneSession()`、`exportSession()` 和 `importSession()`；interactive/TUI 可通过 `/fork [id]` 创建当前 session 分支，也可通过 `/clone [id]` 按 `pi-mono` current-leaf fork 语义克隆当前 session，并可通过 `/export [path]`、`/import <path>` 做 JSONL import/export；新写入的 session entries 已带有 `entryId` / `parentEntryId`；`SessionManager.getEntryPath()` 可从 active entry leaf 回溯 path entries；`SessionContextRebuilder` 已支持新 session 的 `entry_path` rebuild，并对旧 JSONL 回退 `flat_snapshot`；`SessionManager.loadSession()` 已在主加载路径中使用 active entry path 重建 active messages。
+当前 M4 已完成最小闭环：`SessionManager` 支持向后兼容的 lineage metadata、`forkSession()`、`cloneSession()`、`exportSession()`、`importSession()`、`listSessionTree()` 和旧 JSONL root fallback；RuntimeHost 暴露 `forkSession()`、`cloneSession()`、`exportSession()`、`importSession()` 和 `switchToParentSession()`；interactive/TUI 可通过 `/fork [id]` 创建当前 session 分支，也可通过 `/clone [id]` 按 `pi-mono` current-leaf fork 语义克隆当前 session，并可通过 `/export [path]`、`/import <path>` 做 JSONL import/export；interactive `/sessions` 已展示 session tree，`/parent` 可切换到当前 session 的 parent session；新写入的 session entries 已带有 `entryId` / `parentEntryId`；`SessionManager.getEntryPath()` 可从 active entry leaf 回溯 path entries；`SessionContextRebuilder` 已支持新 session 的 `entry_path` rebuild，并对旧 JSONL 回退 `flat_snapshot`；`SessionManager.loadSession()` 已在主加载路径中使用 active entry path 重建 active messages。
 
 ## 已完成
 
@@ -14,7 +14,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - 已实现 `RuntimeHost` 的 `newSession()`、`resumeLatestSession()`、`switchSession()` 和 `reloadResources()`。
 - 当前已有 JSONL session persistence、builtin file/search/bash tools、tool registry、高风险工具 confirmation hook、最小 permission pending 语义、abort 和 queue 基础能力。
 - 已建立 `test` 和 `typecheck` script，并覆盖 retry、SessionManager、agent-loop、RuntimeHost、abort、queue 等核心路径。
-- interactive mode 已实现 `/new`、`/resume`、`/resume <id>`、`/clear`、`/history`、`/stats`、`/diagnostics`、`/reload` 和 `/sessions`。
+- interactive mode 已实现 `/new`、`/resume`、`/resume <id>`、`/clear`、`/history`、`/stats`、`/diagnostics`、`/reload`、`/sessions` 和 `/parent`。
 - runtime diagnostics 已统一为 `source`、`level`、`code`、`message`、`details` 结构。
 - `RuntimeServices` 已承载 workspace 绑定的 config、provider、tools、session manager、resource loader、context builder 和 diagnostics。
 - `ResourceLoader` 已支持 system prompt 与 `AGENTS.md` project context 加载，并对尚未接入的 skills、MCP 返回 diagnostics。
@@ -54,23 +54,26 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - `SessionManager.forkSession()` 会复制当前 active context messages 到新 session，并写入 lineage metadata；父子 session 后续消息互不影响。
 - `SessionManager.cloneSession()` 当前复用 current-leaf fork 语义，保持与 `pi-mono` 的 clone 设计一致。
 - `SessionManager.exportSession()` / `importSession()` 已支持 JSONL 文件级别导出导入；导入时会重写 workspaceDir 到当前 workspace 并切换 latest session。
+- `SessionManager.listSessionTree()` 已支持 workspace session-level lineage tree。
 - 新写入的 `message`、`compaction`、`usage` 和 `internal` session entries 已带有 `entryId` / `parentEntryId`，可形成当前 session 文件内的 append-only parent chain。
 - `SessionManager.getEntryTreeInfo()` 已可返回当前 session 的 entries 和 active entry id；`getEntryPath()` 可返回 active leaf 对应的带 payload path entries；旧 JSONL entries 没有 entry metadata 时仍兼容读取。
 - `SessionManager.loadSession()` 已用 active entry path 重建 `getMessages()` 的 active messages；`RuntimeHost` resume/switch 后的 `AgentSession` 会使用 path-aware context。
 - `RuntimeHost.forkSession()` 已作为 mode 层统一 fork 边界。
 - `RuntimeHost.cloneSession()` 已作为 mode 层统一 clone 边界。
 - `RuntimeHost.exportSession()` / `importSession()` 已作为 mode 层统一 import/export 边界。
+- `RuntimeHost.switchToParentSession()` 已作为 mode 层统一 parent navigation 边界。
 - interactive/TUI slash command 已支持 `/fork [id]`、`/clone [id]`、`/export [path]` 和 `/import <path>`。
+- interactive slash command 已支持 `/parent`，并且 `/sessions` 会以 tree 形式展示 workspace sessions。
 - `SessionContextRebuilder` 已支持旧 flat JSONL、forked session、手工分支 entry path 和 compacted fork session 的 rebuild。
 - `SessionContextRebuilder` 当前返回 active messages、lineage、branch path、compaction、usage、internal entries、entry tree metadata 和 rebuild strategy。
 
 ## 进行中
 
-- M4 后续：session tree 展示与 branch navigation 尚未实现。
+- M4 后续：更完整的 child branch navigation、跨 session parent/child entry graph 和 sidecar metadata 尚未实现。
 
 ## 下一步
 
-- 继续 M4：补 session tree 展示与 branch navigation。
+- 继续 M4：补更完整的 child branch navigation，或进入 MCP/Skills/Extensions 前置骨架前先确认 session sidecar metadata 边界。
 - 后续进入 MCP/Skills/Extensions 前置骨架。
 
 ## 后续重点计划
@@ -79,7 +82,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - ContextManager 后续再承接完整 token budget 和 skills/resource reinjection 策略。
 - 当前 `max_steps` 后续应进一步迁移为 print/headless/RPC 场景下的命名更明确的可选 runaway guard。
 - 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 逐步建立。
-- 跨 session parent/child graph 和 branch navigation 放入后续 session model 阶段。
+- 跨 session parent/child graph、sidecar metadata 和完整 child branch navigation 放入后续 session model 阶段。
 - 完整 permission pipeline 后续继续补 permission modes、rules、diagnostics 和 RPC/ACP pending event。
 
 ## 已知问题
@@ -92,6 +95,6 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
 - 当前 `max_steps` 字段名仍偏模糊，后续应迁移为 `max_steps_per_run` 或同类命名。
 - RPC mode 仍是最小闭环，尚未支持完整 ACP 兼容层。
-- 当前只支持当前 session 文件内的 entry path；跨 session parent/child graph 还未实现。
+- 当前只支持当前 session 文件内的 entry path 和 session-level parent navigation；跨 session parent/child entry graph 与完整 child branch navigation 还未实现。
 - tool result budget、超大输出持久化、完整 permission pipeline 尚未实现。
 - TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。
