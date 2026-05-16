@@ -142,6 +142,17 @@ export interface SessionLineageInfo {
   createdAt?: number;
 }
 
+export interface SessionExportResult {
+  sessionId: string;
+  path: string;
+}
+
+export interface SessionImportResult {
+  sessionId: string;
+  sourcePath: string;
+  destinationPath?: string;
+}
+
 interface SessionLineageOptions {
   parentSessionId?: string;
   rootSessionId?: string;
@@ -291,6 +302,81 @@ export class SessionManager {
     sessionId?: string;
   }): Promise<string> {
     return this.forkSession({ sourceSessionId, sessionId });
+  }
+
+  async exportSession({
+    sessionId,
+    outputPath,
+  }: {
+    sessionId: string;
+    outputPath?: string;
+  }): Promise<SessionExportResult> {
+    if (!this.sessions.has(sessionId) && !await this.loadSession(sessionId)) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const resolvedOutputPath = path.resolve(outputPath ?? `${sessionId}.jsonl`);
+    await fs.mkdir(path.dirname(resolvedOutputPath), { recursive: true });
+
+    if (this.mode === 'jsonl') {
+      await fs.copyFile(this.getSessionFilePath(sessionId), resolvedOutputPath);
+      return { sessionId, path: resolvedOutputPath };
+    }
+
+    const content = this.serializeMemorySessionLog(sessionId);
+    await fs.writeFile(resolvedOutputPath, content, 'utf-8');
+    return { sessionId, path: resolvedOutputPath };
+  }
+
+  async importSession({
+    inputPath,
+    sessionId,
+  }: {
+    inputPath: string;
+    sessionId?: string;
+  }): Promise<SessionImportResult> {
+    const resolvedInputPath = path.resolve(inputPath);
+    const content = await fs.readFile(resolvedInputPath, 'utf-8');
+    const importedSessionId = getSessionIdFromLog(content);
+    if (!importedSessionId) {
+      throw new Error('Imported session JSONL is missing a session_start entry');
+    }
+
+    const targetSessionId = sessionId ?? importedSessionId;
+    const rewrittenContent = rewriteImportedSessionLog({
+      content,
+      importedSessionId,
+      targetSessionId,
+      workspaceDir: this.workspaceDir,
+    });
+    const parsed = this.parseSessionLog(rewrittenContent, targetSessionId);
+    if (!parsed.messages.length) {
+      throw new Error(`Imported session has no messages: ${targetSessionId}`);
+    }
+
+    this.sessions.set(targetSessionId, parsed.messages);
+    this.sessionMetadata.set(targetSessionId, {
+      createdAt: parsed.createdAt ?? parsed.updatedAt,
+      updatedAt: parsed.updatedAt,
+    });
+    this.sessionCompactions.set(targetSessionId, parsed.compaction);
+    this.sessionUsage.set(targetSessionId, parsed.usage);
+    this.sessionInternalEntries.set(targetSessionId, parsed.internalEntries);
+    this.sessionLineage.set(targetSessionId, parsed.lineage);
+    this.sessionEntryTrees.set(targetSessionId, parsed.entryTree);
+    this.sessionPathEntries.set(targetSessionId, parsed.pathEntries);
+    this.setActiveEntryId(targetSessionId, parsed.activeEntryId);
+    this.latestSessionId = targetSessionId;
+
+    let destinationPath: string | undefined;
+    if (this.mode === 'jsonl') {
+      await this.ensureWorkspaceDir();
+      destinationPath = this.getSessionFilePath(targetSessionId);
+      await fs.writeFile(destinationPath, rewrittenContent, 'utf-8');
+      await this.writeManifest({ latestSessionId: targetSessionId, updatedAt: Date.now() });
+    }
+
+    return { sessionId: targetSessionId, sourcePath: resolvedInputPath, destinationPath };
   }
 
   async loadLatestSession(): Promise<string | null> {
@@ -737,6 +823,40 @@ export class SessionManager {
   private async writeManifest(manifest: SessionManifest): Promise<void> {
     await this.ensureWorkspaceDir();
     await fs.writeFile(this.getManifestFilePath(), JSON.stringify(manifest, null, 2), 'utf-8');
+  }
+
+  private serializeMemorySessionLog(sessionId: string): string {
+    const metadata = this.sessionMetadata.get(sessionId);
+    const lineage = this.getLineageInfo(sessionId);
+    const createdAt = metadata?.createdAt ?? Date.now();
+    const lines = [
+      JSON.stringify({
+        type: 'session_start',
+        sessionId,
+        workspaceDir: this.workspaceDir,
+        createdAt,
+        parentSessionId: lineage.parentSessionId,
+        rootSessionId: lineage.rootSessionId,
+        forkedFromMessageIndex: lineage.forkedFromMessageIndex,
+      } satisfies SessionStartEntry),
+    ];
+
+    const pathEntries = this.sessionPathEntries.get(sessionId) ?? [];
+    if (pathEntries.length) {
+      lines.push(...pathEntries.map((entry) => JSON.stringify(entry)));
+    } else {
+      const timestamp = metadata?.updatedAt ?? createdAt;
+      for (const message of this.sessions.get(sessionId) ?? []) {
+        lines.push(JSON.stringify({
+          type: 'message',
+          sessionId,
+          timestamp,
+          message,
+        } satisfies MessageEntry));
+      }
+    }
+
+    return `${lines.join('\n')}\n`;
   }
 
   private touchSession(sessionId: string, updatedAt: number): void {
@@ -1244,4 +1364,57 @@ function addUsage(
     latestTimestamp: timestamp,
     latestSource: source,
   };
+}
+
+function getSessionIdFromLog(content: string): string | null {
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const entry = JSON.parse(trimmed) as Partial<SessionStartEntry>;
+      if (entry.type === 'session_start' && typeof entry.sessionId === 'string') {
+        return entry.sessionId;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function rewriteImportedSessionLog({
+  content,
+  importedSessionId,
+  targetSessionId,
+  workspaceDir,
+}: {
+  content: string;
+  importedSessionId: string;
+  targetSessionId: string;
+  workspaceDir: string;
+}): string {
+  const lines: string[] = [];
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const entry = JSON.parse(trimmed) as Record<string, unknown>;
+      if (entry['sessionId'] === importedSessionId) {
+        entry['sessionId'] = targetSessionId;
+      }
+      if (entry['type'] === 'session_start') {
+        entry['workspaceDir'] = workspaceDir;
+        if (entry['rootSessionId'] === importedSessionId) {
+          entry['rootSessionId'] = targetSessionId;
+        }
+        if (entry['parentSessionId'] === importedSessionId) {
+          entry['parentSessionId'] = targetSessionId;
+        }
+      }
+      lines.push(JSON.stringify(entry));
+    } catch {
+      continue;
+    }
+  }
+  return `${lines.join('\n')}\n`;
 }

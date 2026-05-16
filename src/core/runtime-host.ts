@@ -104,6 +104,25 @@ export class RuntimeHost {
     return this.currentRuntime;
   }
 
+  async exportSession(outputPath?: string): Promise<string> {
+    const result = await this.currentRuntime.sessionManager.exportSession({
+      sessionId: this.sessionId,
+      outputPath,
+    });
+    return result.path;
+  }
+
+  async importSession(inputPath: string): Promise<Runtime> {
+    const result = await this.currentRuntime.sessionManager.importSession({ inputPath });
+    this.currentRuntime = await createRuntime({
+      ...this.options,
+      createNewSession: false,
+      createSessionIfMissing: false,
+      sessionId: result.sessionId,
+    });
+    return this.currentRuntime;
+  }
+
   async reloadResources(): Promise<RuntimeResourceReloadResult> {
     return this.currentRuntime.reloadResources();
   }

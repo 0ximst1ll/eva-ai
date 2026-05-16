@@ -656,6 +656,9 @@ user/assistant/tool: durable session history
 - interactive/TUI slash command 可通过 `/fork [id]` 创建当前 session 分支。
 - `SessionManager.cloneSession()` / `RuntimeHost.cloneSession()` 已按 `pi-mono` 的 current-leaf fork 语义实现 clone。
 - interactive/TUI slash command 可通过 `/clone [id]` 克隆当前 session。
+- `SessionManager.exportSession()` / `RuntimeHost.exportSession()` 已支持 JSONL session 导出。
+- `SessionManager.importSession()` / `RuntimeHost.importSession()` 已支持 JSONL session 导入并切换到导入后的 session。
+- interactive/TUI slash command 可通过 `/export [path]` 和 `/import <path>` 做最小 JSONL import/export。
 - 新写入的 `message`、`compaction`、`usage` 和 `internal` entry 已带有 `entryId` / `parentEntryId`，`SessionManager.getEntryTreeInfo()` 可返回当前 session 文件内的 entry tree metadata。
 - `SessionManager.getEntryPath()` 已可从 active entry leaf 回溯当前 session 文件内的 path entries。
 - `SessionContextRebuilder` 已提供最小 rebuild 边界：新 session 使用 `entry_path` 策略从 active leaf 构造 messages，旧 JSONL 无 entry metadata 时回退 `flat_snapshot`。
@@ -663,7 +666,6 @@ user/assistant/tool: durable session history
 
 后续仍需：
 
-- import/export。
 - session tree 展示与 branch navigation。
 - 跨 session parent/child entry graph 与 sidecar metadata。
 

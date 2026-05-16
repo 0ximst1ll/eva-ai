@@ -221,6 +221,31 @@ export async function handleInteractiveCommand({
     return 'continue';
   }
 
+  if (cmd === '/export') {
+    const outputPath = args[0];
+    const exportedPath = await host.exportSession(outputPath);
+    writeLine(`${Colors.GREEN}✅ Exported session: ${host.sessionId}${Colors.RESET}`);
+    writeLine(`${Colors.BRIGHT_CYAN}Path:${Colors.RESET} ${exportedPath}\n`);
+    return 'continue';
+  }
+
+  if (cmd === '/import') {
+    const inputPath = args[0];
+    if (!inputPath) {
+      writeLine(`${Colors.RED}❌ Import requires a JSONL path${Colors.RESET}\n`);
+      return 'continue';
+    }
+    const previousSessionId = host.sessionId;
+    try {
+      await host.importSession(inputPath);
+      writeLine(`${Colors.GREEN}✅ Imported session: ${host.sessionId}${Colors.RESET}`);
+      writeLine(`${Colors.DIM}Previous session: ${previousSessionId}${Colors.RESET}\n`);
+    } catch (e) {
+      writeLine(`${Colors.RED}❌ Import failed: ${(e as Error).message}${Colors.RESET}\n`);
+    }
+    return 'continue';
+  }
+
   if (cmd === '/clear') {
     const old = host.session.messages.length;
     await host.session.clear();

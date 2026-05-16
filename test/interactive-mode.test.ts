@@ -223,6 +223,76 @@ test('/clone clones the active runtime session through RuntimeHost', async () =>
   assert.match(output.join('\n'), /Source session: .*session-current/);
 });
 
+test('/export exports the active runtime session through RuntimeHost', async () => {
+  const exportedPaths: Array<string | undefined> = [];
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-current';
+    },
+    async exportSession(outputPath?: string) {
+      exportedPaths.push(outputPath);
+      return '/tmp/session-current.jsonl';
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/export /tmp/session-current.jsonl',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.deepEqual(exportedPaths, ['/tmp/session-current.jsonl']);
+  assert.match(output.join('\n'), /Exported session: .*session-current/);
+  assert.match(output.join('\n'), /Path:.*\/tmp\/session-current\.jsonl/);
+});
+
+test('/import imports and switches sessions through RuntimeHost', async () => {
+  let sessionId = 'session-current';
+  const importedPaths: string[] = [];
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return sessionId;
+    },
+    async importSession(inputPath: string) {
+      importedPaths.push(inputPath);
+      sessionId = 'session-imported';
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/import /tmp/session-imported.jsonl',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.deepEqual(importedPaths, ['/tmp/session-imported.jsonl']);
+  assert.equal(sessionId, 'session-imported');
+  assert.match(output.join('\n'), /Imported session: .*session-imported/);
+  assert.match(output.join('\n'), /Previous session: .*session-current/);
+});
+
+test('/import reports missing path without throwing', async () => {
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-current';
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/import',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.match(output.join('\n'), /Import requires a JSONL path/);
+});
+
 test('/history prints current session id and message count', async () => {
   const output: string[] = [];
   const host = {

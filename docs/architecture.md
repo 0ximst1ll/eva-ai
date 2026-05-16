@@ -76,6 +76,8 @@ createRuntime()
 - `/resume`、`/resume <id>`：通过 `RuntimeHost` 恢复 latest session 或切换到指定 session。
 - `/fork [id]`：通过 `RuntimeHost.forkSession()` 从当前 active session 创建分支 session。
 - `/clone [id]`：通过 `RuntimeHost.cloneSession()` 复制当前 active session；当前语义与 `pi-mono` 一致，是对当前 leaf 执行 fork。
+- `/export [path]`：通过 `RuntimeHost.exportSession()` 将当前 session 导出为 JSONL。
+- `/import <path>`：通过 `RuntimeHost.importSession()` 导入 JSONL session 并切换到导入后的 session。
 - `/clear`：将当前会话重置为 system prompt。
 - `/compact [custom instructions]`：手动压缩当前 session context，生成摘要并保留最近消息。
 - `/history`：打印当前 session id 和消息数量。
@@ -159,6 +161,8 @@ RPC permission 默认仍是 fail-closed。如果 `prompt.params.permission_mode`
 - `switchSession(sessionId)`；
 - `forkSession(sessionId?)`；
 - `cloneSession(sessionId?)`；
+- `exportSession(outputPath?)`；
+- `importSession(inputPath)`；
 - `reloadResources()`；
 - `runtime`、`session`、`sessionId` getter。
 
@@ -400,10 +404,12 @@ JSONL 模式下：
 - `getEntryPath()` 从 active entry leaf 沿 `parentEntryId` 回溯，返回当前 branch path 上带 payload 的 entries。
 - `forkSession()` 会复制当前 active context messages 到新 session，并写入 lineage metadata；fork 后父子 session 的后续消息互不影响。
 - `cloneSession()` 当前按 `pi-mono` 的 clone 语义复用 current-leaf fork：复制当前 active context 到新 session，并保留 parent/root lineage。
+- `exportSession()` 会将 session 导出为 JSONL 文件；jsonl 模式下复制原始 session 文件，memory 模式下生成最小 JSONL。
+- `importSession()` 会读取外部 JSONL，重写 workspaceDir 到当前 workspace，写入当前 workspace session store，并加载为 latest session。
 
 `src/core/session-context-rebuilder.ts` 是当前最小 session context rebuild 边界。它从 `SessionManager` 读取当前 session snapshot，返回 active messages、lineage、branch path、compaction、usage、internal entries 和 entry tree metadata。新 session 如果存在 entry path，会使用 `entry_path` 策略从 active leaf 沿 `parentEntryId` 回溯构造 messages；旧 JSONL 没有 entry metadata 时仍使用 `flat_snapshot` 兼容策略。compaction path rebuild 会使用 `firstKeptEntryId` 优先恢复 compact summary 后的保留消息，并兼容旧的 `firstKeptMessageIndex`。
 
-`SessionManager.loadSession()` 已在主加载路径中使用 active entry path 重建 `getMessages()` 的 active messages；因此 `RuntimeHost` resume/switch 后创建的 `AgentSession` 会使用 entry-path 后的上下文。旧 JSONL 没有 entry metadata 时仍沿用 flat rebuild。当前 session model 支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry、lineage metadata、entry tree metadata、fork/clone session 和基于 active leaf 的最小 path-aware context rebuild；还不支持跨 session parent/child graph、import/export 或 branch navigation。
+`SessionManager.loadSession()` 已在主加载路径中使用 active entry path 重建 `getMessages()` 的 active messages；因此 `RuntimeHost` resume/switch 后创建的 `AgentSession` 会使用 entry-path 后的上下文。旧 JSONL 没有 entry metadata 时仍沿用 flat rebuild。当前 session model 支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry、lineage metadata、entry tree metadata、fork/clone session、JSONL import/export 和基于 active leaf 的最小 path-aware context rebuild；还不支持跨 session parent/child graph 或 branch navigation。
 
 ## Tools
 

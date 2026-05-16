@@ -23,6 +23,22 @@
 23. SessionContextRebuilder Entry Path 最小 rebuild
 24. Session Entry Path Resume 主路径
 25. Session Clone 最小边界
+26. Session Import / Export 最小边界
+
+
+# Session Import / Export 最小边界
+
+为 M4 Session Tree 增加 JSONL 文件级别的 session 导入导出能力。
+
+核心变化：
+
+- 新增 `SessionManager.exportSession()`，jsonl 模式复制原始 session 文件，memory 模式生成最小 JSONL。
+- 新增 `SessionManager.importSession()`，读取外部 JSONL，重写 workspaceDir 到当前 workspace，写入当前 workspace session store，并加载为 latest session。
+- 新增 `RuntimeHost.exportSession()` / `RuntimeHost.importSession()`，mode 层不直接访问 `SessionManager`。
+- interactive/TUI slash command 支持 `/export [path]` 和 `/import <path>`。
+- 测试覆盖 `SessionManager`、`RuntimeHost` 和 slash command 路径。
+
+当前 import/export 仍是 JSONL 文件级别能力；尚未实现跨 session parent/child graph、branch navigation 或批量迁移。
 
 
 # Session Clone 最小边界

@@ -138,6 +138,39 @@ test('RuntimeHost clones the active session through the runtime boundary', async
   }
 });
 
+test('RuntimeHost exports and imports sessions through the runtime boundary', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-import-export-'));
+
+  try {
+    const configPath = await writeConfig(tempDir);
+    const sessionBaseDir = path.join(tempDir, 'sessions');
+    const exportPath = path.join(tempDir, 'runtime-session.jsonl');
+    const host = await RuntimeHost.create({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'jsonl',
+      sessionBaseDir,
+      createNewSession: true,
+      tools: [],
+    });
+    const exportedSessionId = host.sessionId;
+    await host.session.addUserMessage('exported task');
+
+    const exportedPath = await host.exportSession(exportPath);
+    assert.equal(exportedPath, path.resolve(exportPath));
+
+    await host.newSession();
+    assert.notEqual(host.sessionId, exportedSessionId);
+
+    await host.importSession(exportPath);
+    assert.equal(host.sessionId, exportedSessionId);
+    assert.equal(host.session.messages[0]?.role, 'system');
+    assert.equal(host.session.messages[1]?.content, 'exported task');
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('RuntimeHost resumes sessions using the active entry path', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-entry-path-'));
 

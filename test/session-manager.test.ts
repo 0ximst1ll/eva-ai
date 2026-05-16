@@ -512,6 +512,60 @@ test('SessionManager clones sessions using current fork lineage semantics', asyn
   }
 });
 
+test('SessionManager exports and imports JSONL sessions', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-import-export-'));
+  const sourceWorkspaceDir = path.join(tempDir, 'source-workspace');
+  const targetWorkspaceDir = path.join(tempDir, 'target-workspace');
+  const sourceBaseDir = path.join(tempDir, 'source-sessions');
+  const targetBaseDir = path.join(tempDir, 'target-sessions');
+  const exportPath = path.join(tempDir, 'exported-session.jsonl');
+
+  try {
+    const source = new SessionManager({
+      workspaceDir: sourceWorkspaceDir,
+      mode: 'jsonl',
+      baseDir: sourceBaseDir,
+    });
+    const sessionId = await source.createSession('system', 'session-export');
+    await source.appendMessage(sessionId, { role: 'user', content: 'task' });
+    await source.appendMessage(sessionId, { role: 'assistant', content: 'answer' });
+    await source.appendUsage({
+      sessionId,
+      usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+    });
+
+    const exported = await source.exportSession({ sessionId, outputPath: exportPath });
+    assert.equal(exported.path, path.resolve(exportPath));
+    assert.match(await fs.readFile(exportPath, 'utf-8'), /"sessionId":"session-export"/);
+
+    const target = new SessionManager({
+      workspaceDir: targetWorkspaceDir,
+      mode: 'jsonl',
+      baseDir: targetBaseDir,
+    });
+    const imported = await target.importSession({ inputPath: exportPath });
+
+    assert.equal(imported.sessionId, sessionId);
+    assert.equal(imported.sourcePath, path.resolve(exportPath));
+    assert.ok(imported.destinationPath?.endsWith('session-export.jsonl'));
+    assert.deepEqual(
+      target.getMessages(sessionId).map((message) => message.content),
+      ['system', 'task', 'answer'],
+    );
+    assert.equal(target.getUsageInfo(sessionId).total.total_tokens, 5);
+    assert.equal(await target.loadLatestSession(), sessionId);
+
+    const targetWorkspaceKey = encodeURIComponent(path.resolve(targetWorkspaceDir));
+    const importedRawLog = await fs.readFile(
+      path.join(targetBaseDir, targetWorkspaceKey, 'session-export.jsonl'),
+      'utf-8',
+    );
+    assert.match(importedRawLog, new RegExp(`"workspaceDir":"${escapeRegExp(path.resolve(targetWorkspaceDir))}"`));
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('SessionManager treats old session_start entries as root sessions', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-old-lineage-'));
   const workspaceDir = path.join(tempDir, 'workspace');
@@ -552,3 +606,7 @@ test('SessionManager treats old session_start entries as root sessions', async (
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
