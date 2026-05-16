@@ -76,6 +76,20 @@ export class RuntimeHost {
     return this.currentRuntime;
   }
 
+  async forkSession(sessionId?: string): Promise<Runtime> {
+    const forkedSessionId = await this.currentRuntime.sessionManager.forkSession({
+      sourceSessionId: this.sessionId,
+      sessionId,
+    });
+    this.currentRuntime = await createRuntime({
+      ...this.options,
+      createNewSession: false,
+      createSessionIfMissing: false,
+      sessionId: forkedSessionId,
+    });
+    return this.currentRuntime;
+  }
+
   async reloadResources(): Promise<RuntimeResourceReloadResult> {
     return this.currentRuntime.reloadResources();
   }

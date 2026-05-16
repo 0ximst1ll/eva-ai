@@ -74,6 +74,7 @@ createRuntime()
 - `/exit`、`/quit`、`/q`：退出。
 - `/new`：通过 `RuntimeHost.newSession()` 创建并切换到新会话。
 - `/resume`、`/resume <id>`：通过 `RuntimeHost` 恢复 latest session 或切换到指定 session。
+- `/fork [id]`：通过 `RuntimeHost.forkSession()` 从当前 active session 创建分支 session。
 - `/clear`：将当前会话重置为 system prompt。
 - `/compact [custom instructions]`：手动压缩当前 session context，生成摘要并保留最近消息。
 - `/history`：打印当前 session id 和消息数量。
@@ -155,6 +156,7 @@ RPC permission 默认仍是 fail-closed。如果 `prompt.params.permission_mode`
 - `newSession()`；
 - `resumeLatestSession()`；
 - `switchSession(sessionId)`；
+- `forkSession(sessionId?)`；
 - `reloadResources()`；
 - `runtime`、`session`、`sessionId` getter。
 
@@ -379,17 +381,20 @@ JSONL 模式下：
 
 - 每个 session 对应 `<sessionId>.jsonl`；
 - 创建或 reset session 时写入 `session_start`；
+- `session_start` 支持向后兼容的 lineage metadata：`parentSessionId`、`rootSessionId`、`forkedFromMessageIndex`；
 - 每条 message 都写成一个 `message` entry；
 - manual compact 会追加 `compaction` entry，包含 summary、`firstKeptMessageIndex`、压缩前后 message 数和可选 custom instructions；
 - provider 返回的 token usage 会追加 `usage` entry，包含 source、timestamp 和 prompt/completion/total token 数；
 - durable harness metadata 可以追加 `internal` entry，包含 kind、timestamp、可选 content 和 metadata；这些 entries 可 reload/resume，但不会进入 `getMessages()` 或 provider request view；
 - `manifest.json` 记录 `latestSessionId`。
-- `listSessions()` 可列出当前 workspace 下的 session id、message count、updatedAt 和 latest 标记。
+- `listSessions()` 可列出当前 workspace 下的 session id、message count、updatedAt、latest 标记和 lineage metadata。
 - `getCompactionInfo()` 返回当前 session 最近一次 compaction metadata；如果尚未 compact，则返回 `compacted: false`。
 - `getUsageInfo()` 返回当前 session 累计 usage 和最近一次 usage；usage entries 不影响 message count，也不会进入 provider request view。
 - `getInternalEntries()` 返回当前 session 的 durable internal entries，可按 kind 过滤；internal entries 不影响 message count，也不会进入 provider request view。
+- `getLineageInfo()` 返回当前 session 的 root/parent/fork point 信息；旧 JSONL session 会被视为 root session。
+- `forkSession()` 会复制当前 active context messages 到新 session，并写入 lineage metadata；fork 后父子 session 的后续消息互不影响。
 
-当前 session model 仍是扁平结构。它支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry 和基于最新 compaction 的 context rebuild；还不支持 parent/child entries、fork、import/export，也不支持从 session tree 做确定性 context rebuild。
+当前 session model 仍主要是扁平 JSONL 文件，但已经有最小 lineage schema 和 fork session 能力。它支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry、lineage metadata、fork session 和基于最新 compaction 的 context rebuild；还不支持完整 parent/child entry graph、clone、import/export，也不支持从 session tree 做确定性 path-aware context rebuild。
 
 ## Tools
 
@@ -474,5 +479,6 @@ AgentSession 持久化已发射的 assistant/tool messages 和 usage metadata
 
 - MCP loader
 - skills loader
-- session tree / fork
+- 完整 session tree / path-aware rebuild
+- clone / import / export
 - 完整 permission pipeline

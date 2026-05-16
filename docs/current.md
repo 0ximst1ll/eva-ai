@@ -2,9 +2,11 @@
 
 ## 当前状态（2026-05-16）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮，以及 M3 Headless RPC 最小闭环。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork schema。
 
 当前 M3 Headless RPC 已完成最小实现：`--rpc` 启动 JSONL stdin/stdout 协议，RPC mode 共享 `RuntimeHost` / `AgentSession` 路径，不新增第二套 agent 实现。RPC 真实 CLI 子进程 smoke test 已补齐，用于验证 stdout 协议纯净性。M3.1 RPC permission pending approval 最小闭环已实现：默认 fail-closed，`permission_mode=request` 时可通过 RPC event 和审批命令完成 tool permission 决策。
+
+当前 M4 已完成第一步：`SessionManager` 支持向后兼容的 lineage metadata、`forkSession()`、旧 JSONL root fallback；`RuntimeHost` 暴露 `forkSession()`；interactive/TUI 可通过 `/fork [id]` 创建当前 session 分支。
 
 ## 已完成
 
@@ -47,15 +49,20 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - RPC `permission_mode=request` 已支持 `permission_pending` event、`approve_permission` / `deny_permission` 命令、pending timeout、abort cancel 和 durable `permission_pending` internal entry。
 - RPC `get_state` 已包含 pending permission 摘要。
 - RPC permission tests 已覆盖 approve、deny、timeout 和 pending state summary。
+- `SessionManager` 的 `session_start` 已支持 `parentSessionId`、`rootSessionId` 和 `forkedFromMessageIndex`。
+- 旧 JSONL session 没有 lineage metadata 时会被视为 root session。
+- `SessionManager.forkSession()` 会复制当前 active context messages 到新 session，并写入 lineage metadata；父子 session 后续消息互不影响。
+- `RuntimeHost.forkSession()` 已作为 mode 层统一 fork 边界。
+- interactive/TUI slash command 已支持 `/fork [id]`。
 
 ## 进行中
 
-- M3.1 后续收敛完成，下一步可进入 M4 Session Tree 与可恢复状态，或先做 MCP/Skills/Extensions 前置骨架。
+- M4 后续：path-aware context rebuild、clone/import/export、session tree 展示与 branch navigation 尚未实现。
 
 ## 下一步
 
-- 进入 M4 Session Tree 与可恢复状态的设计/最小 schema，或先做 MCP/Skills/Extensions 前置骨架。
-- 继续进入 MCP/Skills/Extensions 前置骨架或 session tree/fork 规划中的下一项。
+- 继续 M4 path-aware context rebuild 设计，或先补 `/fork` 在 RPC/TUI 展示层的细节测试。
+- 后续进入 MCP/Skills/Extensions 前置骨架。
 
 ## 后续重点计划
 
@@ -63,7 +70,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - ContextManager 后续再承接完整 token budget 和 skills/resource reinjection 策略。
 - 当前 `max_steps` 后续应进一步迁移为 print/headless/RPC 场景下的命名更明确的可选 runaway guard。
 - 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 逐步建立。
-- 完整 session tree、fork、clone 和 path-aware context rebuild 放入后续 session model 阶段。
+- 完整 session tree、clone、import/export 和 path-aware context rebuild 放入后续 session model 阶段。
 - 完整 permission pipeline 后续继续补 permission modes、rules、diagnostics 和 RPC/ACP pending event。
 
 ## 已知问题
@@ -76,6 +83,6 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
 - 当前 `max_steps` 字段名仍偏模糊，后续应迁移为 `max_steps_per_run` 或同类命名。
 - RPC mode 仍是最小闭环，尚未支持完整 ACP 兼容层。
-- session history 仍是 flat JSONL，尚未升级为 session tree。
+- session history 仍主要是 flat JSONL，已有最小 lineage/fork schema，但尚未支持完整 session tree/path-aware rebuild。
 - tool result budget、超大输出持久化、完整 permission pipeline 尚未实现。
 - TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。

@@ -21,6 +21,9 @@ export interface SessionStartEntry {
   sessionId: string;
   workspaceDir: string;
   createdAt: number;
+  parentSessionId?: string;
+  rootSessionId?: string;
+  forkedFromMessageIndex?: number;
 }
 
 export interface MessageEntry {
@@ -92,6 +95,23 @@ export interface SessionListItem {
   messageCount: number;
   updatedAt: number;
   isLatest: boolean;
+  parentSessionId?: string;
+  rootSessionId: string;
+  forkedFromMessageIndex?: number;
+}
+
+export interface SessionLineageInfo {
+  sessionId: string;
+  parentSessionId?: string;
+  rootSessionId: string;
+  forkedFromMessageIndex?: number;
+  createdAt?: number;
+}
+
+interface SessionLineageOptions {
+  parentSessionId?: string;
+  rootSessionId?: string;
+  forkedFromMessageIndex?: number;
 }
 
 export class SessionManager {
@@ -104,6 +124,7 @@ export class SessionManager {
   private readonly sessionCompactions = new Map<string, SessionCompactionInfo>();
   private readonly sessionUsage = new Map<string, SessionUsageInfo>();
   private readonly sessionInternalEntries = new Map<string, SessionInternalEntry[]>();
+  private readonly sessionLineage = new Map<string, SessionLineageInfo>();
   private latestSessionId?: string;
 
   constructor({
@@ -121,20 +142,22 @@ export class SessionManager {
     this.workspaceKey = encodeURIComponent(this.workspaceDir);
   }
 
-  async createSession(systemPrompt: string, sessionId?: string): Promise<string> {
+  async createSession(systemPrompt: string, sessionId?: string, lineage?: SessionLineageOptions): Promise<string> {
     const id = sessionId ?? randomUUID();
     const now = Date.now();
     const initialMessages: Message[] = [{ role: 'system', content: systemPrompt }];
+    const lineageInfo = createLineageInfo(id, now, lineage);
     this.sessions.set(id, initialMessages);
     this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
     this.sessionCompactions.delete(id);
     this.sessionUsage.delete(id);
     this.sessionInternalEntries.delete(id);
+    this.sessionLineage.set(id, lineageInfo);
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
       await this.ensureWorkspaceDir();
-      await this.writeSessionStart(id);
+      await this.writeSessionStart(id, now, lineageInfo);
       await this.appendEntry({
         type: 'message',
         sessionId: id,
@@ -143,6 +166,57 @@ export class SessionManager {
       });
       await this.writeManifest({ latestSessionId: id, updatedAt: now });
     }
+    return id;
+  }
+
+  async forkSession({
+    sourceSessionId,
+    sessionId,
+  }: {
+    sourceSessionId: string;
+    sessionId?: string;
+  }): Promise<string> {
+    if (!this.sessions.has(sourceSessionId) && !await this.loadSession(sourceSessionId)) {
+      throw new Error(`Session not found: ${sourceSessionId}`);
+    }
+
+    const sourceMessages = this.sessions.get(sourceSessionId);
+    if (!sourceMessages?.length) {
+      throw new Error(`Session not found: ${sourceSessionId}`);
+    }
+
+    const id = sessionId ?? randomUUID();
+    const now = Date.now();
+    const forkedMessages = sourceMessages.map(copyMessage);
+    const sourceLineage = this.getLineageInfo(sourceSessionId);
+    const lineageInfo = createLineageInfo(id, now, {
+      parentSessionId: sourceSessionId,
+      rootSessionId: sourceLineage.rootSessionId,
+      forkedFromMessageIndex: forkedMessages.length - 1,
+    });
+
+    this.sessions.set(id, forkedMessages);
+    this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
+    this.sessionCompactions.delete(id);
+    this.sessionUsage.delete(id);
+    this.sessionInternalEntries.delete(id);
+    this.sessionLineage.set(id, lineageInfo);
+    this.latestSessionId = id;
+
+    if (this.mode === 'jsonl') {
+      await this.ensureWorkspaceDir();
+      await this.writeSessionStart(id, now, lineageInfo);
+      for (const message of forkedMessages) {
+        await this.appendEntry({
+          type: 'message',
+          sessionId: id,
+          timestamp: now,
+          message,
+        });
+      }
+      await this.writeManifest({ latestSessionId: id, updatedAt: now });
+    }
+
     return id;
   }
 
@@ -177,6 +251,7 @@ export class SessionManager {
       this.sessionCompactions.set(sessionId, parsed.compaction);
       this.sessionUsage.set(sessionId, parsed.usage);
       this.sessionInternalEntries.set(sessionId, parsed.internalEntries);
+      this.sessionLineage.set(sessionId, parsed.lineage);
       await this.markLatestSession(sessionId);
       return true;
     } catch {
@@ -201,6 +276,10 @@ export class SessionManager {
     return entries
       .filter((entry) => !kind || entry.kind === kind)
       .map(copyInternalEntry);
+  }
+
+  getLineageInfo(sessionId: string): SessionLineageInfo {
+    return copyLineageInfo(this.sessionLineage.get(sessionId) ?? createLineageInfo(sessionId));
   }
 
   async appendMessage(sessionId: string, message: Message): Promise<void> {
@@ -369,11 +448,13 @@ export class SessionManager {
     this.sessionCompactions.delete(sessionId);
     this.sessionUsage.delete(sessionId);
     this.sessionInternalEntries.delete(sessionId);
+    const lineageInfo = this.sessionLineage.get(sessionId) ?? createLineageInfo(sessionId, now);
+    this.sessionLineage.set(sessionId, lineageInfo);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
       await fs.writeFile(this.getSessionFilePath(sessionId), '', 'utf-8');
-      await this.writeSessionStart(sessionId);
+      await this.writeSessionStart(sessionId, now, lineageInfo);
       await this.appendEntry({
         type: 'message',
         sessionId,
@@ -387,12 +468,18 @@ export class SessionManager {
   async listSessions(): Promise<SessionListItem[]> {
     if (this.mode === 'memory') {
       return this.sortSessionList(
-        [...this.sessions.entries()].map(([sessionId, messages]) => ({
-          sessionId,
-          messageCount: messages.length,
-          updatedAt: this.sessionMetadata.get(sessionId)?.updatedAt ?? 0,
-          isLatest: this.latestSessionId === sessionId,
-        })),
+        [...this.sessions.entries()].map(([sessionId, messages]) => {
+          const lineage = this.getLineageInfo(sessionId);
+          return {
+            sessionId,
+            messageCount: messages.length,
+            updatedAt: this.sessionMetadata.get(sessionId)?.updatedAt ?? 0,
+            isLatest: this.latestSessionId === sessionId,
+            parentSessionId: lineage.parentSessionId,
+            rootSessionId: lineage.rootSessionId,
+            forkedFromMessageIndex: lineage.forkedFromMessageIndex,
+          };
+        }),
       );
     }
 
@@ -417,6 +504,9 @@ export class SessionManager {
           messageCount: parsed.messages.length,
           updatedAt: parsed.updatedAt,
           isLatest: manifest?.latestSessionId === sessionId,
+          parentSessionId: parsed.lineage.parentSessionId,
+          rootSessionId: parsed.lineage.rootSessionId,
+          forkedFromMessageIndex: parsed.lineage.forkedFromMessageIndex,
         });
       } catch {
         continue;
@@ -442,12 +532,19 @@ export class SessionManager {
     await fs.mkdir(this.getWorkspaceDataDir(), { recursive: true });
   }
 
-  private async writeSessionStart(sessionId: string): Promise<void> {
+  private async writeSessionStart(
+    sessionId: string,
+    createdAt = Date.now(),
+    lineage = createLineageInfo(sessionId, createdAt),
+  ): Promise<void> {
     const entry: SessionStartEntry = {
       type: 'session_start',
       sessionId,
       workspaceDir: this.workspaceDir,
-      createdAt: Date.now(),
+      createdAt,
+      parentSessionId: lineage.parentSessionId,
+      rootSessionId: lineage.rootSessionId,
+      forkedFromMessageIndex: lineage.forkedFromMessageIndex,
     };
     await fs.writeFile(this.getSessionFilePath(sessionId), `${JSON.stringify(entry)}\n`, 'utf-8');
   }
@@ -500,6 +597,7 @@ export class SessionManager {
     compaction: SessionCompactionInfo;
     usage: SessionUsageInfo;
     internalEntries: SessionInternalEntry[];
+    lineage: SessionLineageInfo;
   } {
     const messages: Message[] = [];
     let createdAt: number | undefined;
@@ -507,6 +605,7 @@ export class SessionManager {
     let compaction: SessionCompactionInfo = { compacted: false };
     let usage = createEmptyUsageInfo();
     const internalEntries: SessionInternalEntry[] = [];
+    let lineage = createLineageInfo(sessionId);
 
     for (const line of content.split('\n')) {
       const trimmed = line.trim();
@@ -517,6 +616,11 @@ export class SessionManager {
         if (entry.type === 'session_start') {
           createdAt = entry.createdAt;
           updatedAt = Math.max(updatedAt, entry.createdAt);
+          lineage = createLineageInfo(sessionId, entry.createdAt, {
+            parentSessionId: entry.parentSessionId,
+            rootSessionId: entry.rootSessionId,
+            forkedFromMessageIndex: entry.forkedFromMessageIndex,
+          });
           continue;
         }
         if (entry.type === 'message') {
@@ -560,7 +664,7 @@ export class SessionManager {
       }
     }
 
-    return { messages, createdAt, updatedAt, compaction, usage, internalEntries };
+    return { messages, createdAt, updatedAt, compaction, usage, internalEntries, lineage };
   }
 
   private sortSessionList(sessions: SessionListItem[]): SessionListItem[] {
@@ -575,6 +679,40 @@ function copyInternalEntry(entry: SessionInternalEntry): SessionInternalEntry {
     content: entry.content,
     metadata: entry.metadata ? { ...entry.metadata } : undefined,
   };
+}
+
+function createLineageInfo(
+  sessionId: string,
+  createdAt?: number,
+  lineage?: SessionLineageOptions,
+): SessionLineageInfo {
+  const info: SessionLineageInfo = {
+    sessionId,
+    rootSessionId: lineage?.rootSessionId ?? lineage?.parentSessionId ?? sessionId,
+  };
+  if (lineage?.parentSessionId) info.parentSessionId = lineage.parentSessionId;
+  if (typeof lineage?.forkedFromMessageIndex === 'number') {
+    info.forkedFromMessageIndex = lineage.forkedFromMessageIndex;
+  }
+  if (typeof createdAt === 'number') info.createdAt = createdAt;
+  return info;
+}
+
+function copyLineageInfo(info: SessionLineageInfo): SessionLineageInfo {
+  const copy: SessionLineageInfo = {
+    sessionId: info.sessionId,
+    rootSessionId: info.rootSessionId,
+  };
+  if (info.parentSessionId) copy.parentSessionId = info.parentSessionId;
+  if (typeof info.forkedFromMessageIndex === 'number') {
+    copy.forkedFromMessageIndex = info.forkedFromMessageIndex;
+  }
+  if (typeof info.createdAt === 'number') copy.createdAt = info.createdAt;
+  return copy;
+}
+
+function copyMessage(message: Message): Message {
+  return JSON.parse(JSON.stringify(message)) as Message;
 }
 
 function createEmptyUsageInfo(): SessionUsageInfo {

@@ -203,6 +203,15 @@ export async function handleInteractiveCommand({
     return 'continue';
   }
 
+  if (cmd === '/fork') {
+    const previousSessionId = host.sessionId;
+    const requestedSessionId = args[0];
+    await host.forkSession(requestedSessionId);
+    writeLine(`${Colors.GREEN}✅ Forked session: ${host.sessionId}${Colors.RESET}`);
+    writeLine(`${Colors.DIM}Parent session: ${previousSessionId}${Colors.RESET}\n`);
+    return 'continue';
+  }
+
   if (cmd === '/clear') {
     const old = host.session.messages.length;
     await host.session.clear();

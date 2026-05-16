@@ -17,6 +17,23 @@
 17. AgentMessage / LlmMessage 最小消息边界
 18. Headless RPC 最小闭环
 19. RPC Permission Pending Approval 最小闭环
+20. Session Tree Lineage / Fork 最小 schema
+
+
+# Session Tree Lineage / Fork 最小 schema
+
+引入 M4 的第一步 session tree 基础：先在现有 flat JSONL session model 上增加向后兼容的 lineage metadata 和 fork 能力。
+
+核心变化：
+
+- `session_start` entry 增加可选 `parentSessionId`、`rootSessionId` 和 `forkedFromMessageIndex`。
+- 旧 JSONL session 没有 lineage metadata 时会被视为 root session。
+- `SessionManager.getLineageInfo()` 暴露 root/parent/fork point。
+- `SessionManager.forkSession()` 可从当前 active context messages 创建分支 session。
+- `RuntimeHost.forkSession()` 作为 mode 层统一 fork 边界。
+- interactive/TUI slash command 支持 `/fork [id]`。
+
+当前仍不是完整 session tree：尚未实现 path-aware context rebuild、clone、import/export、branch navigation 或完整 parent/child entry graph。
 
 
 # RPC Permission Pending Approval 最小闭环

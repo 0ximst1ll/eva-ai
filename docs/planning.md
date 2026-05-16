@@ -638,13 +638,28 @@ user/assistant/tool: durable session history
 
 范围：
 
-- session entry schema。
+- session entry schema：先在 `session_start` 上增加向后兼容 lineage metadata。
 - context rebuild。
 - 将 M1.x 的 flat compaction entry 演进到 tree/path-aware context rebuild。
 - `/fork`
 - `/clone`
 - import/export。
 - sidecar metadata 预留。
+
+当前最小落地：
+
+- `SessionManager` 已支持 `parentSessionId`、`rootSessionId` 和 `forkedFromMessageIndex`。
+- 旧 JSONL session 没有 lineage metadata 时会被视为 root session。
+- `SessionManager.forkSession()` 复制当前 active context messages 到新 session，并写入 lineage metadata。
+- `RuntimeHost.forkSession()` 暴露 fork 边界，mode 层不需要直接访问 `SessionManager`。
+- interactive/TUI slash command 可通过 `/fork [id]` 创建当前 session 分支。
+
+后续仍需：
+
+- path-aware context rebuild。
+- clone 与 import/export。
+- session tree 展示与 branch navigation。
+- sidecar metadata 和完整 parent/child entry graph。
 
 验收标准：
 

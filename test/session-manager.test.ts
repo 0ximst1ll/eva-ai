@@ -8,6 +8,11 @@ import { SessionManager } from '../src/core/session-manager.js';
 test('SessionManager stores and resets memory sessions', async () => {
   const manager = new SessionManager({ workspaceDir: '/workspace', mode: 'memory' });
   const sessionId = await manager.createSession('system');
+  assert.deepEqual(manager.getLineageInfo(sessionId), {
+    sessionId,
+    rootSessionId: sessionId,
+    createdAt: manager.getLineageInfo(sessionId).createdAt,
+  });
   assert.deepEqual(manager.getCompactionInfo(sessionId), { compacted: false });
   assert.deepEqual(manager.getUsageInfo(sessionId), {
     count: 0,
@@ -251,6 +256,107 @@ test('SessionManager persists internal entries without adding provider messages'
 
     await second.resetSession(sessionId, 'reset system');
     assert.deepEqual(second.getInternalEntries(sessionId), []);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('SessionManager forks sessions with persistent lineage metadata', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-fork-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+
+  try {
+    const first = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    const sourceSessionId = await first.createSession('system', 'session-root');
+    await first.appendMessage(sourceSessionId, { role: 'user', content: 'root task' });
+    await first.appendMessage(sourceSessionId, { role: 'assistant', content: 'root answer' });
+
+    const forkSessionId = await first.forkSession({
+      sourceSessionId,
+      sessionId: 'session-fork',
+    });
+
+    assert.equal(forkSessionId, 'session-fork');
+    assert.deepEqual(first.getMessages(forkSessionId), first.getMessages(sourceSessionId));
+    assert.deepEqual(first.getLineageInfo(forkSessionId), {
+      sessionId: 'session-fork',
+      parentSessionId: 'session-root',
+      rootSessionId: 'session-root',
+      forkedFromMessageIndex: 2,
+      createdAt: first.getLineageInfo(forkSessionId).createdAt,
+    });
+
+    await first.appendMessage(forkSessionId, { role: 'user', content: 'fork task' });
+    assert.deepEqual(
+      first.getMessages(sourceSessionId).map((message) => message.content),
+      ['system', 'root task', 'root answer'],
+    );
+    assert.deepEqual(
+      first.getMessages(forkSessionId).map((message) => message.content),
+      ['system', 'root task', 'root answer', 'fork task'],
+    );
+
+    const workspaceKey = encodeURIComponent(path.resolve(workspaceDir));
+    const rawForkLog = await fs.readFile(
+      path.join(baseDir, workspaceKey, 'session-fork.jsonl'),
+      'utf-8',
+    );
+    assert.match(rawForkLog, /"parentSessionId":"session-root"/);
+    assert.match(rawForkLog, /"rootSessionId":"session-root"/);
+    assert.match(rawForkLog, /"forkedFromMessageIndex":2/);
+
+    const second = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    assert.equal(await second.loadSession(forkSessionId), true);
+    assert.deepEqual(second.getMessages(forkSessionId), first.getMessages(forkSessionId));
+    assert.deepEqual(second.getLineageInfo(forkSessionId), first.getLineageInfo(forkSessionId));
+
+    const listed = await second.listSessions();
+    const forkListItem = listed.find((session) => session.sessionId === forkSessionId);
+    assert.equal(forkListItem?.parentSessionId, sourceSessionId);
+    assert.equal(forkListItem?.rootSessionId, sourceSessionId);
+    assert.equal(forkListItem?.forkedFromMessageIndex, 2);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('SessionManager treats old session_start entries as root sessions', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-old-lineage-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+  const workspaceKey = encodeURIComponent(path.resolve(workspaceDir));
+  const workspaceDataDir = path.join(baseDir, workspaceKey);
+
+  try {
+    await fs.mkdir(workspaceDataDir, { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDataDir, 'old-session.jsonl'),
+      [
+        JSON.stringify({
+          type: 'session_start',
+          sessionId: 'old-session',
+          workspaceDir: path.resolve(workspaceDir),
+          createdAt: 123,
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'old-session',
+          timestamp: 124,
+          message: { role: 'system', content: 'system' },
+        }),
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const manager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    assert.equal(await manager.loadSession('old-session'), true);
+    assert.deepEqual(manager.getLineageInfo('old-session'), {
+      sessionId: 'old-session',
+      rootSessionId: 'old-session',
+      createdAt: 123,
+    });
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

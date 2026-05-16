@@ -169,6 +169,33 @@ test('/resume <id> reports missing sessions without throwing', async () => {
   assert.match(output.join('\n'), /Session not found: .*missing-session/);
 });
 
+test('/fork forks the active runtime session through RuntimeHost', async () => {
+  let sessionId = 'session-current';
+  const forkedSessionIds: Array<string | undefined> = [];
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return sessionId;
+    },
+    async forkSession(nextSessionId?: string) {
+      forkedSessionIds.push(nextSessionId);
+      sessionId = nextSessionId ?? 'session-fork';
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/fork Session-Fork',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.deepEqual(forkedSessionIds, ['Session-Fork']);
+  assert.equal(sessionId, 'Session-Fork');
+  assert.match(output.join('\n'), /Forked session: .*Session-Fork/);
+  assert.match(output.join('\n'), /Parent session: .*session-current/);
+});
+
 test('/history prints current session id and message count', async () => {
   const output: string[] = [];
   const host = {

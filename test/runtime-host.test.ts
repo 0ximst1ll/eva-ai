@@ -57,6 +57,50 @@ test('RuntimeHost creates, resumes, and switches sessions through the runtime bo
   }
 });
 
+test('RuntimeHost forks the active session through the runtime boundary', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-fork-'));
+
+  try {
+    const configPath = await writeConfig(tempDir);
+    const sessionBaseDir = path.join(tempDir, 'sessions');
+    const host = await RuntimeHost.create({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'jsonl',
+      sessionBaseDir,
+      createNewSession: true,
+      tools: [],
+    });
+    const sourceSessionId = host.sessionId;
+    await host.session.addUserMessage('source task');
+    const sourceMessages = host.session.messages.map((message) => message.content);
+
+    await host.forkSession('forked-session');
+
+    assert.equal(host.sessionId, 'forked-session');
+    assert.deepEqual(
+      host.session.messages.map((message) => message.content),
+      sourceMessages,
+    );
+    assert.deepEqual(host.runtime.sessionManager.getLineageInfo(host.sessionId), {
+      sessionId: 'forked-session',
+      parentSessionId: sourceSessionId,
+      rootSessionId: sourceSessionId,
+      forkedFromMessageIndex: 1,
+      createdAt: host.runtime.sessionManager.getLineageInfo(host.sessionId).createdAt,
+    });
+
+    await host.session.addUserMessage('fork task');
+    await host.switchSession(sourceSessionId);
+    assert.deepEqual(
+      host.session.messages.map((message) => message.content),
+      sourceMessages,
+    );
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('RuntimeHost reloadResources keeps the active session and reloads AGENTS.md', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-'));
 
