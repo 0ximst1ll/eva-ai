@@ -4,7 +4,7 @@
 
 ## 当前快照
 
-当前版本：2026-05-14
+当前版本：2026-05-17
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
@@ -400,7 +400,7 @@ JSONL 模式下：
 
 `src/core/session-context-rebuilder.ts` 是当前最小 session context rebuild 边界。它从 `SessionManager` 读取当前 session snapshot，返回 active messages、lineage、branch path、compaction、usage、internal entries 和 entry tree metadata。新 session 如果存在 entry path，会使用 `entry_path` 策略从 active leaf 沿 `parentEntryId` 回溯构造 messages；旧 JSONL 没有 entry metadata 时仍使用 `flat_snapshot` 兼容策略。compaction path rebuild 会使用 `firstKeptEntryId` 优先恢复 compact summary 后的保留消息，并兼容旧的 `firstKeptMessageIndex`。
 
-当前 `AgentSession` 运行时仍主要从 `SessionManager.getMessages()` 获取 active messages，但 `SessionContextRebuilder` 已具备当前 session 文件内的 entry-path rebuild 能力。session model 支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry、lineage metadata、entry tree metadata、fork session 和基于 active leaf 的最小 path-aware context rebuild；还不支持跨 session parent/child graph、clone、import/export 或 branch navigation。
+`SessionManager.loadSession()` 已在主加载路径中使用 active entry path 重建 `getMessages()` 的 active messages；因此 `RuntimeHost` resume/switch 后创建的 `AgentSession` 会使用 entry-path 后的上下文。旧 JSONL 没有 entry metadata 时仍沿用 flat rebuild。当前 session model 支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry、lineage metadata、entry tree metadata、fork session 和基于 active leaf 的最小 path-aware context rebuild；还不支持跨 session parent/child graph、clone、import/export 或 branch navigation。
 
 ## Tools
 

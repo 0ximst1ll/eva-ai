@@ -222,6 +222,80 @@ test('SessionManager writes and reloads entry tree parent links', async () => {
   }
 });
 
+test('SessionManager loadSession uses the active entry path when entries branch', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-entry-path-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+  const workspaceKey = encodeURIComponent(path.resolve(workspaceDir));
+  const workspaceDataDir = path.join(baseDir, workspaceKey);
+
+  try {
+    await fs.mkdir(workspaceDataDir, { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDataDir, 'branch-session.jsonl'),
+      [
+        JSON.stringify({
+          type: 'session_start',
+          sessionId: 'branch-session',
+          workspaceDir: path.resolve(workspaceDir),
+          createdAt: 100,
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'branch-session',
+          timestamp: 101,
+          entryId: 'entry-system',
+          parentEntryId: null,
+          message: { role: 'system', content: 'system' },
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'branch-session',
+          timestamp: 102,
+          entryId: 'entry-root-task',
+          parentEntryId: 'entry-system',
+          message: { role: 'user', content: 'root task' },
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'branch-session',
+          timestamp: 103,
+          entryId: 'entry-skipped-answer',
+          parentEntryId: 'entry-root-task',
+          message: { role: 'assistant', content: 'skipped answer' },
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'branch-session',
+          timestamp: 104,
+          entryId: 'entry-branch-task',
+          parentEntryId: 'entry-root-task',
+          message: { role: 'user', content: 'branch task' },
+        }),
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const manager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    assert.equal(await manager.loadSession('branch-session'), true);
+    assert.deepEqual(
+      manager.getMessages('branch-session').map((message) => message.content),
+      ['system', 'root task', 'branch task'],
+    );
+
+    await manager.appendMessage('branch-session', { role: 'assistant', content: 'branch answer' });
+    const reloaded = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    assert.equal(await reloaded.loadSession('branch-session'), true);
+    assert.deepEqual(
+      reloaded.getMessages('branch-session').map((message) => message.content),
+      ['system', 'root task', 'branch task', 'branch answer'],
+    );
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('SessionManager appends compaction entries and rebuilds compacted context', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-compact-'));
   const workspaceDir = path.join(tempDir, 'workspace');

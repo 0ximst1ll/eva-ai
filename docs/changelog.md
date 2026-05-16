@@ -21,6 +21,21 @@
 21. SessionContextRebuilder 最小边界
 22. Session Entry Tree 最小 schema
 23. SessionContextRebuilder Entry Path 最小 rebuild
+24. Session Entry Path Resume 主路径
+
+
+# Session Entry Path Resume 主路径
+
+将 entry-path rebuild 从辅助边界接入 session resume 主路径。
+
+核心变化：
+
+- `SessionManager.loadSession()` 解析 JSONL 后，会先从 active entry leaf 沿 `parentEntryId` 得到当前 path，再重建 active messages。
+- `RuntimeHost` resume/switch 后创建的 `AgentSession` 会直接使用 path-aware active messages。
+- 旧 JSONL 没有 `entryId` / `parentEntryId` 时仍回退原有 flat rebuild。
+- 测试覆盖 `SessionManager.loadSession()` 和 `RuntimeHost` resume/switch 主路径。
+
+当前仍只支持当前 session 文件内的 entry path；跨 session parent/child graph、clone、import/export 和 branch navigation 仍未实现。
 
 
 # SessionContextRebuilder Entry Path 最小 rebuild
@@ -35,7 +50,7 @@
 - 旧 JSONL 没有 entry metadata 时仍回退 `flat_snapshot`。
 - 测试覆盖手工分支 entry path、forked session 和 compacted fork session。
 
-当前 `AgentSession` resume 主路径仍使用 `SessionManager.getMessages()` 的 flat active messages；下一步需要把 entry-path rebuild 接入主加载路径。
+当前边界已接入 `SessionManager.loadSession()` 主路径；下一步需要补齐 clone/import/export 或 branch navigation。
 
 
 # Session Entry Tree 最小 schema

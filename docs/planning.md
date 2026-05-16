@@ -657,10 +657,10 @@ user/assistant/tool: durable session history
 - 新写入的 `message`、`compaction`、`usage` 和 `internal` entry 已带有 `entryId` / `parentEntryId`，`SessionManager.getEntryTreeInfo()` 可返回当前 session 文件内的 entry tree metadata。
 - `SessionManager.getEntryPath()` 已可从 active entry leaf 回溯当前 session 文件内的 path entries。
 - `SessionContextRebuilder` 已提供最小 rebuild 边界：新 session 使用 `entry_path` 策略从 active leaf 构造 messages，旧 JSONL 无 entry metadata 时回退 `flat_snapshot`。
+- `SessionManager.loadSession()` 已在主加载路径中使用 active entry path 重建 active messages，`RuntimeHost` resume/switch 后的 `AgentSession` 会使用 path-aware context。
 
 后续仍需：
 
-- 将 entry-path rebuild 接入 `SessionManager.loadSession()` / `AgentSession` resume 主路径。
 - clone 与 import/export。
 - session tree 展示与 branch navigation。
 - 跨 session parent/child entry graph 与 sidecar metadata。

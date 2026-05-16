@@ -101,6 +101,80 @@ test('RuntimeHost forks the active session through the runtime boundary', async 
   }
 });
 
+test('RuntimeHost resumes sessions using the active entry path', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-entry-path-'));
+
+  try {
+    const configPath = await writeConfig(tempDir);
+    const sessionBaseDir = path.join(tempDir, 'sessions');
+    const workspaceKey = encodeURIComponent(path.resolve(tempDir));
+    const workspaceDataDir = path.join(sessionBaseDir, workspaceKey);
+    await fs.mkdir(workspaceDataDir, { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDataDir, 'branch-session.jsonl'),
+      [
+        JSON.stringify({
+          type: 'session_start',
+          sessionId: 'branch-session',
+          workspaceDir: path.resolve(tempDir),
+          createdAt: 100,
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'branch-session',
+          timestamp: 101,
+          entryId: 'entry-system',
+          parentEntryId: null,
+          message: { role: 'system', content: 'system' },
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'branch-session',
+          timestamp: 102,
+          entryId: 'entry-root-task',
+          parentEntryId: 'entry-system',
+          message: { role: 'user', content: 'root task' },
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'branch-session',
+          timestamp: 103,
+          entryId: 'entry-skipped-answer',
+          parentEntryId: 'entry-root-task',
+          message: { role: 'assistant', content: 'skipped answer' },
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'branch-session',
+          timestamp: 104,
+          entryId: 'entry-branch-task',
+          parentEntryId: 'entry-root-task',
+          message: { role: 'user', content: 'branch task' },
+        }),
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const host = await RuntimeHost.create({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'jsonl',
+      sessionBaseDir,
+      createNewSession: false,
+      sessionId: 'branch-session',
+      tools: [],
+    });
+
+    assert.deepEqual(
+      host.session.messages.map((message) => message.content),
+      ['system', 'root task', 'branch task'],
+    );
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('RuntimeHost reloadResources keeps the active session and reloads AGENTS.md', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-'));
 

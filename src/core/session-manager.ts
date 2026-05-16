@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { Message, TokenUsage } from '../schema.js';
 import {
   chooseFirstKeptMessageIndex,
+  createCompactionSummaryMessage,
   rebuildCompactedMessages,
   type CompactionResult,
 } from './compaction.js';
@@ -911,8 +912,11 @@ export class SessionManager {
       }
     }
 
+    const activePathEntries = buildEntryPath(pathEntries, activeEntryId);
+    const activeMessages = rebuildMessagesFromEntryPath(activePathEntries);
+
     return {
-      messages,
+      messages: activeMessages.length ? activeMessages : messages,
       createdAt,
       updatedAt,
       compaction,
@@ -1088,6 +1092,75 @@ function copySessionPathEntry(entry: SessionPathEntry): SessionPathEntry {
     content: entry.content,
     metadata: entry.metadata ? { ...entry.metadata } : undefined,
   };
+}
+
+function buildEntryPath(entries: SessionPathEntry[], leafEntryId: string | undefined): SessionPathEntry[] {
+  if (!leafEntryId) return [];
+  const byId = new Map(entries.map((entry) => [entry.entryId, entry]));
+  const pathEntries: SessionPathEntry[] = [];
+  let current = byId.get(leafEntryId);
+  while (current) {
+    pathEntries.unshift(copySessionPathEntry(current));
+    current = current.parentEntryId ? byId.get(current.parentEntryId) : undefined;
+  }
+  return pathEntries;
+}
+
+function rebuildMessagesFromEntryPath(entryPath: SessionPathEntry[]): Message[] {
+  if (!entryPath.length) return [];
+
+  let compactionIndex = -1;
+  for (let index = entryPath.length - 1; index >= 0; index -= 1) {
+    if (entryPath[index].type === 'compaction') {
+      compactionIndex = index;
+      break;
+    }
+  }
+
+  if (compactionIndex < 0) {
+    return entryPath
+      .filter((entry): entry is SessionPathEntry & { type: 'message' } => entry.type === 'message')
+      .map((entry) => copyMessage(entry.message));
+  }
+
+  const compactionEntry = entryPath[compactionIndex];
+  if (compactionEntry.type !== 'compaction') return [];
+
+  const messages: Message[] = [];
+  const beforeCompaction = entryPath.slice(0, compactionIndex);
+  const systemMessage = beforeCompaction.find((entry) => (
+    entry.type === 'message' && entry.message.role === 'system'
+  ));
+  if (systemMessage?.type === 'message') {
+    messages.push(copyMessage(systemMessage.message));
+  }
+
+  messages.push(createCompactionSummaryMessage(compactionEntry.summary));
+
+  let keepMessages = false;
+  let messageIndex = 0;
+  for (const entry of beforeCompaction) {
+    if (entry.type !== 'message') continue;
+    if (compactionEntry.firstKeptEntryId) {
+      if (entry.entryId === compactionEntry.firstKeptEntryId) {
+        keepMessages = true;
+      }
+    } else if (messageIndex >= compactionEntry.firstKeptMessageIndex) {
+      keepMessages = true;
+    }
+    messageIndex += 1;
+    if (!keepMessages) continue;
+    if (systemMessage?.entryId === entry.entryId) continue;
+    messages.push(copyMessage(entry.message));
+  }
+
+  for (const entry of entryPath.slice(compactionIndex + 1)) {
+    if (entry.type === 'message') {
+      messages.push(copyMessage(entry.message));
+    }
+  }
+
+  return messages;
 }
 
 function copyInternalEntry(entry: SessionInternalEntry): SessionInternalEntry {
