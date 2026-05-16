@@ -1,6 +1,7 @@
 import type { Message } from '../schema.js';
 import type {
   SessionCompactionInfo,
+  SessionEntryTreeInfo,
   SessionInternalEntry,
   SessionLineageInfo,
   SessionManager,
@@ -25,6 +26,7 @@ export interface SessionContextSnapshot {
   compaction: SessionCompactionInfo;
   usage: SessionUsageInfo;
   internalEntries: SessionInternalEntry[];
+  entryTree: SessionEntryTreeInfo;
 }
 
 export interface RebuildSessionContextOptions {
@@ -54,6 +56,7 @@ export async function rebuildSessionContext({
     compaction: sessionManager.getCompactionInfo(sessionId),
     usage: sessionManager.getUsageInfo(sessionId),
     internalEntries: sessionManager.getInternalEntries(sessionId, internalKind),
+    entryTree: sessionManager.getEntryTreeInfo(sessionId),
   };
 }
 

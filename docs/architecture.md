@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界、permission pending durable diagnostics、最小 Headless RPC mode，以及 RPC permission pending approval 最小闭环。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。session tree、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界、permission pending durable diagnostics、最小 Headless RPC mode、RPC permission pending approval 最小闭环，以及 M4 session lineage / fork / entry tree schema 最小边界。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。完整 path-aware session tree rebuild、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -383,6 +383,8 @@ JSONL 模式下：
 - 创建或 reset session 时写入 `session_start`；
 - `session_start` 支持向后兼容的 lineage metadata：`parentSessionId`、`rootSessionId`、`forkedFromMessageIndex`；
 - 每条 message 都写成一个 `message` entry；
+- 新写入的 `message`、`compaction`、`usage` 和 `internal` entry 都带有可选 `entryId` / `parentEntryId`，形成当前 session 文件内的 append-only parent chain；
+- 旧 JSONL entry 没有 `entryId` / `parentEntryId` 时仍可兼容读取，但不会被强行迁移为 tree entry；
 - manual compact 会追加 `compaction` entry，包含 summary、`firstKeptMessageIndex`、压缩前后 message 数和可选 custom instructions；
 - provider 返回的 token usage 会追加 `usage` entry，包含 source、timestamp 和 prompt/completion/total token 数；
 - durable harness metadata 可以追加 `internal` entry，包含 kind、timestamp、可选 content 和 metadata；这些 entries 可 reload/resume，但不会进入 `getMessages()` 或 provider request view；
@@ -392,11 +394,12 @@ JSONL 模式下：
 - `getUsageInfo()` 返回当前 session 累计 usage 和最近一次 usage；usage entries 不影响 message count，也不会进入 provider request view。
 - `getInternalEntries()` 返回当前 session 的 durable internal entries，可按 kind 过滤；internal entries 不影响 message count，也不会进入 provider request view。
 - `getLineageInfo()` 返回当前 session 的 root/parent/fork point 信息；旧 JSONL session 会被视为 root session。
+- `getEntryTreeInfo()` 返回当前 session 已持久化 entry tree 的 entries 和 active entry id，供后续 path-aware context rebuild 使用。
 - `forkSession()` 会复制当前 active context messages 到新 session，并写入 lineage metadata；fork 后父子 session 的后续消息互不影响。
 
-`src/core/session-context-rebuilder.ts` 是当前最小 session context rebuild 边界。它从 `SessionManager` 读取当前 session snapshot，返回 active messages、lineage、branch path、compaction、usage 和 internal entries。当前策略标记为 `flat_snapshot`，用于保持现有 flat JSONL 兼容；后续 path-aware rebuild 可以替换该边界，而不让 mode 或 agent loop 直接拼 session entries。
+`src/core/session-context-rebuilder.ts` 是当前最小 session context rebuild 边界。它从 `SessionManager` 读取当前 session snapshot，返回 active messages、lineage、branch path、compaction、usage、internal entries 和 entry tree metadata。当前策略标记为 `flat_snapshot`，用于保持现有 flat JSONL 兼容；后续 path-aware rebuild 可以替换该边界，而不让 mode 或 agent loop 直接拼 session entries。
 
-当前 session model 仍主要是扁平 JSONL 文件，但已经有最小 lineage schema、fork session 能力和 `SessionContextRebuilder` snapshot 边界。它支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry、lineage metadata、fork session 和基于最新 compaction 的 context rebuild；还不支持完整 parent/child entry graph、clone、import/export，也不支持从 session tree 做确定性 path-aware context rebuild。
+当前 session model 仍以 flat active messages 作为运行时上下文来源，但新写入的 JSONL entries 已具备最小 parent chain metadata。它支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry、lineage metadata、entry tree metadata、fork session 和基于最新 compaction 的 context rebuild；还不支持跨 session parent/child graph、clone、import/export，也不支持从 entry leaf 做确定性 path-aware context rebuild。
 
 ## Tools
 

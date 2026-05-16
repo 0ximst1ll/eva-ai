@@ -145,6 +145,78 @@ test('SessionManager persists and reloads jsonl sessions', async () => {
   }
 });
 
+test('SessionManager writes and reloads entry tree parent links', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-entry-tree-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+
+  try {
+    const first = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    const sessionId = await first.createSession('system', 'session-tree');
+    await first.appendMessage(sessionId, { role: 'user', content: 'hello' });
+    await first.appendUsage({
+      sessionId,
+      usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+    });
+    await first.appendInternalEntry({
+      sessionId,
+      kind: 'permission_pending',
+      content: 'approval required',
+    });
+
+    const workspaceKey = encodeURIComponent(path.resolve(workspaceDir));
+    const rawLog = await fs.readFile(
+      path.join(baseDir, workspaceKey, 'session-tree.jsonl'),
+      'utf-8',
+    );
+    const entries = rawLog
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as {
+        type: string;
+        entryId?: string;
+        parentEntryId?: string | null;
+      });
+    const messageEntries = entries.filter((entry) => entry.type === 'message');
+    const usageEntry = entries.find((entry) => entry.type === 'usage');
+    const internalEntry = entries.find((entry) => entry.type === 'internal');
+
+    assert.equal(messageEntries.length, 2);
+    assert.ok(messageEntries[0].entryId);
+    assert.equal(messageEntries[0].parentEntryId, null);
+    assert.ok(messageEntries[1].entryId);
+    assert.equal(messageEntries[1].parentEntryId, messageEntries[0].entryId);
+    assert.ok(usageEntry?.entryId);
+    assert.equal(usageEntry.parentEntryId, messageEntries[1].entryId);
+    assert.ok(internalEntry?.entryId);
+    assert.equal(internalEntry.parentEntryId, usageEntry.entryId);
+    assert.equal(first.getEntryTreeInfo(sessionId).activeEntryId, internalEntry.entryId);
+
+    const second = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    assert.equal(await second.loadSession(sessionId), true);
+    assert.deepEqual(second.getEntryTreeInfo(sessionId), first.getEntryTreeInfo(sessionId));
+
+    await second.appendMessage(sessionId, { role: 'assistant', content: 'after reload' });
+    const reloadedRawLog = await fs.readFile(
+      path.join(baseDir, workspaceKey, 'session-tree.jsonl'),
+      'utf-8',
+    );
+    const reloadedEntries = reloadedRawLog
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as {
+        type: string;
+        entryId?: string;
+        parentEntryId?: string | null;
+      });
+    const lastEntry = reloadedEntries[reloadedEntries.length - 1];
+    assert.equal(lastEntry?.type, 'message');
+    assert.equal(lastEntry?.parentEntryId, internalEntry.entryId);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('SessionManager appends compaction entries and rebuilds compacted context', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-compact-'));
   const workspaceDir = path.join(tempDir, 'workspace');

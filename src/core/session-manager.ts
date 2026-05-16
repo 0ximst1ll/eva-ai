@@ -30,6 +30,8 @@ export interface MessageEntry {
   type: 'message';
   sessionId: string;
   timestamp: number;
+  entryId?: string;
+  parentEntryId?: string | null;
   message: Message;
 }
 
@@ -37,6 +39,8 @@ export interface CompactionEntry {
   type: 'compaction';
   sessionId: string;
   timestamp: number;
+  entryId?: string;
+  parentEntryId?: string | null;
   summary: string;
   firstKeptMessageIndex: number;
   messagesBefore: number;
@@ -50,6 +54,8 @@ export interface UsageEntry {
   type: 'usage';
   sessionId: string;
   timestamp: number;
+  entryId?: string;
+  parentEntryId?: string | null;
   source: SessionUsageSource;
   usage: TokenUsage;
 }
@@ -58,12 +64,31 @@ export interface InternalEntry {
   type: 'internal';
   sessionId: string;
   timestamp: number;
+  entryId?: string;
+  parentEntryId?: string | null;
   kind: string;
   content?: string;
   metadata?: Record<string, unknown>;
 }
 
 export type SessionEntry = SessionStartEntry | MessageEntry | CompactionEntry | UsageEntry | InternalEntry;
+
+export type SessionEntryNodeType = Exclude<SessionEntry['type'], 'session_start'>;
+
+export interface SessionEntryTreeNode {
+  entryId: string;
+  parentEntryId: string | null;
+  type: SessionEntryNodeType;
+  timestamp: number;
+  messageIndex?: number;
+  kind?: string;
+}
+
+export interface SessionEntryTreeInfo {
+  sessionId: string;
+  activeEntryId?: string;
+  entries: SessionEntryTreeNode[];
+}
 
 interface SessionMetadata {
   createdAt: number;
@@ -125,6 +150,8 @@ export class SessionManager {
   private readonly sessionUsage = new Map<string, SessionUsageInfo>();
   private readonly sessionInternalEntries = new Map<string, SessionInternalEntry[]>();
   private readonly sessionLineage = new Map<string, SessionLineageInfo>();
+  private readonly sessionEntryTrees = new Map<string, SessionEntryTreeNode[]>();
+  private readonly sessionActiveEntryIds = new Map<string, string>();
   private latestSessionId?: string;
 
   constructor({
@@ -147,12 +174,20 @@ export class SessionManager {
     const now = Date.now();
     const initialMessages: Message[] = [{ role: 'system', content: systemPrompt }];
     const lineageInfo = createLineageInfo(id, now, lineage);
+    const systemEntryNode = createEntryTreeNode({
+      parentEntryId: null,
+      type: 'message',
+      timestamp: now,
+      messageIndex: 0,
+    });
     this.sessions.set(id, initialMessages);
     this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
     this.sessionCompactions.delete(id);
     this.sessionUsage.delete(id);
     this.sessionInternalEntries.delete(id);
     this.sessionLineage.set(id, lineageInfo);
+    this.sessionEntryTrees.set(id, [systemEntryNode]);
+    this.sessionActiveEntryIds.set(id, systemEntryNode.entryId);
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
@@ -162,6 +197,7 @@ export class SessionManager {
         type: 'message',
         sessionId: id,
         timestamp: now,
+        ...entryTreeFields(systemEntryNode),
         message: initialMessages[0],
       });
       await this.writeManifest({ latestSessionId: id, updatedAt: now });
@@ -188,6 +224,7 @@ export class SessionManager {
     const id = sessionId ?? randomUUID();
     const now = Date.now();
     const forkedMessages = sourceMessages.map(copyMessage);
+    const forkedEntryNodes = createLinearMessageEntryTree(forkedMessages.length, now);
     const sourceLineage = this.getLineageInfo(sourceSessionId);
     const lineageInfo = createLineageInfo(id, now, {
       parentSessionId: sourceSessionId,
@@ -201,16 +238,20 @@ export class SessionManager {
     this.sessionUsage.delete(id);
     this.sessionInternalEntries.delete(id);
     this.sessionLineage.set(id, lineageInfo);
+    this.sessionEntryTrees.set(id, forkedEntryNodes);
+    this.setActiveEntryId(id, forkedEntryNodes[forkedEntryNodes.length - 1]?.entryId);
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
       await this.ensureWorkspaceDir();
       await this.writeSessionStart(id, now, lineageInfo);
-      for (const message of forkedMessages) {
+      for (const [index, message] of forkedMessages.entries()) {
+        const entryNode = forkedEntryNodes[index];
         await this.appendEntry({
           type: 'message',
           sessionId: id,
           timestamp: now,
+          ...entryTreeFields(entryNode),
           message,
         });
       }
@@ -252,6 +293,8 @@ export class SessionManager {
       this.sessionUsage.set(sessionId, parsed.usage);
       this.sessionInternalEntries.set(sessionId, parsed.internalEntries);
       this.sessionLineage.set(sessionId, parsed.lineage);
+      this.sessionEntryTrees.set(sessionId, parsed.entryTree);
+      this.setActiveEntryId(sessionId, parsed.activeEntryId);
       await this.markLatestSession(sessionId);
       return true;
     } catch {
@@ -282,14 +325,27 @@ export class SessionManager {
     return copyLineageInfo(this.sessionLineage.get(sessionId) ?? createLineageInfo(sessionId));
   }
 
+  getEntryTreeInfo(sessionId: string): SessionEntryTreeInfo {
+    const activeEntryId = this.sessionActiveEntryIds.get(sessionId);
+    return {
+      sessionId,
+      activeEntryId,
+      entries: (this.sessionEntryTrees.get(sessionId) ?? []).map(copyEntryTreeNode),
+    };
+  }
+
   async appendMessage(sessionId: string, message: Message): Promise<void> {
     const existing = this.sessions.get(sessionId);
     if (!existing) {
       throw new Error(`Session not found: ${sessionId}`);
     }
+    const now = Date.now();
+    const entryNode = this.createNextEntryTreeNode(sessionId, 'message', now, {
+      messageIndex: existing.length,
+    });
     existing.push(message);
     this.sessions.set(sessionId, existing);
-    const now = Date.now();
+    this.recordEntryTreeNode(sessionId, entryNode);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -297,6 +353,7 @@ export class SessionManager {
         type: 'message',
         sessionId,
         timestamp: now,
+        ...entryTreeFields(entryNode),
         message,
       });
       await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
@@ -317,10 +374,12 @@ export class SessionManager {
     }
 
     const now = Date.now();
+    const entryNode = this.createNextEntryTreeNode(sessionId, 'usage', now);
     this.sessionUsage.set(
       sessionId,
       addUsage(this.getUsageInfo(sessionId), usage, now, source),
     );
+    this.recordEntryTreeNode(sessionId, entryNode);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -328,6 +387,7 @@ export class SessionManager {
         type: 'usage',
         sessionId,
         timestamp: now,
+        ...entryTreeFields(entryNode),
         source,
         usage,
       });
@@ -355,6 +415,9 @@ export class SessionManager {
 
     const normalizedKind = kind.trim();
     const now = Date.now();
+    const entryNode = this.createNextEntryTreeNode(sessionId, 'internal', now, {
+      kind: normalizedKind,
+    });
     const entry: SessionInternalEntry = {
       timestamp: now,
       kind: normalizedKind,
@@ -365,12 +428,14 @@ export class SessionManager {
       ...(this.sessionInternalEntries.get(sessionId) ?? []),
       copyInternalEntry(entry),
     ]);
+    this.recordEntryTreeNode(sessionId, entryNode);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
       await this.appendEntry({
         type: 'internal',
         sessionId,
+        ...entryTreeFields(entryNode),
         ...entry,
       });
       await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
@@ -405,6 +470,7 @@ export class SessionManager {
       firstKeptMessageIndex,
     });
     const now = Date.now();
+    const entryNode = this.createNextEntryTreeNode(sessionId, 'compaction', now);
     const result: CompactionResult = {
       summary,
       firstKeptMessageIndex,
@@ -422,6 +488,7 @@ export class SessionManager {
       messagesAfter: result.messagesAfter,
       customInstructions,
     });
+    this.recordEntryTreeNode(sessionId, entryNode);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -429,6 +496,7 @@ export class SessionManager {
         type: 'compaction',
         sessionId,
         timestamp: now,
+        ...entryTreeFields(entryNode),
         summary,
         firstKeptMessageIndex,
         messagesBefore: result.messagesBefore,
@@ -444,12 +512,20 @@ export class SessionManager {
   async resetSession(sessionId: string, systemPrompt: string): Promise<void> {
     const now = Date.now();
     const resetMessages: Message[] = [{ role: 'system', content: systemPrompt }];
+    const systemEntryNode = createEntryTreeNode({
+      parentEntryId: null,
+      type: 'message',
+      timestamp: now,
+      messageIndex: 0,
+    });
     this.sessions.set(sessionId, resetMessages);
     this.sessionCompactions.delete(sessionId);
     this.sessionUsage.delete(sessionId);
     this.sessionInternalEntries.delete(sessionId);
     const lineageInfo = this.sessionLineage.get(sessionId) ?? createLineageInfo(sessionId, now);
     this.sessionLineage.set(sessionId, lineageInfo);
+    this.sessionEntryTrees.set(sessionId, [systemEntryNode]);
+    this.sessionActiveEntryIds.set(sessionId, systemEntryNode.entryId);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -459,6 +535,7 @@ export class SessionManager {
         type: 'message',
         sessionId,
         timestamp: now,
+        ...entryTreeFields(systemEntryNode),
         message: resetMessages[0],
       });
       await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
@@ -579,6 +656,39 @@ export class SessionManager {
     this.latestSessionId = sessionId;
   }
 
+  private createNextEntryTreeNode(
+    sessionId: string,
+    type: SessionEntryNodeType,
+    timestamp: number,
+    options: {
+      messageIndex?: number;
+      kind?: string;
+    } = {},
+  ): SessionEntryTreeNode {
+    return createEntryTreeNode({
+      parentEntryId: this.sessionActiveEntryIds.get(sessionId) ?? null,
+      type,
+      timestamp,
+      ...options,
+    });
+  }
+
+  private recordEntryTreeNode(sessionId: string, entryNode: SessionEntryTreeNode): void {
+    this.sessionEntryTrees.set(sessionId, [
+      ...(this.sessionEntryTrees.get(sessionId) ?? []),
+      copyEntryTreeNode(entryNode),
+    ]);
+    this.sessionActiveEntryIds.set(sessionId, entryNode.entryId);
+  }
+
+  private setActiveEntryId(sessionId: string, entryId: string | undefined): void {
+    if (entryId) {
+      this.sessionActiveEntryIds.set(sessionId, entryId);
+    } else {
+      this.sessionActiveEntryIds.delete(sessionId);
+    }
+  }
+
   private async markLatestSession(sessionId: string): Promise<void> {
     const updatedAt = Date.now();
     this.touchSession(sessionId, updatedAt);
@@ -598,6 +708,8 @@ export class SessionManager {
     usage: SessionUsageInfo;
     internalEntries: SessionInternalEntry[];
     lineage: SessionLineageInfo;
+    entryTree: SessionEntryTreeNode[];
+    activeEntryId?: string;
   } {
     const messages: Message[] = [];
     let createdAt: number | undefined;
@@ -606,6 +718,8 @@ export class SessionManager {
     let usage = createEmptyUsageInfo();
     const internalEntries: SessionInternalEntry[] = [];
     let lineage = createLineageInfo(sessionId);
+    const entryTree: SessionEntryTreeNode[] = [];
+    let activeEntryId: string | undefined;
 
     for (const line of content.split('\n')) {
       const trimmed = line.trim();
@@ -624,11 +738,23 @@ export class SessionManager {
           continue;
         }
         if (entry.type === 'message') {
+          const entryNode = readEntryTreeNode(entry, {
+            messageIndex: messages.length,
+          });
+          if (entryNode) {
+            entryTree.push(entryNode);
+            activeEntryId = entryNode.entryId;
+          }
           messages.push(entry.message);
           updatedAt = Math.max(updatedAt, entry.timestamp);
           continue;
         }
         if (entry.type === 'compaction') {
+          const entryNode = readEntryTreeNode(entry);
+          if (entryNode) {
+            entryTree.push(entryNode);
+            activeEntryId = entryNode.entryId;
+          }
           messages.splice(
             0,
             messages.length,
@@ -651,11 +777,21 @@ export class SessionManager {
           continue;
         }
         if (entry.type === 'usage') {
+          const entryNode = readEntryTreeNode(entry);
+          if (entryNode) {
+            entryTree.push(entryNode);
+            activeEntryId = entryNode.entryId;
+          }
           updatedAt = Math.max(updatedAt, entry.timestamp);
           usage = addUsage(usage, entry.usage, entry.timestamp, entry.source);
           continue;
         }
         if (entry.type === 'internal') {
+          const entryNode = readEntryTreeNode(entry, { kind: entry.kind });
+          if (entryNode) {
+            entryTree.push(entryNode);
+            activeEntryId = entryNode.entryId;
+          }
           updatedAt = Math.max(updatedAt, entry.timestamp);
           internalEntries.push(copyInternalEntry(entry));
         }
@@ -664,12 +800,103 @@ export class SessionManager {
       }
     }
 
-    return { messages, createdAt, updatedAt, compaction, usage, internalEntries, lineage };
+    return {
+      messages,
+      createdAt,
+      updatedAt,
+      compaction,
+      usage,
+      internalEntries,
+      lineage,
+      entryTree,
+      activeEntryId,
+    };
   }
 
   private sortSessionList(sessions: SessionListItem[]): SessionListItem[] {
     return sessions.sort((a, b) => b.updatedAt - a.updatedAt || a.sessionId.localeCompare(b.sessionId));
   }
+}
+
+function createEntryTreeNode({
+  parentEntryId,
+  type,
+  timestamp,
+  messageIndex,
+  kind,
+}: {
+  parentEntryId: string | null;
+  type: SessionEntryNodeType;
+  timestamp: number;
+  messageIndex?: number;
+  kind?: string;
+}): SessionEntryTreeNode {
+  const entryNode: SessionEntryTreeNode = {
+    entryId: randomUUID(),
+    parentEntryId,
+    type,
+    timestamp,
+  };
+  if (typeof messageIndex === 'number') entryNode.messageIndex = messageIndex;
+  if (kind) entryNode.kind = kind;
+  return entryNode;
+}
+
+function createLinearMessageEntryTree(messageCount: number, timestamp: number): SessionEntryTreeNode[] {
+  const entries: SessionEntryTreeNode[] = [];
+  let parentEntryId: string | null = null;
+  for (let index = 0; index < messageCount; index += 1) {
+    const entryNode = createEntryTreeNode({
+      parentEntryId,
+      type: 'message',
+      timestamp,
+      messageIndex: index,
+    });
+    entries.push(entryNode);
+    parentEntryId = entryNode.entryId;
+  }
+  return entries;
+}
+
+function entryTreeFields(entryNode: SessionEntryTreeNode): {
+  entryId: string;
+  parentEntryId: string | null;
+} {
+  return {
+    entryId: entryNode.entryId,
+    parentEntryId: entryNode.parentEntryId,
+  };
+}
+
+function readEntryTreeNode(
+  entry: MessageEntry | CompactionEntry | UsageEntry | InternalEntry,
+  options: {
+    messageIndex?: number;
+    kind?: string;
+  } = {},
+): SessionEntryTreeNode | null {
+  if (!entry.entryId) return null;
+  const entryNode: SessionEntryTreeNode = {
+    entryId: entry.entryId,
+    parentEntryId: entry.parentEntryId ?? null,
+    type: entry.type,
+    timestamp: entry.timestamp,
+  };
+  if (typeof options.messageIndex === 'number') entryNode.messageIndex = options.messageIndex;
+  if (options.kind) entryNode.kind = options.kind;
+  return entryNode;
+}
+
+function copyEntryTreeNode(entryNode: SessionEntryTreeNode): SessionEntryTreeNode {
+  const copy: SessionEntryTreeNode = {
+    entryId: entryNode.entryId,
+    parentEntryId: entryNode.parentEntryId,
+    type: entryNode.type,
+    timestamp: entryNode.timestamp,
+  };
+  if (typeof entryNode.messageIndex === 'number') copy.messageIndex = entryNode.messageIndex;
+  if (entryNode.kind) copy.kind = entryNode.kind;
+  return copy;
 }
 
 function copyInternalEntry(entry: SessionInternalEntry): SessionInternalEntry {

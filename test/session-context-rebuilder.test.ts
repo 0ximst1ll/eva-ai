@@ -56,6 +56,11 @@ test('SessionContextRebuilder rebuilds old flat JSONL sessions as root snapshots
       sessionId: 'old-session',
       rootSessionId: 'old-session',
     }]);
+    assert.deepEqual(snapshot.entryTree, {
+      sessionId: 'old-session',
+      activeEntryId: undefined,
+      entries: [],
+    });
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -103,6 +108,9 @@ test('SessionContextRebuilder returns fork lineage and isolated fork messages', 
         forkedFromMessageIndex: 2,
       },
     ]);
+    assert.equal(snapshot.entryTree.entries.length, 4);
+    const lastEntry = snapshot.entryTree.entries[snapshot.entryTree.entries.length - 1];
+    assert.equal(lastEntry.parentEntryId, snapshot.entryTree.entries[2].entryId);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

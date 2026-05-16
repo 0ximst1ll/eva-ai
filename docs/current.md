@@ -1,12 +1,12 @@
 # Eva AI Current
 
-## 当前状态（2026-05-16）
+## 当前状态（2026-05-17）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork schema 和 `SessionContextRebuilder` snapshot 边界。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork schema、entry tree schema 和 `SessionContextRebuilder` snapshot 边界。
 
 当前 M3 Headless RPC 已完成最小实现：`--rpc` 启动 JSONL stdin/stdout 协议，RPC mode 共享 `RuntimeHost` / `AgentSession` 路径，不新增第二套 agent 实现。RPC 真实 CLI 子进程 smoke test 已补齐，用于验证 stdout 协议纯净性。M3.1 RPC permission pending approval 最小闭环已实现：默认 fail-closed，`permission_mode=request` 时可通过 RPC event 和审批命令完成 tool permission 决策。
 
-当前 M4 已完成前两步：`SessionManager` 支持向后兼容的 lineage metadata、`forkSession()`、旧 JSONL root fallback；`RuntimeHost` 暴露 `forkSession()`；interactive/TUI 可通过 `/fork [id]` 创建当前 session 分支；`SessionContextRebuilder` 已提供最小 `flat_snapshot` rebuild 边界。
+当前 M4 已完成前三步：`SessionManager` 支持向后兼容的 lineage metadata、`forkSession()`、旧 JSONL root fallback；RuntimeHost 暴露 `forkSession()`；interactive/TUI 可通过 `/fork [id]` 创建当前 session 分支；新写入的 session entries 已带有 `entryId` / `parentEntryId`；`SessionContextRebuilder` 已提供最小 `flat_snapshot` rebuild 边界并返回 entry tree metadata。
 
 ## 已完成
 
@@ -52,18 +52,20 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - `SessionManager` 的 `session_start` 已支持 `parentSessionId`、`rootSessionId` 和 `forkedFromMessageIndex`。
 - 旧 JSONL session 没有 lineage metadata 时会被视为 root session。
 - `SessionManager.forkSession()` 会复制当前 active context messages 到新 session，并写入 lineage metadata；父子 session 后续消息互不影响。
+- 新写入的 `message`、`compaction`、`usage` 和 `internal` session entries 已带有 `entryId` / `parentEntryId`，可形成当前 session 文件内的 append-only parent chain。
+- `SessionManager.getEntryTreeInfo()` 已可返回当前 session 的 entries 和 active entry id；旧 JSONL entries 没有 entry metadata 时仍兼容读取。
 - `RuntimeHost.forkSession()` 已作为 mode 层统一 fork 边界。
 - interactive/TUI slash command 已支持 `/fork [id]`。
 - `SessionContextRebuilder` 已支持旧 flat JSONL、forked session 和 compacted fork session 的 snapshot rebuild。
-- `SessionContextRebuilder` 当前返回 active messages、lineage、branch path、compaction、usage 和 internal entries。
+- `SessionContextRebuilder` 当前返回 active messages、lineage、branch path、compaction、usage、internal entries 和 entry tree metadata。
 
 ## 进行中
 
-- M4 后续：path-aware context rebuild、clone/import/export、session tree 展示与 branch navigation 尚未实现。
+- M4 后续：基于 entry leaf 的 path-aware context rebuild、clone/import/export、session tree 展示与 branch navigation 尚未实现。
 
 ## 下一步
 
-- 继续 M4 path-aware context rebuild 设计，或先将 `SessionContextRebuilder` 接入 `SessionManager.loadSession()` 内部路径。
+- 继续 M4 path-aware context rebuild：让 `SessionContextRebuilder` 从 active entry leaf 回溯构造 context，而不是只返回 flat snapshot。
 - 后续进入 MCP/Skills/Extensions 前置骨架。
 
 ## 后续重点计划
@@ -72,7 +74,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - ContextManager 后续再承接完整 token budget 和 skills/resource reinjection 策略。
 - 当前 `max_steps` 后续应进一步迁移为 print/headless/RPC 场景下的命名更明确的可选 runaway guard。
 - 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 逐步建立。
-- 完整 session tree、clone、import/export 和 path-aware context rebuild 放入后续 session model 阶段。
+- 跨 session parent/child graph、clone、import/export 和 path-aware context rebuild 放入后续 session model 阶段。
 - 完整 permission pipeline 后续继续补 permission modes、rules、diagnostics 和 RPC/ACP pending event。
 
 ## 已知问题
@@ -85,6 +87,6 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
 - 当前 `max_steps` 字段名仍偏模糊，后续应迁移为 `max_steps_per_run` 或同类命名。
 - RPC mode 仍是最小闭环，尚未支持完整 ACP 兼容层。
-- session history 仍主要是 flat JSONL，已有最小 lineage/fork schema，但尚未支持完整 session tree/path-aware rebuild。
+- session runtime context 仍来自 flat active messages，已有最小 lineage/fork/entry tree schema，但尚未支持完整 path-aware rebuild。
 - tool result budget、超大输出持久化、完整 permission pipeline 尚未实现。
 - TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。

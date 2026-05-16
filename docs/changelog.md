@@ -19,6 +19,22 @@
 19. RPC Permission Pending Approval 最小闭环
 20. Session Tree Lineage / Fork 最小 schema
 21. SessionContextRebuilder 最小边界
+22. Session Entry Tree 最小 schema
+
+
+# Session Entry Tree 最小 schema
+
+为 M4 Session Tree 增加当前 session 文件内的 entry parent chain，继续向 `pi-mono` 的 append-only session tree 靠拢。
+
+核心变化：
+
+- 新写入的 `message`、`compaction`、`usage` 和 `internal` entry 都带有 `entryId` / `parentEntryId`。
+- `SessionManager` 维护当前 session 的 active entry id，并在 reload 后继续从最新持久化 entry 追加。
+- `SessionManager.getEntryTreeInfo()` 暴露当前 session 的 entry tree metadata。
+- `SessionContextRebuilder` snapshot 增加 entry tree metadata。
+- 旧 JSONL entries 没有 entry metadata 时仍兼容读取，不做强制迁移。
+
+当前仍未实现真正的 path-aware context rebuild；运行时 context 仍来自 flat active messages。
 
 
 # SessionContextRebuilder 最小边界

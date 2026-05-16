@@ -639,6 +639,7 @@ user/assistant/tool: durable session history
 范围：
 
 - session entry schema：先在 `session_start` 上增加向后兼容 lineage metadata。
+- session entry schema：逐步为 `message`、`compaction`、`usage` 和 `internal` entry 增加 `entryId` / `parentEntryId`。
 - context rebuild。
 - 将 M1.x 的 flat compaction entry 演进到 tree/path-aware context rebuild。
 - `/fork`
@@ -653,14 +654,15 @@ user/assistant/tool: durable session history
 - `SessionManager.forkSession()` 复制当前 active context messages 到新 session，并写入 lineage metadata。
 - `RuntimeHost.forkSession()` 暴露 fork 边界，mode 层不需要直接访问 `SessionManager`。
 - interactive/TUI slash command 可通过 `/fork [id]` 创建当前 session 分支。
-- `SessionContextRebuilder` 已提供最小 rebuild 边界，当前策略为 `flat_snapshot`，返回 active messages、lineage、branch path、compaction、usage 和 internal entries。
+- 新写入的 `message`、`compaction`、`usage` 和 `internal` entry 已带有 `entryId` / `parentEntryId`，`SessionManager.getEntryTreeInfo()` 可返回当前 session 文件内的 entry tree metadata。
+- `SessionContextRebuilder` 已提供最小 rebuild 边界，当前策略为 `flat_snapshot`，返回 active messages、lineage、branch path、compaction、usage、internal entries 和 entry tree metadata。
 
 后续仍需：
 
 - path-aware context rebuild。
 - clone 与 import/export。
 - session tree 展示与 branch navigation。
-- sidecar metadata 和完整 parent/child entry graph。
+- 跨 session parent/child entry graph 与 sidecar metadata。
 
 验收标准：
 
