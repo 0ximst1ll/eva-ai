@@ -42,6 +42,7 @@ export interface CompactionEntry {
   entryId?: string;
   parentEntryId?: string | null;
   summary: string;
+  firstKeptEntryId?: string;
   firstKeptMessageIndex: number;
   messagesBefore: number;
   messagesAfter: number;
@@ -90,6 +91,12 @@ export interface SessionEntryTreeInfo {
   entries: SessionEntryTreeNode[];
 }
 
+export type SessionPathEntry =
+  | (MessageEntry & { entryId: string; parentEntryId: string | null })
+  | (CompactionEntry & { entryId: string; parentEntryId: string | null })
+  | (UsageEntry & { entryId: string; parentEntryId: string | null })
+  | (InternalEntry & { entryId: string; parentEntryId: string | null });
+
 interface SessionMetadata {
   createdAt: number;
   updatedAt: number;
@@ -99,6 +106,7 @@ export interface SessionCompactionInfo {
   compacted: boolean;
   timestamp?: number;
   summaryLength?: number;
+  firstKeptEntryId?: string;
   firstKeptMessageIndex?: number;
   messagesBefore?: number;
   messagesAfter?: number;
@@ -151,6 +159,7 @@ export class SessionManager {
   private readonly sessionInternalEntries = new Map<string, SessionInternalEntry[]>();
   private readonly sessionLineage = new Map<string, SessionLineageInfo>();
   private readonly sessionEntryTrees = new Map<string, SessionEntryTreeNode[]>();
+  private readonly sessionPathEntries = new Map<string, SessionPathEntry[]>();
   private readonly sessionActiveEntryIds = new Map<string, string>();
   private latestSessionId?: string;
 
@@ -187,6 +196,12 @@ export class SessionManager {
     this.sessionInternalEntries.delete(id);
     this.sessionLineage.set(id, lineageInfo);
     this.sessionEntryTrees.set(id, [systemEntryNode]);
+    this.sessionPathEntries.set(id, [createMessagePathEntry({
+      sessionId: id,
+      timestamp: now,
+      entryNode: systemEntryNode,
+      message: initialMessages[0],
+    })]);
     this.sessionActiveEntryIds.set(id, systemEntryNode.entryId);
     this.latestSessionId = id;
 
@@ -239,6 +254,12 @@ export class SessionManager {
     this.sessionInternalEntries.delete(id);
     this.sessionLineage.set(id, lineageInfo);
     this.sessionEntryTrees.set(id, forkedEntryNodes);
+    this.sessionPathEntries.set(id, forkedEntryNodes.map((entryNode, index) => createMessagePathEntry({
+      sessionId: id,
+      timestamp: now,
+      entryNode,
+      message: forkedMessages[index],
+    })));
     this.setActiveEntryId(id, forkedEntryNodes[forkedEntryNodes.length - 1]?.entryId);
     this.latestSessionId = id;
 
@@ -294,6 +315,7 @@ export class SessionManager {
       this.sessionInternalEntries.set(sessionId, parsed.internalEntries);
       this.sessionLineage.set(sessionId, parsed.lineage);
       this.sessionEntryTrees.set(sessionId, parsed.entryTree);
+      this.sessionPathEntries.set(sessionId, parsed.pathEntries);
       this.setActiveEntryId(sessionId, parsed.activeEntryId);
       await this.markLatestSession(sessionId);
       return true;
@@ -334,6 +356,21 @@ export class SessionManager {
     };
   }
 
+  getEntryPath(sessionId: string, leafEntryId?: string): SessionPathEntry[] {
+    const entries = this.sessionPathEntries.get(sessionId) ?? [];
+    const activeEntryId = leafEntryId ?? this.sessionActiveEntryIds.get(sessionId);
+    if (!activeEntryId) return [];
+
+    const byId = new Map(entries.map((entry) => [entry.entryId, entry]));
+    const pathEntries: SessionPathEntry[] = [];
+    let current = byId.get(activeEntryId);
+    while (current) {
+      pathEntries.unshift(copySessionPathEntry(current));
+      current = current.parentEntryId ? byId.get(current.parentEntryId) : undefined;
+    }
+    return pathEntries;
+  }
+
   async appendMessage(sessionId: string, message: Message): Promise<void> {
     const existing = this.sessions.get(sessionId);
     if (!existing) {
@@ -346,6 +383,12 @@ export class SessionManager {
     existing.push(message);
     this.sessions.set(sessionId, existing);
     this.recordEntryTreeNode(sessionId, entryNode);
+    this.recordPathEntry(sessionId, createMessagePathEntry({
+      sessionId,
+      timestamp: now,
+      entryNode,
+      message,
+    }));
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -380,6 +423,14 @@ export class SessionManager {
       addUsage(this.getUsageInfo(sessionId), usage, now, source),
     );
     this.recordEntryTreeNode(sessionId, entryNode);
+    this.recordPathEntry(sessionId, {
+      type: 'usage',
+      sessionId,
+      timestamp: now,
+      ...entryTreeFields(entryNode),
+      source,
+      usage: { ...usage },
+    });
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -429,6 +480,12 @@ export class SessionManager {
       copyInternalEntry(entry),
     ]);
     this.recordEntryTreeNode(sessionId, entryNode);
+    this.recordPathEntry(sessionId, {
+      type: 'internal',
+      sessionId,
+      ...entryTreeFields(entryNode),
+      ...copyInternalEntry(entry),
+    });
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -471,6 +528,10 @@ export class SessionManager {
     });
     const now = Date.now();
     const entryNode = this.createNextEntryTreeNode(sessionId, 'compaction', now);
+    const firstKeptEntryId = findFirstKeptEntryId(
+      this.sessionEntryTrees.get(sessionId) ?? [],
+      firstKeptMessageIndex,
+    );
     const result: CompactionResult = {
       summary,
       firstKeptMessageIndex,
@@ -483,12 +544,25 @@ export class SessionManager {
       compacted: true,
       timestamp: now,
       summaryLength: summary.length,
+      firstKeptEntryId,
       firstKeptMessageIndex,
       messagesBefore: result.messagesBefore,
       messagesAfter: result.messagesAfter,
       customInstructions,
     });
     this.recordEntryTreeNode(sessionId, entryNode);
+    this.recordPathEntry(sessionId, {
+      type: 'compaction',
+      sessionId,
+      timestamp: now,
+      ...entryTreeFields(entryNode),
+      summary,
+      firstKeptEntryId,
+      firstKeptMessageIndex,
+      messagesBefore: result.messagesBefore,
+      messagesAfter: result.messagesAfter,
+      customInstructions,
+    });
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -498,6 +572,7 @@ export class SessionManager {
         timestamp: now,
         ...entryTreeFields(entryNode),
         summary,
+        firstKeptEntryId,
         firstKeptMessageIndex,
         messagesBefore: result.messagesBefore,
         messagesAfter: result.messagesAfter,
@@ -525,6 +600,12 @@ export class SessionManager {
     const lineageInfo = this.sessionLineage.get(sessionId) ?? createLineageInfo(sessionId, now);
     this.sessionLineage.set(sessionId, lineageInfo);
     this.sessionEntryTrees.set(sessionId, [systemEntryNode]);
+    this.sessionPathEntries.set(sessionId, [createMessagePathEntry({
+      sessionId,
+      timestamp: now,
+      entryNode: systemEntryNode,
+      message: resetMessages[0],
+    })]);
     this.sessionActiveEntryIds.set(sessionId, systemEntryNode.entryId);
     this.touchSession(sessionId, now);
 
@@ -681,6 +762,13 @@ export class SessionManager {
     this.sessionActiveEntryIds.set(sessionId, entryNode.entryId);
   }
 
+  private recordPathEntry(sessionId: string, entry: SessionPathEntry): void {
+    this.sessionPathEntries.set(sessionId, [
+      ...(this.sessionPathEntries.get(sessionId) ?? []),
+      copySessionPathEntry(entry),
+    ]);
+  }
+
   private setActiveEntryId(sessionId: string, entryId: string | undefined): void {
     if (entryId) {
       this.sessionActiveEntryIds.set(sessionId, entryId);
@@ -709,6 +797,7 @@ export class SessionManager {
     internalEntries: SessionInternalEntry[];
     lineage: SessionLineageInfo;
     entryTree: SessionEntryTreeNode[];
+    pathEntries: SessionPathEntry[];
     activeEntryId?: string;
   } {
     const messages: Message[] = [];
@@ -719,6 +808,7 @@ export class SessionManager {
     const internalEntries: SessionInternalEntry[] = [];
     let lineage = createLineageInfo(sessionId);
     const entryTree: SessionEntryTreeNode[] = [];
+    const pathEntries: SessionPathEntry[] = [];
     let activeEntryId: string | undefined;
 
     for (const line of content.split('\n')) {
@@ -743,6 +833,11 @@ export class SessionManager {
           });
           if (entryNode) {
             entryTree.push(entryNode);
+            pathEntries.push(copySessionPathEntry({
+              ...entry,
+              entryId: entryNode.entryId,
+              parentEntryId: entryNode.parentEntryId,
+            }));
             activeEntryId = entryNode.entryId;
           }
           messages.push(entry.message);
@@ -753,6 +848,11 @@ export class SessionManager {
           const entryNode = readEntryTreeNode(entry);
           if (entryNode) {
             entryTree.push(entryNode);
+            pathEntries.push(copySessionPathEntry({
+              ...entry,
+              entryId: entryNode.entryId,
+              parentEntryId: entryNode.parentEntryId,
+            }));
             activeEntryId = entryNode.entryId;
           }
           messages.splice(
@@ -769,6 +869,7 @@ export class SessionManager {
             compacted: true,
             timestamp: entry.timestamp,
             summaryLength: entry.summary.length,
+            firstKeptEntryId: entry.firstKeptEntryId,
             firstKeptMessageIndex: entry.firstKeptMessageIndex,
             messagesBefore: entry.messagesBefore,
             messagesAfter: entry.messagesAfter,
@@ -780,6 +881,11 @@ export class SessionManager {
           const entryNode = readEntryTreeNode(entry);
           if (entryNode) {
             entryTree.push(entryNode);
+            pathEntries.push(copySessionPathEntry({
+              ...entry,
+              entryId: entryNode.entryId,
+              parentEntryId: entryNode.parentEntryId,
+            }));
             activeEntryId = entryNode.entryId;
           }
           updatedAt = Math.max(updatedAt, entry.timestamp);
@@ -790,6 +896,11 @@ export class SessionManager {
           const entryNode = readEntryTreeNode(entry, { kind: entry.kind });
           if (entryNode) {
             entryTree.push(entryNode);
+            pathEntries.push(copySessionPathEntry({
+              ...entry,
+              entryId: entryNode.entryId,
+              parentEntryId: entryNode.parentEntryId,
+            }));
             activeEntryId = entryNode.entryId;
           }
           updatedAt = Math.max(updatedAt, entry.timestamp);
@@ -809,6 +920,7 @@ export class SessionManager {
       internalEntries,
       lineage,
       entryTree,
+      pathEntries,
       activeEntryId,
     };
   }
@@ -858,6 +970,26 @@ function createLinearMessageEntryTree(messageCount: number, timestamp: number): 
   return entries;
 }
 
+function createMessagePathEntry({
+  sessionId,
+  timestamp,
+  entryNode,
+  message,
+}: {
+  sessionId: string;
+  timestamp: number;
+  entryNode: SessionEntryTreeNode;
+  message: Message;
+}): SessionPathEntry {
+  return {
+    type: 'message',
+    sessionId,
+    timestamp,
+    ...entryTreeFields(entryNode),
+    message: copyMessage(message),
+  };
+}
+
 function entryTreeFields(entryNode: SessionEntryTreeNode): {
   entryId: string;
   parentEntryId: string | null;
@@ -897,6 +1029,65 @@ function copyEntryTreeNode(entryNode: SessionEntryTreeNode): SessionEntryTreeNod
   if (typeof entryNode.messageIndex === 'number') copy.messageIndex = entryNode.messageIndex;
   if (entryNode.kind) copy.kind = entryNode.kind;
   return copy;
+}
+
+function findFirstKeptEntryId(
+  entries: SessionEntryTreeNode[],
+  firstKeptMessageIndex: number,
+): string | undefined {
+  return entries.find((entry) => (
+    entry.type === 'message'
+    && entry.messageIndex === firstKeptMessageIndex
+  ))?.entryId;
+}
+
+function copySessionPathEntry(entry: SessionPathEntry): SessionPathEntry {
+  if (entry.type === 'message') {
+    return {
+      type: 'message',
+      sessionId: entry.sessionId,
+      timestamp: entry.timestamp,
+      entryId: entry.entryId,
+      parentEntryId: entry.parentEntryId,
+      message: copyMessage(entry.message),
+    };
+  }
+  if (entry.type === 'compaction') {
+    return {
+      type: 'compaction',
+      sessionId: entry.sessionId,
+      timestamp: entry.timestamp,
+      entryId: entry.entryId,
+      parentEntryId: entry.parentEntryId,
+      summary: entry.summary,
+      firstKeptEntryId: entry.firstKeptEntryId,
+      firstKeptMessageIndex: entry.firstKeptMessageIndex,
+      messagesBefore: entry.messagesBefore,
+      messagesAfter: entry.messagesAfter,
+      customInstructions: entry.customInstructions,
+    };
+  }
+  if (entry.type === 'usage') {
+    return {
+      type: 'usage',
+      sessionId: entry.sessionId,
+      timestamp: entry.timestamp,
+      entryId: entry.entryId,
+      parentEntryId: entry.parentEntryId,
+      source: entry.source,
+      usage: { ...entry.usage },
+    };
+  }
+  return {
+    type: 'internal',
+    sessionId: entry.sessionId,
+    timestamp: entry.timestamp,
+    entryId: entry.entryId,
+    parentEntryId: entry.parentEntryId,
+    kind: entry.kind,
+    content: entry.content,
+    metadata: entry.metadata ? { ...entry.metadata } : undefined,
+  };
 }
 
 function copyInternalEntry(entry: SessionInternalEntry): SessionInternalEntry {

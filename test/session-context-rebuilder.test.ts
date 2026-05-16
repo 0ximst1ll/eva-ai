@@ -66,6 +66,77 @@ test('SessionContextRebuilder rebuilds old flat JSONL sessions as root snapshots
   }
 });
 
+test('SessionContextRebuilder rebuilds messages from the active entry path', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-context-rebuild-entry-path-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+  const workspaceKey = encodeURIComponent(path.resolve(workspaceDir));
+  const workspaceDataDir = path.join(baseDir, workspaceKey);
+
+  try {
+    await fs.mkdir(workspaceDataDir, { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDataDir, 'branch-session.jsonl'),
+      [
+        JSON.stringify({
+          type: 'session_start',
+          sessionId: 'branch-session',
+          workspaceDir: path.resolve(workspaceDir),
+          createdAt: 100,
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'branch-session',
+          timestamp: 101,
+          entryId: 'entry-system',
+          parentEntryId: null,
+          message: { role: 'system', content: 'system' },
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'branch-session',
+          timestamp: 102,
+          entryId: 'entry-root-task',
+          parentEntryId: 'entry-system',
+          message: { role: 'user', content: 'root task' },
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'branch-session',
+          timestamp: 103,
+          entryId: 'entry-skipped-answer',
+          parentEntryId: 'entry-root-task',
+          message: { role: 'assistant', content: 'skipped answer' },
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'branch-session',
+          timestamp: 104,
+          entryId: 'entry-branch-task',
+          parentEntryId: 'entry-root-task',
+          message: { role: 'user', content: 'branch task' },
+        }),
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const sessionManager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    const snapshot = await rebuildSessionContext({ sessionManager, sessionId: 'branch-session' });
+
+    assert.ok(snapshot);
+    assert.equal(snapshot.strategy, 'entry_path');
+    assert.deepEqual(snapshot.messages.map((message) => message.content), [
+      'system',
+      'root task',
+      'branch task',
+    ]);
+    assert.equal(snapshot.entryTree.activeEntryId, 'entry-branch-task');
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('SessionContextRebuilder returns fork lineage and isolated fork messages', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-context-rebuild-fork-'));
   const workspaceDir = path.join(tempDir, 'workspace');
@@ -85,6 +156,7 @@ test('SessionContextRebuilder returns fork lineage and isolated fork messages', 
     const snapshot = await rebuildSessionContext({ sessionManager, sessionId: forkSessionId });
 
     assert.ok(snapshot);
+    assert.equal(snapshot.strategy, 'entry_path');
     assert.deepEqual(snapshot.messages.map((message) => message.content), [
       'system',
       'root task',
@@ -153,6 +225,7 @@ test('SessionContextRebuilder includes compacted fork metadata and internal entr
     const snapshot = await rebuildSessionContext({ sessionManager: second, sessionId: forkSessionId });
 
     assert.ok(snapshot);
+    assert.equal(snapshot.strategy, 'entry_path');
     assert.equal(snapshot.compaction.compacted, true);
     assert.equal(snapshot.compaction.summaryLength, 'Fork summary.'.length);
     assert.equal(snapshot.usage.count, 1);

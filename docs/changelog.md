@@ -20,6 +20,22 @@
 20. Session Tree Lineage / Fork 最小 schema
 21. SessionContextRebuilder 最小边界
 22. Session Entry Tree 最小 schema
+23. SessionContextRebuilder Entry Path 最小 rebuild
+
+
+# SessionContextRebuilder Entry Path 最小 rebuild
+
+让 `SessionContextRebuilder` 从只返回 flat snapshot metadata，推进到可基于 active entry leaf 回溯当前 session 文件内的 entry path。
+
+核心变化：
+
+- `SessionManager` 新增带 payload 的 `getEntryPath()`，从 active entry leaf 沿 `parentEntryId` 回溯。
+- `compaction` entry 新增可选 `firstKeptEntryId`，同时保留 `firstKeptMessageIndex` 兼容旧数据。
+- `SessionContextRebuilder` 新增 `entry_path` strategy；新 session 有 entry metadata 时按 entry path 构造 messages。
+- 旧 JSONL 没有 entry metadata 时仍回退 `flat_snapshot`。
+- 测试覆盖手工分支 entry path、forked session 和 compacted fork session。
+
+当前 `AgentSession` resume 主路径仍使用 `SessionManager.getMessages()` 的 flat active messages；下一步需要把 entry-path rebuild 接入主加载路径。
 
 
 # Session Entry Tree 最小 schema
@@ -34,7 +50,7 @@
 - `SessionContextRebuilder` snapshot 增加 entry tree metadata。
 - 旧 JSONL entries 没有 entry metadata 时仍兼容读取，不做强制迁移。
 
-当前仍未实现真正的 path-aware context rebuild；运行时 context 仍来自 flat active messages。
+当前 schema 已可支撑当前 session 文件内的 entry-path rebuild；跨 session parent/child graph 仍未实现。
 
 
 # SessionContextRebuilder 最小边界

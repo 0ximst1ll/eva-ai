@@ -191,10 +191,15 @@ test('SessionManager writes and reloads entry tree parent links', async () => {
     assert.ok(internalEntry?.entryId);
     assert.equal(internalEntry.parentEntryId, usageEntry.entryId);
     assert.equal(first.getEntryTreeInfo(sessionId).activeEntryId, internalEntry.entryId);
+    assert.deepEqual(
+      first.getEntryPath(sessionId).map((entry) => entry.type),
+      ['message', 'message', 'usage', 'internal'],
+    );
 
     const second = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
     assert.equal(await second.loadSession(sessionId), true);
     assert.deepEqual(second.getEntryTreeInfo(sessionId), first.getEntryTreeInfo(sessionId));
+    assert.deepEqual(second.getEntryPath(sessionId), first.getEntryPath(sessionId));
 
     await second.appendMessage(sessionId, { role: 'assistant', content: 'after reload' });
     const reloadedRawLog = await fs.readFile(
@@ -253,6 +258,7 @@ test('SessionManager appends compaction entries and rebuilds compacted context',
       compacted: true,
       timestamp: first.getCompactionInfo(sessionId).timestamp,
       summaryLength: 24,
+      firstKeptEntryId: first.getCompactionInfo(sessionId).firstKeptEntryId,
       firstKeptMessageIndex: 5,
       messagesBefore: 7,
       messagesAfter: 4,
