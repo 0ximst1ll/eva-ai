@@ -46,14 +46,15 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - M3.1 RPC permission pending 设计已明确：默认 fail-closed，可通过 request 模式输出 `permission_pending` event，并通过 `approve_permission` / `deny_permission` 命令解析审批结果。
 - RPC `permission_mode=request` 已支持 `permission_pending` event、`approve_permission` / `deny_permission` 命令、pending timeout、abort cancel 和 durable `permission_pending` internal entry。
 - RPC `get_state` 已包含 pending permission 摘要。
+- RPC permission tests 已覆盖 approve、deny、timeout 和 pending state summary。
 
 ## 进行中
 
-- M3.1 后续收敛：RPC permission timeout/deny 的更细测试覆盖，以及未来 ACP 兼容层。
+- M3.1 后续收敛完成，下一步可进入 M4 Session Tree 与可恢复状态，或先做 MCP/Skills/Extensions 前置骨架。
 
 ## 下一步
 
-- 补 RPC permission timeout / deny 分支测试，或进入 M4 Session Tree 与可恢复状态。
+- 进入 M4 Session Tree 与可恢复状态的设计/最小 schema，或先做 MCP/Skills/Extensions 前置骨架。
 - 继续进入 MCP/Skills/Extensions 前置骨架或 session tree/fork 规划中的下一项。
 
 ## 后续重点计划

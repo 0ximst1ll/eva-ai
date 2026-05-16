@@ -379,3 +379,169 @@ test('RPC permission request mode emits pending event and approval resumes promp
   assert.equal(stats.internalEntries.length, 1);
   assert.equal((stats.internalEntries[0]?.['metadata'] as Record<string, unknown>)['permissionId'], permission['permission_id']);
 });
+
+test('RPC permission request mode supports explicit deny', async () => {
+  let confirmationHandler: ((request: ToolConfirmationRequest) => Promise<ToolPermissionDecision>) | undefined;
+  const { host } = createHost({
+    async run() {
+      assert.ok(confirmationHandler);
+      const decision = await confirmationHandler({
+        toolCall: {
+          id: 'call-deny',
+          type: 'function',
+          function: {
+            name: 'bash',
+            arguments: { command: 'rm -rf tmp' },
+          },
+        },
+        tool: {
+          name: 'bash',
+          description: 'Run shell command',
+          parameters: {},
+          metadata: {
+            category: 'bash',
+            riskLevel: 'high',
+            source: 'builtin',
+            isReadOnly: false,
+            isConcurrencySafe: false,
+            requiresConfirmation: true,
+          },
+          async execute() {
+            return { success: true, content: 'ok' };
+          },
+        },
+        args: { command: 'rm -rf tmp' },
+        metadata: {
+          category: 'bash',
+          riskLevel: 'high',
+          source: 'builtin',
+          isReadOnly: false,
+          isConcurrencySafe: false,
+          requiresConfirmation: true,
+        },
+      });
+      return `decision:${decision}`;
+    },
+  });
+  const output = new JsonlOutput();
+  const state = createState();
+
+  const promptTask = handleRpcRequest({
+    host,
+    state,
+    request: {
+      id: 'prompt-deny',
+      method: 'prompt',
+      params: {
+        prompt: 'please run bash',
+        permission_mode: 'request',
+        permission_timeout_ms: 10000,
+      },
+    },
+    output: output as unknown as NodeJS.WritableStream,
+    setToolConfirmationHandler(handler) {
+      confirmationHandler = handler;
+    },
+  });
+
+  await waitFor(() => output.envelopes().some((envelope) => {
+    const event = envelope['event'] as Record<string, unknown> | undefined;
+    return event?.['type'] === 'permission_pending';
+  }));
+
+  const permissionEnvelope = output.envelopes().find((envelope) => {
+    const event = envelope['event'] as Record<string, unknown> | undefined;
+    return event?.['type'] === 'permission_pending';
+  })!;
+  const permission = (permissionEnvelope['event'] as Record<string, unknown>)['permission'] as Record<string, unknown>;
+
+  await handleRpcRequest({
+    host,
+    state,
+    request: {
+      id: 'deny-1',
+      method: 'deny_permission',
+      params: { permission_id: permission['permission_id'], reason: 'not allowed' },
+    },
+    output: output as unknown as NodeJS.WritableStream,
+  });
+  await promptTask;
+
+  const envelopes = output.envelopes();
+  const denyResponse = envelopes.find((envelope) => envelope['id'] === 'deny-1')!;
+  const finalResponse = envelopes.find((envelope) => envelope['id'] === 'prompt-deny' && envelope['type'] === 'response')!;
+  assert.equal((denyResponse['result'] as Record<string, unknown>)['decision'], 'deny');
+  assert.equal((finalResponse['result'] as Record<string, unknown>)['finalContent'], 'decision:deny');
+  assert.equal(confirmationHandler, undefined);
+});
+
+test('RPC permission request mode denies pending permission on timeout', async () => {
+  let confirmationHandler: ((request: ToolConfirmationRequest) => Promise<ToolPermissionDecision>) | undefined;
+  const { host } = createHost({
+    async run() {
+      assert.ok(confirmationHandler);
+      const decision = await confirmationHandler({
+        toolCall: {
+          id: 'call-timeout',
+          type: 'function',
+          function: {
+            name: 'write_file',
+            arguments: { path: 'late.txt' },
+          },
+        },
+        tool: {
+          name: 'write_file',
+          description: 'Write file',
+          parameters: {},
+          metadata: {
+            category: 'write',
+            riskLevel: 'high',
+            source: 'builtin',
+            isReadOnly: false,
+            isConcurrencySafe: false,
+            requiresConfirmation: true,
+          },
+          async execute() {
+            return { success: true, content: 'ok' };
+          },
+        },
+        args: { path: 'late.txt' },
+        metadata: {
+          category: 'write',
+          riskLevel: 'high',
+          source: 'builtin',
+          isReadOnly: false,
+          isConcurrencySafe: false,
+          requiresConfirmation: true,
+        },
+      });
+      return `decision:${decision}`;
+    },
+  });
+  const output = new JsonlOutput();
+  const state = createState();
+
+  await handleRpcRequest({
+    host,
+    state,
+    request: {
+      id: 'prompt-timeout',
+      method: 'prompt',
+      params: {
+        prompt: 'please write later',
+        permission_mode: 'request',
+        permission_timeout_ms: 1,
+      },
+    },
+    output: output as unknown as NodeJS.WritableStream,
+    setToolConfirmationHandler(handler) {
+      confirmationHandler = handler;
+    },
+  });
+
+  const finalResponse = output.envelopes().find((envelope) => (
+    envelope['id'] === 'prompt-timeout' && envelope['type'] === 'response'
+  ))!;
+  assert.equal((finalResponse['result'] as Record<string, unknown>)['finalContent'], 'decision:deny');
+  assert.equal(confirmationHandler, undefined);
+});
