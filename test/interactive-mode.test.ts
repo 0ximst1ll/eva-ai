@@ -196,6 +196,33 @@ test('/fork forks the active runtime session through RuntimeHost', async () => {
   assert.match(output.join('\n'), /Parent session: .*session-current/);
 });
 
+test('/clone clones the active runtime session through RuntimeHost', async () => {
+  let sessionId = 'session-current';
+  const clonedSessionIds: Array<string | undefined> = [];
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return sessionId;
+    },
+    async cloneSession(nextSessionId?: string) {
+      clonedSessionIds.push(nextSessionId);
+      sessionId = nextSessionId ?? 'session-clone';
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/clone Session-Clone',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.deepEqual(clonedSessionIds, ['Session-Clone']);
+  assert.equal(sessionId, 'Session-Clone');
+  assert.match(output.join('\n'), /Cloned session: .*Session-Clone/);
+  assert.match(output.join('\n'), /Source session: .*session-current/);
+});
+
 test('/history prints current session id and message count', async () => {
   const output: string[] = [];
   const host = {

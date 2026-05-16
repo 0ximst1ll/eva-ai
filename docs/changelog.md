@@ -22,6 +22,21 @@
 22. Session Entry Tree 最小 schema
 23. SessionContextRebuilder Entry Path 最小 rebuild
 24. Session Entry Path Resume 主路径
+25. Session Clone 最小边界
+
+
+# Session Clone 最小边界
+
+为 M4 Session Tree 增加 clone 操作的最小闭环，并保持与 `pi-mono` 的 current-leaf fork 语义一致。
+
+核心变化：
+
+- 新增 `SessionManager.cloneSession()`，当前复用 current active context fork 语义。
+- 新增 `RuntimeHost.cloneSession()`，mode 层不直接访问 `SessionManager`。
+- interactive/TUI slash command 支持 `/clone [id]`。
+- clone 后新 session 保留 parent/root lineage，父子后续消息互不影响。
+
+当前 clone 仍是当前 session 文件内的最小语义；尚未实现 import/export、branch navigation 或跨 session parent/child graph。
 
 
 # Session Entry Path Resume 主路径
@@ -35,7 +50,7 @@
 - 旧 JSONL 没有 `entryId` / `parentEntryId` 时仍回退原有 flat rebuild。
 - 测试覆盖 `SessionManager.loadSession()` 和 `RuntimeHost` resume/switch 主路径。
 
-当前仍只支持当前 session 文件内的 entry path；跨 session parent/child graph、clone、import/export 和 branch navigation 仍未实现。
+当前仍只支持当前 session 文件内的 entry path；跨 session parent/child graph、import/export 和 branch navigation 仍未实现。
 
 
 # SessionContextRebuilder Entry Path 最小 rebuild

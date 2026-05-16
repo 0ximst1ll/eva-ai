@@ -473,6 +473,45 @@ test('SessionManager forks sessions with persistent lineage metadata', async () 
   }
 });
 
+test('SessionManager clones sessions using current fork lineage semantics', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-clone-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+
+  try {
+    const first = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    const sourceSessionId = await first.createSession('system', 'session-root');
+    await first.appendMessage(sourceSessionId, { role: 'user', content: 'source task' });
+
+    const clonedSessionId = await first.cloneSession({
+      sourceSessionId,
+      sessionId: 'session-clone',
+    });
+
+    assert.equal(clonedSessionId, 'session-clone');
+    assert.deepEqual(first.getMessages(clonedSessionId), first.getMessages(sourceSessionId));
+    assert.deepEqual(first.getLineageInfo(clonedSessionId), {
+      sessionId: 'session-clone',
+      parentSessionId: 'session-root',
+      rootSessionId: 'session-root',
+      forkedFromMessageIndex: 1,
+      createdAt: first.getLineageInfo(clonedSessionId).createdAt,
+    });
+
+    await first.appendMessage(clonedSessionId, { role: 'assistant', content: 'clone answer' });
+    assert.deepEqual(
+      first.getMessages(sourceSessionId).map((message) => message.content),
+      ['system', 'source task'],
+    );
+    assert.deepEqual(
+      first.getMessages(clonedSessionId).map((message) => message.content),
+      ['system', 'source task', 'clone answer'],
+    );
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('SessionManager treats old session_start entries as root sessions', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-old-lineage-'));
   const workspaceDir = path.join(tempDir, 'workspace');

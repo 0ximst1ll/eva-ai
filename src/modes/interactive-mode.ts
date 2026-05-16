@@ -212,6 +212,15 @@ export async function handleInteractiveCommand({
     return 'continue';
   }
 
+  if (cmd === '/clone') {
+    const previousSessionId = host.sessionId;
+    const requestedSessionId = args[0];
+    await host.cloneSession(requestedSessionId);
+    writeLine(`${Colors.GREEN}✅ Cloned session: ${host.sessionId}${Colors.RESET}`);
+    writeLine(`${Colors.DIM}Source session: ${previousSessionId}${Colors.RESET}\n`);
+    return 'continue';
+  }
+
   if (cmd === '/clear') {
     const old = host.session.messages.length;
     await host.session.clear();

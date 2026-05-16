@@ -283,6 +283,16 @@ export class SessionManager {
     return id;
   }
 
+  async cloneSession({
+    sourceSessionId,
+    sessionId,
+  }: {
+    sourceSessionId: string;
+    sessionId?: string;
+  }): Promise<string> {
+    return this.forkSession({ sourceSessionId, sessionId });
+  }
+
   async loadLatestSession(): Promise<string | null> {
     if (this.mode !== 'jsonl') return null;
     try {

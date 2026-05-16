@@ -101,6 +101,43 @@ test('RuntimeHost forks the active session through the runtime boundary', async 
   }
 });
 
+test('RuntimeHost clones the active session through the runtime boundary', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-clone-'));
+
+  try {
+    const configPath = await writeConfig(tempDir);
+    const sessionBaseDir = path.join(tempDir, 'sessions');
+    const host = await RuntimeHost.create({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'jsonl',
+      sessionBaseDir,
+      createNewSession: true,
+      tools: [],
+    });
+    const sourceSessionId = host.sessionId;
+    await host.session.addUserMessage('source task');
+    const sourceMessages = host.session.messages.map((message) => message.content);
+
+    await host.cloneSession('cloned-session');
+
+    assert.equal(host.sessionId, 'cloned-session');
+    assert.deepEqual(
+      host.session.messages.map((message) => message.content),
+      sourceMessages,
+    );
+    assert.deepEqual(host.runtime.sessionManager.getLineageInfo(host.sessionId), {
+      sessionId: 'cloned-session',
+      parentSessionId: sourceSessionId,
+      rootSessionId: sourceSessionId,
+      forkedFromMessageIndex: 1,
+      createdAt: host.runtime.sessionManager.getLineageInfo(host.sessionId).createdAt,
+    });
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('RuntimeHost resumes sessions using the active entry path', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-entry-path-'));
 

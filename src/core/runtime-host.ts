@@ -90,6 +90,20 @@ export class RuntimeHost {
     return this.currentRuntime;
   }
 
+  async cloneSession(sessionId?: string): Promise<Runtime> {
+    const clonedSessionId = await this.currentRuntime.sessionManager.cloneSession({
+      sourceSessionId: this.sessionId,
+      sessionId,
+    });
+    this.currentRuntime = await createRuntime({
+      ...this.options,
+      createNewSession: false,
+      createSessionIfMissing: false,
+      sessionId: clonedSessionId,
+    });
+    return this.currentRuntime;
+  }
+
   async reloadResources(): Promise<RuntimeResourceReloadResult> {
     return this.currentRuntime.reloadResources();
   }
