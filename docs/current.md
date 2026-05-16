@@ -4,7 +4,7 @@
 
 Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮，以及 M3 Headless RPC 最小闭环。
 
-当前 M3 Headless RPC 已完成最小实现：`--rpc` 启动 JSONL stdin/stdout 协议，RPC mode 共享 `RuntimeHost` / `AgentSession` 路径，不新增第二套 agent 实现。RPC 真实 CLI 子进程 smoke test 已补齐，用于验证 stdout 协议纯净性。
+当前 M3 Headless RPC 已完成最小实现：`--rpc` 启动 JSONL stdin/stdout 协议，RPC mode 共享 `RuntimeHost` / `AgentSession` 路径，不新增第二套 agent 实现。RPC 真实 CLI 子进程 smoke test 已补齐，用于验证 stdout 协议纯净性。M3.1 RPC permission pending approval 最小闭环已实现：默认 fail-closed，`permission_mode=request` 时可通过 RPC event 和审批命令完成 tool permission 决策。
 
 ## 已完成
 
@@ -43,14 +43,17 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - RPC `prompt` 会输出包裹后的 `AgentSessionEvent`，结束后返回 final response 和 state。
 - RPC 允许 active prompt 期间处理 `abort` 和 `get_state`；其他 session 变更命令会返回 `run_in_progress`。
 - RPC CLI smoke test 已覆盖真实 `src/cli.ts --rpc` 子进程、非法 JSON、`get_state` 和 stdout JSONL envelope 纯净性。
+- M3.1 RPC permission pending 设计已明确：默认 fail-closed，可通过 request 模式输出 `permission_pending` event，并通过 `approve_permission` / `deny_permission` 命令解析审批结果。
+- RPC `permission_mode=request` 已支持 `permission_pending` event、`approve_permission` / `deny_permission` 命令、pending timeout、abort cancel 和 durable `permission_pending` internal entry。
+- RPC `get_state` 已包含 pending permission 摘要。
 
 ## 进行中
 
-- M3 后续收敛：RPC permission pending approval 和对外客户端协议稳定性。
+- M3.1 后续收敛：RPC permission timeout/deny 的更细测试覆盖，以及未来 ACP 兼容层。
 
 ## 下一步
 
-- 设计 RPC/ACP permission pending event 与 approval 命令。
+- 补 RPC permission timeout / deny 分支测试，或进入 M4 Session Tree 与可恢复状态。
 - 继续进入 MCP/Skills/Extensions 前置骨架或 session tree/fork 规划中的下一项。
 
 ## 后续重点计划
@@ -71,7 +74,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - manual `/compact` 仍是最小版：没有工具结果 micro-compaction。
 - skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
 - 当前 `max_steps` 字段名仍偏模糊，后续应迁移为 `max_steps_per_run` 或同类命名。
-- RPC mode 仍是最小闭环，尚未支持远程 permission approval。
+- RPC mode 仍是最小闭环，尚未支持完整 ACP 兼容层。
 - session history 仍是 flat JSONL，尚未升级为 session tree。
 - tool result budget、超大输出持久化、完整 permission pipeline 尚未实现。
 - TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。

@@ -580,6 +580,53 @@ user/assistant/tool: durable session history
 - 第一版不实现远程 permission approval；遇到需要确认但无确认通道时仍沿用 fail-closed / pending permission 语义。
 - 第一版不升级 session tree。
 
+#### M3.1：RPC Permission Pending 设计
+
+目标：在不提前引入完整 M6 权限系统的前提下，定义 RPC/headless 如何表达需要人工审批的 tool call。
+
+当前行为：
+
+- interactive/TUI 通过 mode 层提供 confirmation handler，并返回 `allow` 或 `deny`。
+- print/headless/RPC 没有 confirmation handler 时继续 fail-closed。
+- fail-closed 时 runtime 会写入 durable `permission_pending` internal entry，并由 `ContextManager` diagnostics 汇总。
+
+最小实现：
+
+- RPC 默认仍是 `fail_closed`，保持当前 headless 安全语义。
+- 可在 `prompt.params.permission_mode` 中显式传入 `request`，表示客户端愿意接收 pending event 并通过 RPC 命令审批。
+- 当工具治理需要确认且当前 RPC run 启用了 `request`：
+  - RPC mode 创建稳定 `permission_id`；
+  - 通过 RPC event envelope 输出 `permission_pending`；
+  - `event.permission` 至少包含 `permission_id`、`tool_call_id`、`tool_name`、`risk_level`、`source`、`category`、`is_read_only`、`requires_confirmation`、`reason` 和安全截断后的 `args_preview`；
+  - 同时继续写入 durable `permission_pending` internal entry，保证 diagnostics / resume 可见。
+- 客户端通过 `approve_permission` 或 `deny_permission` 命令返回决定：
+  - `approve_permission.params.permission_id` -> resolve 为 `allow`；
+  - `deny_permission.params.permission_id` 和可选 `reason` -> resolve 为 `deny`；
+  - 未知、已解决或过期的 permission id 返回结构化 `error`。
+- `get_state` 包含 pending permission 摘要，至少包含数量和最近 pending id。
+- `abort` active run 时，所有未解决 pending permission 应被取消，并返回被 abort 的 tool result。
+- pending permission 应有 timeout；timeout 后默认 deny/fail-closed，避免 headless run 无限悬挂。
+
+内部边界：
+
+- 在 RPC mode 内引入轻量 `RpcPermissionBroker`，只负责当前 active run 的 pending map、event 输出、approval/deny resolve 和 timeout。
+- Runtime / Tool governance 仍只理解 `ToolPermissionDecision`，不直接知道 RPC 协议。
+- durable session metadata 可以继续使用现有 `permission_pending` internal entry；是否追加 `permission_resolved` entry 留到 M6 或 session model 演进时决定。
+
+验收标准：
+
+- 默认 RPC 行为不变：无审批通道时继续 fail-closed。
+- 开启 request 模式后，高风险 tool call 会输出 `permission_pending` event，而不是直接执行。
+- `approve_permission` 后工具继续执行；`deny_permission` 后工具返回结构化 deny result。
+- `abort` 和 timeout 不会留下永远 pending 的 promise。
+- RPC stdout 仍保持纯 JSONL。
+
+非目标：
+
+- 不在 M3.1 实现完整 permission modes：default、plan、accept-edits、bypass、dont-ask。
+- 不在 M3.1 实现规则文件、危险命令分类器或 sandbox policy。
+- 不让 RPC event 直接暴露未截断的完整 tool args。
+
 ### M4：Session Tree 与可恢复状态
 
 目标：从 flat transcript 过渡到可恢复 agent state。

@@ -16,6 +16,23 @@
 16. TokenCounter provider/local 计数边界
 17. AgentMessage / LlmMessage 最小消息边界
 18. Headless RPC 最小闭环
+19. RPC Permission Pending Approval 最小闭环
+
+
+# RPC Permission Pending Approval 最小闭环
+
+为 Headless RPC 增加可选的远程 tool permission approval 流程，同时保持默认 headless fail-closed 安全语义。
+
+核心变化：
+
+- RPC `prompt.params.permission_mode=request` 时启用当前 run 的 permission broker。
+- 新增 `permission_pending` RPC event，输出 `permission_id`、tool call metadata、risk/source/category、只读信息和截断后的 args preview。
+- 新增 `approve_permission` / `deny_permission` RPC 命令，用于解析 pending tool permission。
+- `get_state` 增加 pending permission 摘要。
+- pending permission 支持 timeout；`abort` active run 时会取消未解决的 pending permission。
+- RPC mode 会继续写入 durable `permission_pending` internal entry，保持 diagnostics / resume 可见。
+
+当前仍不是完整 ACP：尚未实现完整 permission modes、规则文件、危险命令分类器或 sandbox policy。
 
 
 # Headless RPC 最小闭环
@@ -30,7 +47,7 @@
 - `prompt` 运行中会输出包裹后的 `AgentSessionEvent`，结束后返回 final response 和当前 state。
 - RPC mode 允许 active prompt 期间处理 `abort` 和 `get_state`，但同一时间只允许一个 active prompt run。
 
-当前仍是最小闭环：RPC 尚未支持远程 permission approval，也没有完整 ACP 兼容层。
+当前仍是最小闭环：没有完整 ACP 兼容层。
 
 
 # TUI 最小框架

@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界、permission pending durable diagnostics，以及最小 Headless RPC mode。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。session tree、MCP loader、skills system、OpenAI provider countTokens、完整 context budget engine 和 RPC permission approval 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界、permission pending durable diagnostics、最小 Headless RPC mode，以及 RPC permission pending approval 最小闭环。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。session tree、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -100,10 +100,14 @@ createRuntime()
 - `abort`：中止当前 active prompt run；没有 active run 时返回 `aborted: false`。
 - `new_session`：通过 `RuntimeHost.newSession()` 创建并切换新 session。
 - `resume_session`：无 `session_id` 时恢复 latest session；有 `session_id` 时通过 `RuntimeHost.switchSession()` 切换。
+- `approve_permission`：按 `permission_id` 批准当前 pending tool permission。
+- `deny_permission`：按 `permission_id` 拒绝当前 pending tool permission。
 
-RPC mode 允许 `prompt` 运行期间继续处理 `abort` 和 `get_state`，但同一时间只允许一个 active prompt run。其他会改变 session 的命令会在 active run 期间返回 `run_in_progress`。
+RPC mode 允许 `prompt` 运行期间继续处理 `abort`、`get_state`、`approve_permission` 和 `deny_permission`，但同一时间只允许一个 active prompt run。其他会改变 session 的命令会在 active run 期间返回 `run_in_progress`。
 
-当前 RPC mode 没有远程 permission approval 通道。如果工具治理需要确认且当前没有 confirmation handler，仍沿用 runtime 的 fail-closed 行为，并写入 durable `permission_pending` internal entry。后续 RPC/ACP 可在此基础上增加 pending permission event 和审批命令。
+RPC permission 默认仍是 fail-closed。如果 `prompt.params.permission_mode` 不是 `request`，工具治理需要确认时会沿用 runtime 的 fail-closed 行为，并写入 durable `permission_pending` internal entry。
+
+如果 `prompt.params.permission_mode` 为 `request`，RPC mode 会为当前 active run 建立轻量 permission broker。工具治理需要确认时，broker 会输出 `permission_pending` event，包含 `permission_id`、tool call metadata、risk/source/category、只读信息、reason 和截断后的 `args_preview`；客户端随后通过 `approve_permission` 或 `deny_permission` 返回决定。pending permission 有 timeout，超时后默认 deny，避免 headless run 无限悬挂。`abort` active run 时会取消所有 pending permission。
 
 ## Runtime
 
@@ -420,7 +424,7 @@ JSONL 模式下：
 - 对显式要求确认的工具，或 risk level 命中 `confirm_risk_levels` 的工具，执行前请求确认。
 - tool permission decision 已统一为 `allow`、`deny`、`ask`，并保留 boolean confirmation handler 兼容。
 
-如果某个 tool 需要确认但当前没有 confirmation handler，runtime 会把它视为 pending permission 并 fail-closed，返回被阻止的 tool result。在 interactive mode 中，`createToolConfirmationPrompt()` 会提供确认 handler，并把用户输入转换为 `allow` 或 `deny`。print/headless/RPC 当前没有交互确认通道，因此遇到 `ask` 时会阻止 tool call。未来 RPC/ACP mode 可以把 `ask` 映射为 pending permission event。
+如果某个 tool 需要确认但当前没有 confirmation handler，runtime 会把它视为 pending permission 并 fail-closed，返回被阻止的 tool result。在 interactive mode 中，`createToolConfirmationPrompt()` 会提供确认 handler，并把用户输入转换为 `allow` 或 `deny`。print/headless 当前没有交互确认通道，因此遇到 `ask` 时会阻止 tool call。RPC 默认同样 fail-closed；只有当 `prompt.params.permission_mode=request` 时，RPC mode 才会提供 permission broker，把审批转换为 `permission_pending` event 和 `approve_permission` / `deny_permission` 命令。
 
 当 tool governance 返回 permission pending 时，如果当前 runtime 已绑定 session，`SessionManager` 会追加 `kind: 'permission_pending'` 的 durable `internal` entry，记录 reason、tool name、tool call id、risk level、source、category 和 read-only metadata。该 entry 可通过 reload/resume 恢复，并由 `ContextManager` 汇总到 diagnostics；它不会进入 `getMessages()` 或 provider request view。
 
@@ -470,6 +474,5 @@ AgentSession 持久化已发射的 assistant/tool messages 和 usage metadata
 
 - MCP loader
 - skills loader
-- RPC permission approval
 - session tree / fork
 - 完整 permission pipeline

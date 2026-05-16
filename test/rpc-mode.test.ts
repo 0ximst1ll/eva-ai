@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { handleRpcLine, handleRpcRequest } from '../src/modes/rpc-mode.js';
+import type { ToolConfirmationRequest, ToolPermissionDecision } from '../src/core/runtime.js';
 import type { RuntimeHost } from '../src/core/runtime-host.js';
 import type { AgentSessionEvent, Message } from '../src/schema.js';
 
@@ -22,9 +23,12 @@ class JsonlOutput {
   }
 }
 
-function createHost() {
+function createHost(options: {
+  run?: ({ onEvent }: { onEvent?: (event: AgentSessionEvent) => void }) => Promise<string>;
+} = {}) {
   let sessionId = 'session-1';
   const messages: Message[] = [{ role: 'system', content: 'system' }];
+  const internalEntries: Array<Record<string, unknown>> = [];
   let runCalls = 0;
   let addUserMessageCalls = 0;
   let newSessionCalls = 0;
@@ -54,6 +58,9 @@ function createHost() {
         },
         async run({ onEvent }: { onEvent?: (event: AgentSessionEvent) => void }) {
           runCalls += 1;
+          if (options.run) {
+            return options.run({ onEvent });
+          }
           onEvent?.({ type: 'agent_start' });
           onEvent?.({
             type: 'message_end',
@@ -80,6 +87,12 @@ function createHost() {
           },
         },
         diagnostics: [],
+        sessionManager: {
+          async appendInternalEntry(entry: Record<string, unknown>) {
+            internalEntries.push(entry);
+            return { timestamp: Date.now(), ...entry };
+          },
+        },
       };
     },
     async newSession() {
@@ -105,12 +118,22 @@ function createHost() {
       get newSessionCalls() { return newSessionCalls; },
       get resumeLatestSessionCalls() { return resumeLatestSessionCalls; },
       switchedSessions,
+      internalEntries,
     },
   };
 }
 
 function createState() {
   return { activeAbortController: null };
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 1000) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail('Timed out waiting for condition');
 }
 
 test('RPC returns structured error for invalid JSON and unknown method', async () => {
@@ -232,4 +255,127 @@ test('RPC abort reports whether an active run exists', async () => {
     output.envelopes().map((envelope) => (envelope['result'] as Record<string, unknown>)['aborted']),
     [true, false],
   );
+});
+
+test('RPC permission request mode emits pending event and approval resumes prompt', async () => {
+  let confirmationHandler: ((request: ToolConfirmationRequest) => Promise<ToolPermissionDecision>) | undefined;
+  const { host, stats } = createHost({
+    async run({ onEvent }) {
+      onEvent?.({ type: 'agent_start' });
+      assert.ok(confirmationHandler);
+      const decision = await confirmationHandler({
+        toolCall: {
+          id: 'call-1',
+          type: 'function',
+          function: {
+            name: 'write_file',
+            arguments: { path: 'file.txt', content: 'hello' },
+          },
+        },
+        tool: {
+          name: 'write_file',
+          description: 'Write file',
+          parameters: {},
+          metadata: {
+            category: 'write',
+            riskLevel: 'high',
+            source: 'builtin',
+            isReadOnly: false,
+            isConcurrencySafe: false,
+            requiresConfirmation: true,
+          },
+          async execute() {
+            return { success: true, content: 'ok' };
+          },
+        },
+        args: { path: 'file.txt', content: 'hello' },
+        metadata: {
+          category: 'write',
+          riskLevel: 'high',
+          source: 'builtin',
+          isReadOnly: false,
+          isConcurrencySafe: false,
+          requiresConfirmation: true,
+        },
+      });
+      onEvent?.({
+        type: 'tool_result',
+        result: {
+          toolCallId: 'call-1',
+          toolName: 'write_file',
+          success: decision === 'allow',
+          content: decision,
+        },
+      });
+      return `decision:${decision}`;
+    },
+  });
+  const output = new JsonlOutput();
+  const state = createState();
+
+  const promptTask = handleRpcRequest({
+    host,
+    state,
+    request: {
+      id: 'prompt-approve',
+      method: 'prompt',
+      params: {
+        prompt: 'please write',
+        permission_mode: 'request',
+        permission_timeout_ms: 10000,
+      },
+    },
+    output: output as unknown as NodeJS.WritableStream,
+    setToolConfirmationHandler(handler) {
+      confirmationHandler = handler;
+    },
+  });
+
+  await waitFor(() => output.envelopes().some((envelope) => {
+    const event = envelope['event'] as Record<string, unknown> | undefined;
+    return event?.['type'] === 'permission_pending';
+  }));
+
+  const permissionEnvelope = output.envelopes().find((envelope) => {
+    const event = envelope['event'] as Record<string, unknown> | undefined;
+    return event?.['type'] === 'permission_pending';
+  })!;
+  const permissionEvent = permissionEnvelope['event'] as Record<string, unknown>;
+  const permission = permissionEvent['permission'] as Record<string, unknown>;
+  assert.equal(permission['tool_name'], 'write_file');
+  assert.equal(permission['tool_call_id'], 'call-1');
+  assert.equal(permission['risk_level'], 'high');
+  assert.match(String(permission['args_preview']), /file\.txt/);
+
+  await handleRpcRequest({
+    host,
+    state,
+    request: { id: 'state-pending', method: 'get_state' },
+    output: output as unknown as NodeJS.WritableStream,
+  });
+
+  await handleRpcRequest({
+    host,
+    state,
+    request: {
+      id: 'approve-1',
+      method: 'approve_permission',
+      params: { permission_id: permission['permission_id'] },
+    },
+    output: output as unknown as NodeJS.WritableStream,
+  });
+  await promptTask;
+
+  const envelopes = output.envelopes();
+  const stateResponse = envelopes.find((envelope) => envelope['id'] === 'state-pending')!;
+  const approveResponse = envelopes.find((envelope) => envelope['id'] === 'approve-1')!;
+  const finalResponse = envelopes.find((envelope) => envelope['id'] === 'prompt-approve' && envelope['type'] === 'response')!;
+  const permissions = (stateResponse['result'] as Record<string, unknown>)['permissions'] as Record<string, unknown>;
+  assert.equal(permissions['pendingCount'], 1);
+  assert.equal(permissions['latestPermissionId'], permission['permission_id']);
+  assert.equal((approveResponse['result'] as Record<string, unknown>)['decision'], 'allow');
+  assert.equal((finalResponse['result'] as Record<string, unknown>)['finalContent'], 'decision:allow');
+  assert.equal(confirmationHandler, undefined);
+  assert.equal(stats.internalEntries.length, 1);
+  assert.equal((stats.internalEntries[0]?.['metadata'] as Record<string, unknown>)['permissionId'], permission['permission_id']);
 });

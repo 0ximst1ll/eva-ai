@@ -1,8 +1,38 @@
 import { createInterface } from 'node:readline/promises';
+import type { ToolConfirmationRequest, ToolPermissionDecision } from '../core/runtime.js';
 import type { RuntimeHost } from '../core/runtime-host.js';
 import type { AgentSessionEvent } from '../schema.js';
 
-export type RpcMethod = 'prompt' | 'get_state' | 'abort' | 'new_session' | 'resume_session';
+export type RpcMethod =
+  | 'prompt'
+  | 'get_state'
+  | 'abort'
+  | 'new_session'
+  | 'resume_session'
+  | 'approve_permission'
+  | 'deny_permission';
+
+type RpcPermissionMode = 'fail_closed' | 'request';
+
+interface RpcPermissionPendingEvent {
+  type: 'permission_pending';
+  permission: RpcPermissionPending;
+}
+
+type RpcEvent = AgentSessionEvent | RpcPermissionPendingEvent;
+
+interface RpcPermissionPending {
+  permission_id: string;
+  tool_call_id: string;
+  tool_name: string;
+  risk_level: string;
+  source: string;
+  category: string;
+  is_read_only: boolean;
+  requires_confirmation: boolean;
+  reason: string;
+  args_preview: string;
+}
 
 export interface RpcRequest {
   id?: string | number | null;
@@ -12,30 +42,37 @@ export interface RpcRequest {
 
 export type RpcEnvelope =
   | { id: RpcRequest['id']; type: 'response'; result: unknown }
-  | { id: RpcRequest['id']; type: 'event'; event: AgentSessionEvent }
+  | { id: RpcRequest['id']; type: 'event'; event: RpcEvent }
   | { id: RpcRequest['id']; type: 'error'; error: { code: string; message: string } };
 
 export interface RpcModeOptions {
   host: RuntimeHost;
   input?: NodeJS.ReadableStream;
   output?: NodeJS.WritableStream;
+  setToolConfirmationHandler?: (handler: ((request: ToolConfirmationRequest) => Promise<ToolPermissionDecision>) | undefined) => void;
 }
 
 export interface RpcState {
   activeAbortController: AbortController | null;
+  permissionBroker?: RpcPermissionBroker | null;
 }
+
+const DEFAULT_PERMISSION_TIMEOUT_MS = 120000;
+const MAX_PERMISSION_TIMEOUT_MS = 600000;
+const ARGS_PREVIEW_MAX_CHARS = 2000;
 
 export async function runRpcMode({
   host,
   input = process.stdin,
   output = process.stdout,
+  setToolConfirmationHandler,
 }: RpcModeOptions): Promise<void> {
   const state: RpcState = { activeAbortController: null };
   const readline = createInterface({ input, crlfDelay: Infinity });
   const pending = new Set<Promise<void>>();
 
   for await (const line of readline) {
-    const task = handleRpcLine({ host, state, line, output }).catch((e) => {
+    const task = handleRpcLine({ host, state, line, output, setToolConfirmationHandler }).catch((e) => {
       writeRpcError(output, null, 'internal_error', (e as Error).message);
     });
     pending.add(task);
@@ -50,11 +87,13 @@ export async function handleRpcLine({
   state,
   line,
   output,
+  setToolConfirmationHandler,
 }: {
   host: RuntimeHost;
   state: RpcState;
   line: string;
   output: NodeJS.WritableStream;
+  setToolConfirmationHandler?: RpcModeOptions['setToolConfirmationHandler'];
 }): Promise<void> {
   const trimmed = line.trim();
   if (!trimmed) return;
@@ -74,7 +113,7 @@ export async function handleRpcLine({
     return;
   }
 
-  await handleRpcRequest({ host, state, request, output });
+  await handleRpcRequest({ host, state, request, output, setToolConfirmationHandler });
 }
 
 export async function handleRpcRequest({
@@ -82,11 +121,13 @@ export async function handleRpcRequest({
   state,
   request,
   output,
+  setToolConfirmationHandler,
 }: {
   host: RuntimeHost;
   state: RpcState;
   request: RpcRequest;
   output: NodeJS.WritableStream;
+  setToolConfirmationHandler?: RpcModeOptions['setToolConfirmationHandler'];
 }): Promise<void> {
   const id = request.id ?? null;
   const method = request.method;
@@ -95,7 +136,13 @@ export async function handleRpcRequest({
     return;
   }
 
-  if (state.activeAbortController && method !== 'abort' && method !== 'get_state') {
+  if (
+    state.activeAbortController
+    && method !== 'abort'
+    && method !== 'get_state'
+    && method !== 'approve_permission'
+    && method !== 'deny_permission'
+  ) {
     writeRpcError(output, id, 'run_in_progress', 'A prompt is already running');
     return;
   }
@@ -103,12 +150,12 @@ export async function handleRpcRequest({
   try {
     switch (method as RpcMethod) {
       case 'get_state':
-        writeEnvelope(output, { id, type: 'response', result: createState(host) });
+        writeEnvelope(output, { id, type: 'response', result: createState(host, state) });
         return;
 
       case 'new_session':
         await host.newSession();
-        writeEnvelope(output, { id, type: 'response', result: createState(host) });
+        writeEnvelope(output, { id, type: 'response', result: createState(host, state) });
         return;
 
       case 'resume_session':
@@ -118,6 +165,7 @@ export async function handleRpcRequest({
       case 'abort':
         if (state.activeAbortController) {
           state.activeAbortController.abort();
+          state.permissionBroker?.cancelAll('Run aborted');
           writeEnvelope(output, { id, type: 'response', result: { aborted: true } });
         } else {
           writeEnvelope(output, { id, type: 'response', result: { aborted: false } });
@@ -125,7 +173,15 @@ export async function handleRpcRequest({
         return;
 
       case 'prompt':
-        await handlePrompt({ host, state, id, params: request.params, output });
+        await handlePrompt({ host, state, id, params: request.params, output, setToolConfirmationHandler });
+        return;
+
+      case 'approve_permission':
+        handlePermissionDecision({ state, id, params: request.params, output, decision: 'allow' });
+        return;
+
+      case 'deny_permission':
+        handlePermissionDecision({ state, id, params: request.params, output, decision: 'deny' });
         return;
 
       default:
@@ -156,18 +212,55 @@ async function handleResumeSession({
   writeEnvelope(output, { id, type: 'response', result: createState(host) });
 }
 
+function handlePermissionDecision({
+  state,
+  id,
+  params,
+  output,
+  decision,
+}: {
+  state: RpcState;
+  id: RpcRequest['id'];
+  params?: Record<string, unknown>;
+  output: NodeJS.WritableStream;
+  decision: ToolPermissionDecision;
+}): void {
+  const permissionId = params?.['permission_id'];
+  if (typeof permissionId !== 'string' || !permissionId.trim()) {
+    writeRpcError(output, id, 'invalid_request', 'permission_id is required');
+    return;
+  }
+
+  if (!state.permissionBroker?.resolve(permissionId, decision)) {
+    writeRpcError(output, id, 'unknown_permission', `Unknown or resolved permission: ${permissionId}`);
+    return;
+  }
+
+  writeEnvelope(output, {
+    id,
+    type: 'response',
+    result: {
+      permission_id: permissionId,
+      decision,
+      resolved: true,
+    },
+  });
+}
+
 async function handlePrompt({
   host,
   state,
   id,
   params,
   output,
+  setToolConfirmationHandler,
 }: {
   host: RuntimeHost;
   state: RpcState;
   id: RpcRequest['id'];
   params?: Record<string, unknown>;
   output: NodeJS.WritableStream;
+  setToolConfirmationHandler?: RpcModeOptions['setToolConfirmationHandler'];
 }): Promise<void> {
   if (state.activeAbortController) {
     writeRpcError(output, id, 'run_in_progress', 'A prompt is already running');
@@ -181,22 +274,57 @@ async function handlePrompt({
   }
 
   const abortController = new AbortController();
+  const permissionMode = parsePermissionMode(params);
+  const permissionBroker = permissionMode === 'request'
+    ? new RpcPermissionBroker({
+      host,
+      id,
+      output,
+      timeoutMs: parsePermissionTimeoutMs(params),
+    })
+    : null;
   state.activeAbortController = abortController;
-  await host.session.addUserMessage(prompt);
+  state.permissionBroker = permissionBroker;
+  if (permissionBroker) {
+    if (!setToolConfirmationHandler) {
+      state.activeAbortController = null;
+      state.permissionBroker = null;
+      writeRpcError(output, id, 'permission_unavailable', 'RPC permission request mode is not available');
+      return;
+    }
+    setToolConfirmationHandler((request) => permissionBroker.requestPermission(request));
+  }
   try {
+    await host.session.addUserMessage(prompt);
     const finalContent = await host.session.run({
       signal: abortController.signal,
       onEvent(event) {
         writeEnvelope(output, { id, type: 'event', event });
       },
     });
-    writeEnvelope(output, { id, type: 'response', result: { finalContent, state: createState(host) } });
+    writeEnvelope(output, { id, type: 'response', result: { finalContent, state: createState(host, state) } });
   } finally {
+    permissionBroker?.cancelAll('Prompt finished');
     state.activeAbortController = null;
+    state.permissionBroker = null;
+    if (permissionBroker) setToolConfirmationHandler?.(undefined);
   }
 }
 
-function createState(host: RuntimeHost): Record<string, unknown> {
+function parsePermissionMode(params?: Record<string, unknown>): RpcPermissionMode {
+  return params?.['permission_mode'] === 'request' ? 'request' : 'fail_closed';
+}
+
+function parsePermissionTimeoutMs(params?: Record<string, unknown>): number {
+  const timeoutMs = params?.['permission_timeout_ms'];
+  if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return DEFAULT_PERMISSION_TIMEOUT_MS;
+  }
+  return Math.min(Math.floor(timeoutMs), MAX_PERMISSION_TIMEOUT_MS);
+}
+
+function createState(host: RuntimeHost, state?: RpcState): Record<string, unknown> {
+  const permissionSummary = state?.permissionBroker?.summary() ?? { pendingCount: 0, latestPermissionId: null };
   return {
     sessionId: host.sessionId,
     messageCount: host.session.messages.length,
@@ -208,6 +336,7 @@ function createState(host: RuntimeHost): Record<string, unknown> {
     },
     provider: host.runtime.config.llm.provider,
     model: host.runtime.config.llm.model,
+    permissions: permissionSummary,
     diagnostics: host.runtime.diagnostics.map((diagnostic) => ({
       source: diagnostic.source,
       level: diagnostic.level,
@@ -216,6 +345,114 @@ function createState(host: RuntimeHost): Record<string, unknown> {
       details: diagnostic.details,
     })),
   };
+}
+
+interface PendingPermission {
+  readonly resolve: (decision: ToolPermissionDecision) => void;
+  readonly timeout: NodeJS.Timeout;
+}
+
+class RpcPermissionBroker {
+  private readonly pending = new Map<string, PendingPermission>();
+  private nextId = 1;
+  private latestPermissionId: string | null = null;
+
+  constructor(private readonly options: {
+    host: RuntimeHost;
+    id: RpcRequest['id'];
+    output: NodeJS.WritableStream;
+    timeoutMs: number;
+  }) {}
+
+  requestPermission(request: ToolConfirmationRequest): Promise<ToolPermissionDecision> {
+    const permission = this.createPermission(request);
+    this.latestPermissionId = permission.permission_id;
+    this.appendInternalEntry(permission).catch(() => undefined);
+    writeEnvelope(this.options.output, {
+      id: this.options.id,
+      type: 'event',
+      event: {
+        type: 'permission_pending',
+        permission,
+      },
+    });
+
+    return new Promise<ToolPermissionDecision>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.resolve(permission.permission_id, 'deny');
+      }, this.options.timeoutMs);
+      this.pending.set(permission.permission_id, { resolve, timeout });
+    });
+  }
+
+  resolve(permissionId: string, decision: ToolPermissionDecision): boolean {
+    const pending = this.pending.get(permissionId);
+    if (!pending) return false;
+    clearTimeout(pending.timeout);
+    this.pending.delete(permissionId);
+    pending.resolve(decision);
+    return true;
+  }
+
+  cancelAll(_reason: string): void {
+    for (const permissionId of [...this.pending.keys()]) {
+      this.resolve(permissionId, 'deny');
+    }
+  }
+
+  summary(): { pendingCount: number; latestPermissionId: string | null } {
+    return {
+      pendingCount: this.pending.size,
+      latestPermissionId: this.latestPermissionId,
+    };
+  }
+
+  private createPermission(request: ToolConfirmationRequest): RpcPermissionPending {
+    const permissionId = `perm_${this.nextId}`;
+    this.nextId += 1;
+    return {
+      permission_id: permissionId,
+      tool_call_id: request.toolCall.id,
+      tool_name: request.tool.name,
+      risk_level: request.metadata.riskLevel,
+      source: request.metadata.source,
+      category: request.metadata.category,
+      is_read_only: request.metadata.isReadOnly,
+      requires_confirmation: request.metadata.requiresConfirmation ?? false,
+      reason: `Tool permission pending: approval required for ${request.tool.name}`,
+      args_preview: serializeArgsPreview(request.args),
+    };
+  }
+
+  private async appendInternalEntry(permission: RpcPermissionPending): Promise<void> {
+    const sessionManager = this.options.host.runtime.sessionManager;
+    await sessionManager.appendInternalEntry({
+      sessionId: this.options.host.sessionId,
+      kind: 'permission_pending',
+      content: permission.reason,
+      metadata: {
+        permissionId: permission.permission_id,
+        toolName: permission.tool_name,
+        toolCallId: permission.tool_call_id,
+        riskLevel: permission.risk_level,
+        source: permission.source,
+        category: permission.category,
+        isReadOnly: permission.is_read_only,
+        requiresConfirmation: permission.requires_confirmation,
+      },
+    });
+  }
+}
+
+function serializeArgsPreview(args: Record<string, unknown>): string {
+  let preview: string;
+  try {
+    preview = JSON.stringify(args);
+  } catch {
+    preview = '[unserializable arguments]';
+  }
+  if (preview.length <= ARGS_PREVIEW_MAX_CHARS) return preview;
+  return `${preview.slice(0, ARGS_PREVIEW_MAX_CHARS)}... [truncated]`;
 }
 
 function writeRpcError(

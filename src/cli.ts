@@ -70,7 +70,12 @@ if (host) {
   if (!rpcFlag) renderRuntimeDiagnostics(host.runtime.diagnostics);
 
   if (rpcFlag) {
-    await runRpcMode({ host });
+    await runRpcMode({
+      host,
+      setToolConfirmationHandler: (handler) => {
+        askToolConfirmation = handler;
+      },
+    });
   } else if (task) {
     await runPrintMode({ host, task });
   } else if (noTuiFlag || !canUseTui) {
