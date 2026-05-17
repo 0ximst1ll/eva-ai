@@ -56,6 +56,7 @@ Eva AI 不应该在 `pi-mono` 和 `claude-code` 之间二选一。
 范围：
 
 - JSONL session entry model。
+- entry-tree-first session model：append-only `SessionEntry` tree 成为主要事实源，`Message[]` 只是从当前 leaf path 派生出的 provider/session view。
 - session tree、active leaf、fork、clone、import/export。
 - resume、session metadata、compaction entry、future sidecar metadata。
 - 可恢复运行现场，包括 transcript、agent metadata、file history、todo/memory/subagent metadata。
@@ -63,6 +64,7 @@ Eva AI 不应该在 `pi-mono` 和 `claude-code` 之间二选一。
 参考策略：
 
 - 优先学习 `pi-mono` 的 append-only session tree 和 path-aware context rebuild。
+- 逐步从当前 message-snapshot-first 过渡到 entry-tree-first；避免只做 session-level lineage，而没有真正对齐 `pi-mono` 的 leaf/path 语义。
 - 选择性吸收 `claude-code` 的 transcript、compact boundary、file history 和恢复工程经验。
 
 ### 3. Context Management
@@ -670,6 +672,9 @@ user/assistant/tool: durable session history
 后续仍需：
 
 - 更完整的 child branch navigation。
+- entry-path fork/clone：基于指定 leaf entry path 复制 session entries，而不是复制当前 active `Message[]` 快照。
+- entry-level branch / navigate：支持在同一个 session 文件内移动 active leaf，并基于 leaf path 派生 context。
+- entry-tree-first 收敛：让 append-only `SessionEntry` tree 成为主要事实源，`Message[]` 退化为 `buildSessionContext()` 的派生结果。
 - 跨 session parent/child entry graph 与 sidecar metadata。
 
 验收标准：
@@ -677,6 +682,38 @@ user/assistant/tool: durable session history
 - branch/fork 保留历史。
 - context rebuild 可测试且确定。
 - 旧 JSONL session 可兼容处理。
+
+#### M4.x：Entry Tree First 对齐
+
+目标：把 Eva 当前的 message-snapshot-first session model 收敛到更接近 `pi-mono` 的 entry-tree-first 模型。
+
+当前状态：
+
+- Eva 已有 `entryId` / `parentEntryId`、`activeEntryId`、`getEntryPath()` 和 entry-path resume。
+- 但 `SessionManager` 仍维护 `Map<sessionId, Message[]>` 作为 active messages 主状态。
+- `forkSession()` / `cloneSession()` 仍复制当前 active `Message[]` 快照，并为新 session 重新生成线性 entry chain。
+- session tree 展示当前是 session-level lineage tree，不是单个 session 文件内部完整 entry tree navigation。
+
+目标语义：
+
+- append-only `SessionEntry` tree 是 session 的主要事实源。
+- 当前上下文由 active leaf 沿 `parentEntryId` 回溯得到 path，再通过 `buildSessionContext()` 派生 `AgentMessage[]` / `Message[]`。
+- fork/clone 支持指定 leaf entry，并复制该 leaf path 上的 entries。
+- 同一 session 文件内支持 entry-level branch / navigate；切换 leaf 不修改旧 entries。
+- branch summary、model/thinking changes、label/session info 和 future custom metadata 可作为一等 entry 渐进引入。
+
+推荐落地顺序：
+
+1. 先保留当前兼容层，新增 `buildSessionContextFromEntryPath()` 风格边界，让 message view 明确变成派生结果。
+2. 将 `forkSession()` / `cloneSession()` 改为基于指定 leaf 的 entry path 复制，而不是复制 active `Message[]`。
+3. 增加 entry-level `branch(entryId)` / `navigate(entryId)` 最小能力，先只处理 message/compaction/internal/usage。
+4. 再逐步把 `SessionManager` 内部主状态从 `Map<sessionId, Message[]>` 收敛为 entry tree + active leaf。
+5. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
+
+非目标：
+
+- 不一次性复制 `pi-mono` 的所有 session entry 类型。
+- 不在 entry-tree-first 基础稳定前引入复杂 sidecar metadata 或 extension custom entries。
 
 ### M5：Tool Harness Hardening
 

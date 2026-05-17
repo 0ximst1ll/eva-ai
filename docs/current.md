@@ -69,11 +69,12 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 进行中
 
-- M4 后续：更完整的 child branch navigation、跨 session parent/child entry graph 和 sidecar metadata 尚未实现。
+- M4 后续：entry-tree-first 对齐计划已明确，但尚未实现；更完整的 child branch navigation、entry-path fork/clone、entry-level branch/navigate、跨 session parent/child entry graph 和 sidecar metadata 尚未实现。
 
 ## 下一步
 
-- 继续 M4：补更完整的 child branch navigation，或进入 MCP/Skills/Extensions 前置骨架前先确认 session sidecar metadata 边界。
+- 继续 M4：优先做 entry-tree-first 收敛的下一小步，例如将 fork/clone 从复制 active `Message[]` 快照改为基于指定 leaf 的 entry path 复制。
+- 也可先补更完整的 child branch navigation，但需要避免只增强 session-level lineage，而不推进 entry-level leaf/path 语义。
 - 后续进入 MCP/Skills/Extensions 前置骨架。
 
 ## 后续重点计划
@@ -82,6 +83,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - ContextManager 后续再承接完整 token budget 和 skills/resource reinjection 策略。
 - 当前 `max_steps` 后续应进一步迁移为 print/headless/RPC 场景下的命名更明确的可选 runaway guard。
 - 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 逐步建立。
+- entry-tree-first 对齐 pi-mono 应作为 M4 后续主线：append-only `SessionEntry` tree 成为主要事实源，`Message[]` 逐步退化为从 active leaf path 派生出的 context view。
 - 跨 session parent/child graph、sidecar metadata 和完整 child branch navigation 放入后续 session model 阶段。
 - 完整 permission pipeline 后续继续补 permission modes、rules、diagnostics 和 RPC/ACP pending event。
 
@@ -95,6 +97,6 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
 - 当前 `max_steps` 字段名仍偏模糊，后续应迁移为 `max_steps_per_run` 或同类命名。
 - RPC mode 仍是最小闭环，尚未支持完整 ACP 兼容层。
-- 当前只支持当前 session 文件内的 entry path 和 session-level parent navigation；跨 session parent/child entry graph 与完整 child branch navigation 还未实现。
+- 当前只支持当前 session 文件内的 entry path 和 session-level parent navigation；`SessionManager` 仍是 message-snapshot-first，entry-tree-first、entry-level branch/navigate、跨 session parent/child entry graph 与完整 child branch navigation 还未实现。
 - tool result budget、超大输出持久化、完整 permission pipeline 尚未实现。
 - TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。
