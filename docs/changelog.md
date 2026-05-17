@@ -27,6 +27,24 @@
 27. Session Tree 展示与 Parent Navigation 最小边界
 28. Entry Path Fork / Clone 最小边界
 29. 指定 Leaf Entry Fork / Clone 对外边界
+30. Entry-Level Branch 最小边界
+
+
+# Entry-Level Branch 最小边界
+
+为 M4.x Entry Tree First 对齐增加同 session 文件内的 active leaf 移动能力。
+
+核心变化：
+
+- 新增 `SessionManager.branchSession()`，可把当前 active leaf 移动到指定 entry，并从该 leaf path 派生 active messages。
+- 新增 `AgentSession.branchToEntry()`，同步更新 Agent working history。
+- 新增 `RuntimeHost.branchSession()`，mode 层不直接操作 `SessionManager`。
+- interactive slash command 新增 `/branch <entryId>`。
+- RPC 新增 `branch_session`，必填 `leaf_entry_id`。
+- 下一次 append 会以 branch 后的 active leaf 作为 parent，从而在同一个 session 文件内形成新分支。
+- 测试覆盖 `SessionManager`、`RuntimeHost`、interactive command 和 RPC 路径。
+
+当前仍未实现 branch summary，也尚未让 session tree 展示 entry id 以便用户直接发现可 branch 的 entry。
 
 
 # 指定 Leaf Entry Fork / Clone 对外边界

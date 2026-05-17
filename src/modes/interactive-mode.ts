@@ -273,6 +273,18 @@ export async function handleInteractiveCommand({
     return 'continue';
   }
 
+  if (cmd === '/branch') {
+    const leafEntryId = args[0];
+    if (!leafEntryId) {
+      writeLine(`${Colors.RED}❌ Branch requires an entry id: /branch <entryId>${Colors.RESET}\n`);
+      return 'continue';
+    }
+    host.branchSession(leafEntryId);
+    writeLine(`${Colors.GREEN}✅ Branched current session at entry: ${leafEntryId}${Colors.RESET}`);
+    writeLine(`${Colors.DIM}Session: ${host.sessionId}${Colors.RESET}\n`);
+    return 'continue';
+  }
+
   if (cmd === '/parent') {
     const previousSessionId = host.sessionId;
     const parentRuntime = await host.switchToParentSession();

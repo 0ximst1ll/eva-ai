@@ -11,6 +11,7 @@ export type RpcMethod =
   | 'resume_session'
   | 'fork_session'
   | 'clone_session'
+  | 'branch_session'
   | 'approve_permission'
   | 'deny_permission';
 
@@ -172,6 +173,10 @@ export async function handleRpcRequest({
         await handleForkSession({ host, id, params: request.params, output, clone: true });
         return;
 
+      case 'branch_session':
+        handleBranchSession({ host, id, params: request.params, output });
+        return;
+
       case 'abort':
         if (state.activeAbortController) {
           state.activeAbortController.abort();
@@ -242,6 +247,26 @@ async function handleForkSession({
   } else {
     await host.forkSession(sessionId, leafEntryId);
   }
+  writeEnvelope(output, { id, type: 'response', result: createState(host) });
+}
+
+function handleBranchSession({
+  host,
+  id,
+  params,
+  output,
+}: {
+  host: RuntimeHost;
+  id: RpcRequest['id'];
+  params?: Record<string, unknown>;
+  output: NodeJS.WritableStream;
+}): void {
+  const leafEntryId = parseOptionalStringParam(params, 'leaf_entry_id');
+  if (!leafEntryId) {
+    writeRpcError(output, id, 'invalid_request', 'leaf_entry_id is required');
+    return;
+  }
+  host.branchSession(leafEntryId);
   writeEnvelope(output, { id, type: 'response', result: createState(host) });
 }
 

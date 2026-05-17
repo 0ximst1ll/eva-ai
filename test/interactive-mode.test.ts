@@ -223,6 +223,43 @@ test('/clone clones the active runtime session through RuntimeHost', async () =>
   assert.match(output.join('\n'), /Source session: .*session-current/);
 });
 
+test('/branch moves the active runtime session leaf through RuntimeHost', async () => {
+  const branchedEntryIds: string[] = [];
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-current';
+    },
+    branchSession(leafEntryId: string) {
+      branchedEntryIds.push(leafEntryId);
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/branch entry-1',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.deepEqual(branchedEntryIds, ['entry-1']);
+  assert.match(output.join('\n'), /Branched current session at entry: entry-1/);
+});
+
+test('/branch reports missing entry id without throwing', async () => {
+  const output: string[] = [];
+  const host = {} as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/branch',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.match(output.join('\n'), /Branch requires an entry id/);
+});
+
 test('/export exports the active runtime session through RuntimeHost', async () => {
   const exportedPaths: Array<string | undefined> = [];
   const output: string[] = [];

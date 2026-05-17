@@ -35,6 +35,7 @@ function createHost(options: {
   let resumeLatestSessionCalls = 0;
   const forkCalls: Array<{ sessionId?: string; leafEntryId?: string }> = [];
   const cloneCalls: Array<{ sessionId?: string; leafEntryId?: string }> = [];
+  const branchCalls: string[] = [];
   const switchedSessions: string[] = [];
 
   const host = {
@@ -118,6 +119,9 @@ function createHost(options: {
       cloneCalls.push({ sessionId: nextSessionId, leafEntryId });
       sessionId = nextSessionId ?? 'session-clone';
     },
+    branchSession(leafEntryId: string) {
+      branchCalls.push(leafEntryId);
+    },
   } as unknown as RuntimeHost;
 
   return {
@@ -129,6 +133,7 @@ function createHost(options: {
       get resumeLatestSessionCalls() { return resumeLatestSessionCalls; },
       forkCalls,
       cloneCalls,
+      branchCalls,
       switchedSessions,
       internalEntries,
     },
@@ -254,16 +259,40 @@ test('RPC session commands use RuntimeHost session operations', async () => {
     },
     output: output as unknown as NodeJS.WritableStream,
   });
+  await handleRpcRequest({
+    host,
+    state: createState(),
+    request: { id: 'branch', method: 'branch_session', params: { leaf_entry_id: 'entry-3' } },
+    output: output as unknown as NodeJS.WritableStream,
+  });
 
   assert.equal(stats.newSessionCalls, 1);
   assert.equal(stats.resumeLatestSessionCalls, 1);
   assert.deepEqual(stats.switchedSessions, ['session-target']);
   assert.deepEqual(stats.forkCalls, [{ sessionId: 'session-fork', leafEntryId: 'entry-1' }]);
   assert.deepEqual(stats.cloneCalls, [{ sessionId: 'session-clone', leafEntryId: 'entry-2' }]);
+  assert.deepEqual(stats.branchCalls, ['entry-3']);
   assert.deepEqual(
     output.envelopes().map((envelope) => envelope['type']),
-    ['response', 'response', 'response', 'response', 'response'],
+    ['response', 'response', 'response', 'response', 'response', 'response'],
   );
+});
+
+test('RPC branch_session requires leaf_entry_id', async () => {
+  const { host, stats } = createHost();
+  const output = new JsonlOutput();
+
+  await handleRpcRequest({
+    host,
+    state: createState(),
+    request: { id: 'branch-missing', method: 'branch_session' },
+    output: output as unknown as NodeJS.WritableStream,
+  });
+
+  const envelope = output.envelopes()[0]!;
+  assert.equal(envelope['type'], 'error');
+  assert.equal((envelope['error'] as Record<string, unknown>)['code'], 'invalid_request');
+  assert.deepEqual(stats.branchCalls, []);
 });
 
 test('RPC abort reports whether an active run exists', async () => {

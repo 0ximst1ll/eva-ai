@@ -162,6 +162,11 @@ export class AgentSession {
     this.agent.reset(this.sessionManager.getMessages(this.sessionId));
   }
 
+  branchToEntry(leafEntryId: string): void {
+    this.sessionManager.branchSession({ sessionId: this.sessionId, leafEntryId });
+    this.agent.setMessages(this.sessionManager.getMessages(this.sessionId));
+  }
+
   async compact(customInstructions?: string): Promise<CompactionResult> {
     const messages = this.sessionManager.getMessages(this.sessionId);
     if (messages.length <= 2) {

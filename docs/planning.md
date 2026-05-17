@@ -670,11 +670,13 @@ user/assistant/tool: durable session history
 - `RuntimeHost.switchToParentSession()` 已提供 mode 层向 parent session 导航边界，interactive `/parent` 可切换到当前 session 的 parent session。
 - M4.x entry-path fork/clone 第一小步已落地：fork/clone 不再只复制 active `Message[]` 快照，而是优先复制 active leaf path 上的 session entries。
 - RuntimeHost、interactive slash command 和 RPC 已支持指定 `leafEntryId` / `leaf_entry_id` 的 fork/clone。
+- `SessionManager.branchSession()` 已支持同 session 文件内移动 active leaf，并由当前 leaf path 派生 active messages。
+- `RuntimeHost.branchSession()`、interactive `/branch <entryId>` 和 RPC `branch_session` 已暴露 entry-level branch 最小入口。
 
 后续仍需：
 
 - 更完整的 child branch navigation。
-- entry-level branch / navigate：支持在同一个 session 文件内移动 active leaf，并基于 leaf path 派生 context。
+- entry-level branch / navigate 继续增强：补 tree 展示中的 entry id 可见性、branch summary 和更完整导航体验。
 - entry-tree-first 收敛：让 append-only `SessionEntry` tree 成为主要事实源，`Message[]` 退化为 `buildSessionContext()` 的派生结果。
 - 跨 session parent/child entry graph 与 sidecar metadata。
 
@@ -693,6 +695,7 @@ user/assistant/tool: durable session history
 - Eva 已有 `entryId` / `parentEntryId`、`activeEntryId`、`getEntryPath()` 和 entry-path resume。
 - 但 `SessionManager` 仍维护 `Map<sessionId, Message[]>` 作为 active messages 主状态。
 - `forkSession()` / `cloneSession()` 已优先复制指定 leaf path 上的 session entries，RuntimeHost、interactive slash command 和 RPC 均可传入 leaf entry。
+- `branchSession()` 已可在同 session 文件内移动 active leaf，下一次 append 会从该 leaf 形成新分支。
 - session tree 展示当前是 session-level lineage tree，不是单个 session 文件内部完整 entry tree navigation。
 
 目标语义：
@@ -707,9 +710,10 @@ user/assistant/tool: durable session history
 
 1. 先保留当前兼容层，新增 `buildSessionContextFromEntryPath()` 风格边界，让 message view 明确变成派生结果。
 2. 已完成指定 leaf entry 的 entry path fork/clone，并已暴露到 RuntimeHost、interactive slash command 和 RPC。
-3. 增加 entry-level `branch(entryId)` / `navigate(entryId)` 最小能力，先只处理 message/compaction/internal/usage。
-4. 再逐步把 `SessionManager` 内部主状态从 `Map<sessionId, Message[]>` 收敛为 entry tree + active leaf。
-5. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
+3. 已完成 entry-level `branch(entryId)` 最小能力，先处理 message/compaction/internal/usage path。
+4. 后续补 entry tree 展示中的 entry id 可见性、branch summary 和更完整 navigate UX。
+5. 再逐步把 `SessionManager` 内部主状态从 `Map<sessionId, Message[]>` 收敛为 entry tree + active leaf。
+6. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
 
 非目标：
 

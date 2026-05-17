@@ -479,6 +479,29 @@ export class SessionManager {
     return pathEntries;
   }
 
+  branchSession({
+    sessionId,
+    leafEntryId,
+  }: {
+    sessionId: string;
+    leafEntryId: string;
+  }): void {
+    if (!this.sessions.has(sessionId)) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    const entryPath = this.getEntryPath(sessionId, leafEntryId);
+    if (!entryPath.length) {
+      throw new Error(`Entry not found in session ${sessionId}: ${leafEntryId}`);
+    }
+    const activeMessages = rebuildMessagesFromEntryPath(entryPath);
+    if (!activeMessages.length) {
+      throw new Error(`Entry path has no messages in session ${sessionId}: ${leafEntryId}`);
+    }
+    this.sessions.set(sessionId, activeMessages);
+    this.sessionCompactions.set(sessionId, getLatestCompactionFromPath(entryPath));
+    this.setActiveEntryId(sessionId, leafEntryId);
+  }
+
   async appendMessage(sessionId: string, message: Message): Promise<void> {
     const existing = this.sessions.get(sessionId);
     if (!existing) {

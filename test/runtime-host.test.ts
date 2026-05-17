@@ -134,6 +134,49 @@ test('RuntimeHost forks from a specified entry path through the runtime boundary
   }
 });
 
+test('RuntimeHost branches the active session through the runtime boundary', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-branch-entry-'));
+
+  try {
+    const configPath = await writeConfig(tempDir);
+    const sessionBaseDir = path.join(tempDir, 'sessions');
+    const host = await RuntimeHost.create({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'jsonl',
+      sessionBaseDir,
+      createNewSession: true,
+      tools: [],
+    });
+    const sessionId = host.sessionId;
+    await host.session.addUserMessage('source task');
+    const leafEntryId = host.runtime.sessionManager
+      .getEntryPath(sessionId)
+      .find((entry) => entry.type === 'message' && entry.message.content === 'source task')
+      ?.entryId;
+    assert.ok(leafEntryId);
+    await host.session.addUserMessage('later task');
+
+    host.branchSession(leafEntryId);
+
+    assert.equal(host.sessionId, sessionId);
+    assert.equal(host.session.messages.length, 2);
+    assert.equal(host.session.messages[1]?.content, 'source task');
+
+    await host.session.addUserMessage('branch task');
+    assert.equal(host.session.messages.at(-1)?.content, 'branch task');
+    assert.deepEqual(
+      host.runtime.sessionManager
+        .getEntryPath(sessionId)
+        .filter((entry) => entry.type === 'message')
+        .map((entry) => entry.message.content),
+      [host.session.messages[0]?.content, 'source task', 'branch task'],
+    );
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('RuntimeHost clones the active session through the runtime boundary', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-clone-'));
 

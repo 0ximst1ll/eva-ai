@@ -82,6 +82,11 @@ export class RuntimeHost {
     return this.switchSession(parentSessionId);
   }
 
+  branchSession(leafEntryId: string): Runtime {
+    this.currentRuntime.session.branchToEntry(leafEntryId);
+    return this.currentRuntime;
+  }
+
   async forkSession(sessionId?: string, leafEntryId?: string): Promise<Runtime> {
     const forkedSessionId = await this.currentRuntime.sessionManager.forkSession({
       sourceSessionId: this.sessionId,

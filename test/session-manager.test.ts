@@ -550,6 +550,54 @@ test('SessionManager forks from a specified leaf entry path', async () => {
   }
 });
 
+test('SessionManager branches the active session to a specified entry path', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-branch-entry-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+
+  try {
+    const manager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    const sessionId = await manager.createSession('system', 'session-root');
+    await manager.appendMessage(sessionId, { role: 'user', content: 'first task' });
+    const leafEntryId = manager
+      .getEntryPath(sessionId)
+      .find((entry) => entry.type === 'message' && entry.message.content === 'first task')
+      ?.entryId;
+    assert.ok(leafEntryId);
+    await manager.appendMessage(sessionId, { role: 'assistant', content: 'later answer' });
+
+    manager.branchSession({ sessionId, leafEntryId });
+
+    assert.deepEqual(
+      manager.getMessages(sessionId).map((message) => message.content),
+      ['system', 'first task'],
+    );
+
+    await manager.appendMessage(sessionId, { role: 'assistant', content: 'branch answer' });
+    assert.deepEqual(
+      manager.getMessages(sessionId).map((message) => message.content),
+      ['system', 'first task', 'branch answer'],
+    );
+    assert.deepEqual(
+      manager.getEntryPath(sessionId).map((entry) => entry.type === 'message' ? entry.message.content : entry.type),
+      ['system', 'first task', 'branch answer'],
+    );
+
+    const reloaded = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    assert.equal(await reloaded.loadSession(sessionId), true);
+    assert.deepEqual(
+      reloaded.getMessages(sessionId).map((message) => message.content),
+      ['system', 'first task', 'branch answer'],
+    );
+    assert.throws(
+      () => manager.branchSession({ sessionId, leafEntryId: 'missing-entry' }),
+      /Entry not found in session session-root: missing-entry/,
+    );
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('SessionManager clones sessions using current fork lineage semantics', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-clone-'));
   const workspaceDir = path.join(tempDir, 'workspace');
