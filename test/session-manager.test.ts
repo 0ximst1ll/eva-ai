@@ -582,6 +582,15 @@ test('SessionManager branches the active session to a specified entry path', asy
       manager.getEntryPath(sessionId).map((entry) => entry.type === 'message' ? entry.message.content : entry.type),
       ['system', 'first task', 'branch answer'],
     );
+    const entryTree = manager.listEntryTree(sessionId);
+    assert.equal(entryTree.length, 1);
+    assert.equal(entryTree[0]?.entry.messageRole, 'system');
+    assert.equal(entryTree[0]?.children[0]?.entry.messageRole, 'user');
+    assert.deepEqual(
+      entryTree[0]?.children[0]?.children.map((node) => node.entry.preview),
+      ['later answer', 'branch answer'],
+    );
+    assert.equal(entryTree[0]?.children[0]?.children[1]?.entry.isActive, true);
 
     const reloaded = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
     assert.equal(await reloaded.loadSession(sessionId), true);

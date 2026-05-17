@@ -28,6 +28,21 @@
 28. Entry Path Fork / Clone 最小边界
 29. 指定 Leaf Entry Fork / Clone 对外边界
 30. Entry-Level Branch 最小边界
+31. Entry Tree 展示最小边界
+
+
+# Entry Tree 展示最小边界
+
+为 M4.x Entry Tree First 对齐补齐当前 session 文件内的 entry tree 可见性，让 `/branch <entryId>` 的 entry id 有稳定发现入口。
+
+核心变化：
+
+- 新增 `SessionManager.listEntryTree()`，返回面向展示的 entry tree view，包含 entry id、parent、type、timestamp、active marker 和 payload preview。
+- interactive slash command 新增 `/entries`，展示当前 session 文件内的 entry tree。
+- entry tree 展示会标记 active leaf，并展示 message role、message index、internal kind 或 usage/compaction preview。
+- 测试覆盖 `SessionManager` 的 tree view 和 interactive `/entries` 输出。
+
+当前仍未实现 branch summary、完整交互式 entry navigation UI 或 child branch navigation。
 
 
 # Entry-Level Branch 最小边界
@@ -44,7 +59,7 @@
 - 下一次 append 会以 branch 后的 active leaf 作为 parent，从而在同一个 session 文件内形成新分支。
 - 测试覆盖 `SessionManager`、`RuntimeHost`、interactive command 和 RPC 路径。
 
-当前仍未实现 branch summary，也尚未让 session tree 展示 entry id 以便用户直接发现可 branch 的 entry。
+当前仍未实现 branch summary；entry id 可发现性由后续 `/entries` 展示能力补齐。
 
 
 # 指定 Leaf Entry Fork / Clone 对外边界

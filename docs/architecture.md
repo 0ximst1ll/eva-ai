@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界、permission pending durable diagnostics、最小 Headless RPC mode、RPC permission pending approval 最小闭环，以及 M4 session lineage / fork / entry tree / entry path rebuild / entry-path fork / entry-level branch / session tree display / parent navigation 最小边界。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。完整跨 session parent/child graph、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界、permission pending durable diagnostics、最小 Headless RPC mode、RPC permission pending approval 最小闭环，以及 M4 session lineage / fork / entry tree / entry path rebuild / entry-path fork / entry-level branch / entry tree display / session tree display / parent navigation 最小边界。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。完整跨 session parent/child graph、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -87,6 +87,7 @@ createRuntime()
 - `/diagnostics`：打印当前 runtime 的完整 diagnostics。
 - `/reload`：重新加载 runtime resources，并保持当前 session 不变。
 - `/sessions`：以 session lineage tree 展示当前 workspace 下的 sessions，并标记当前 active session 和 latest session。
+- `/entries`：以 entry tree 展示当前 session 文件内的 entries，包含 entry id、parent、type、message role、preview 和 active marker。
 - `/log`：当前是忽略型占位命令。
 
 ## Headless RPC
@@ -409,6 +410,7 @@ JSONL 模式下：
 - `getInternalEntries()` 返回当前 session 的 durable internal entries，可按 kind 过滤；internal entries 不影响 message count，也不会进入 provider request view。
 - `getLineageInfo()` 返回当前 session 的 root/parent/fork point 信息；旧 JSONL session 会被视为 root session。
 - `getEntryTreeInfo()` 返回当前 session 已持久化 entry tree 的 entries 和 active entry id。
+- `listEntryTree()` 返回用于展示的 entry tree view，包含 entry id、parent、type、timestamp、active marker 和 payload preview。
 - `getEntryPath()` 从 active entry leaf 沿 `parentEntryId` 回溯，返回当前 branch path 上带 payload 的 entries。
 - `branchSession()` 会在同一个 session 文件内移动 active entry leaf，并把当前 active messages 重建为该 leaf path；下一次 append 会以该 leaf 作为 parent。
 - `forkSession()` 会优先复制指定 leaf entry path 到新 session，并写入 lineage metadata；未指定 leaf 时使用当前 active entry path；旧 session 没有 entry metadata 时回退复制 active context messages；fork 后父子 session 的后续消息互不影响。
@@ -418,7 +420,7 @@ JSONL 模式下：
 
 `src/core/session-context-rebuilder.ts` 是当前最小 session context rebuild 边界。它从 `SessionManager` 读取当前 session snapshot，返回 active messages、lineage、branch path、compaction、usage、internal entries 和 entry tree metadata。新 session 如果存在 entry path，会使用 `entry_path` 策略从 active leaf 沿 `parentEntryId` 回溯构造 messages；旧 JSONL 没有 entry metadata 时仍使用 `flat_snapshot` 兼容策略。compaction path rebuild 会使用 `firstKeptEntryId` 优先恢复 compact summary 后的保留消息，并兼容旧的 `firstKeptMessageIndex`。
 
-`SessionManager.loadSession()` 已在主加载路径中使用 active entry path 重建 `getMessages()` 的 active messages；因此 `RuntimeHost` resume/switch 后创建的 `AgentSession` 会使用 entry-path 后的上下文。旧 JSONL 没有 entry metadata 时仍沿用 flat rebuild。当前 session model 支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry、lineage metadata、entry tree metadata、基于指定 leaf entry path 的 fork/clone session、同 session 文件内 active leaf branch、JSONL import/export、session-level lineage tree、向 parent session 导航，以及基于 active leaf 的最小 path-aware context rebuild；还不支持 branch summary、跨 session parent/child entry graph 或完整 child branch navigation。
+`SessionManager.loadSession()` 已在主加载路径中使用 active entry path 重建 `getMessages()` 的 active messages；因此 `RuntimeHost` resume/switch 后创建的 `AgentSession` 会使用 entry-path 后的上下文。旧 JSONL 没有 entry metadata 时仍沿用 flat rebuild。当前 session model 支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry、lineage metadata、entry tree metadata、基于指定 leaf entry path 的 fork/clone session、同 session 文件内 active leaf branch、entry tree 展示、JSONL import/export、session-level lineage tree、向 parent session 导航，以及基于 active leaf 的最小 path-aware context rebuild；还不支持 branch summary、跨 session parent/child entry graph 或完整 child branch navigation。
 
 ## Tools
 

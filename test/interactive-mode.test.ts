@@ -626,6 +626,93 @@ test('/sessions reports when the workspace has no sessions', async () => {
   assert.match(output.join('\n'), /No sessions found/);
 });
 
+test('/entries prints current session entry tree with entry ids', async () => {
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-current';
+    },
+    get runtime() {
+      return {
+        sessionManager: {
+          listEntryTree(sessionId: string) {
+            assert.equal(sessionId, 'session-current');
+            return [
+              {
+                entry: {
+                  entryId: 'entry-system',
+                  parentEntryId: null,
+                  type: 'message',
+                  timestamp: Date.parse('2026-05-08T00:00:00.000Z'),
+                  isActive: false,
+                  messageIndex: 0,
+                  messageRole: 'system',
+                  preview: 'system prompt',
+                },
+                children: [
+                  {
+                    entry: {
+                      entryId: 'entry-user',
+                      parentEntryId: 'entry-system',
+                      type: 'message',
+                      timestamp: Date.parse('2026-05-08T00:00:01.000Z'),
+                      isActive: true,
+                      messageIndex: 1,
+                      messageRole: 'user',
+                      preview: 'user task',
+                    },
+                    children: [],
+                  },
+                ],
+              },
+            ];
+          },
+        },
+      };
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/entries',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+  const text = output.join('\n');
+
+  assert.equal(result, 'continue');
+  assert.match(text, /Current session entries:/);
+  assert.match(text, /entry-system type=message role=system message_index=0 parent=root/);
+  assert.match(text, /\* entry-user type=message role=user message_index=1 parent=entry-system/);
+  assert.match(text, /preview="user task"/);
+});
+
+test('/entries reports when the current session has no entry tree metadata', async () => {
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-current';
+    },
+    get runtime() {
+      return {
+        sessionManager: {
+          listEntryTree() {
+            return [];
+          },
+        },
+      };
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/entries',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.match(output.join('\n'), /No entry tree metadata found/);
+});
+
 test('/diagnostics prints full runtime diagnostics', async () => {
   const output: string[] = [];
   const contextBuilder = createContextBuilder({

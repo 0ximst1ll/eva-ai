@@ -92,6 +92,23 @@ export interface SessionEntryTreeInfo {
   entries: SessionEntryTreeNode[];
 }
 
+export interface SessionEntryTreeViewItem {
+  entryId: string;
+  parentEntryId: string | null;
+  type: SessionEntryNodeType;
+  timestamp: number;
+  isActive: boolean;
+  messageIndex?: number;
+  messageRole?: Message['role'];
+  kind?: string;
+  preview?: string;
+}
+
+export interface SessionEntryTreeViewNode {
+  entry: SessionEntryTreeViewItem;
+  children: SessionEntryTreeViewNode[];
+}
+
 export type SessionPathEntry =
   | (MessageEntry & { entryId: string; parentEntryId: string | null })
   | (CompactionEntry & { entryId: string; parentEntryId: string | null })
@@ -462,6 +479,46 @@ export class SessionManager {
       activeEntryId,
       entries: (this.sessionEntryTrees.get(sessionId) ?? []).map(copyEntryTreeNode),
     };
+  }
+
+  listEntryTree(sessionId: string): SessionEntryTreeViewNode[] {
+    const entries = this.sessionPathEntries.get(sessionId) ?? [];
+    const activeEntryId = this.sessionActiveEntryIds.get(sessionId);
+    const entryMetadata = new Map(
+      (this.sessionEntryTrees.get(sessionId) ?? []).map((entry) => [entry.entryId, entry]),
+    );
+    const nodes = new Map<string, SessionEntryTreeViewNode>();
+
+    for (const entry of entries) {
+      nodes.set(entry.entryId, {
+        entry: createEntryTreeViewItem({
+          entry,
+          metadata: entryMetadata.get(entry.entryId),
+          activeEntryId,
+        }),
+        children: [],
+      });
+    }
+
+    const roots: SessionEntryTreeViewNode[] = [];
+    for (const node of nodes.values()) {
+      const parent = node.entry.parentEntryId ? nodes.get(node.entry.parentEntryId) : undefined;
+      if (parent) {
+        parent.children.push(node);
+      } else {
+        roots.push(node);
+      }
+    }
+
+    const sortNodes = (treeNodes: SessionEntryTreeViewNode[]): SessionEntryTreeViewNode[] => {
+      treeNodes.sort((a, b) => a.entry.timestamp - b.entry.timestamp || a.entry.entryId.localeCompare(b.entry.entryId));
+      for (const node of treeNodes) {
+        sortNodes(node.children);
+      }
+      return treeNodes;
+    };
+
+    return sortNodes(roots);
   }
 
   getEntryPath(sessionId: string, leafEntryId?: string): SessionPathEntry[] {
@@ -1268,6 +1325,47 @@ function copyEntryTreeNode(entryNode: SessionEntryTreeNode): SessionEntryTreeNod
   if (typeof entryNode.messageIndex === 'number') copy.messageIndex = entryNode.messageIndex;
   if (entryNode.kind) copy.kind = entryNode.kind;
   return copy;
+}
+
+function createEntryTreeViewItem({
+  entry,
+  metadata,
+  activeEntryId,
+}: {
+  entry: SessionPathEntry;
+  metadata?: SessionEntryTreeNode;
+  activeEntryId?: string;
+}): SessionEntryTreeViewItem {
+  const item: SessionEntryTreeViewItem = {
+    entryId: entry.entryId,
+    parentEntryId: entry.parentEntryId,
+    type: entry.type,
+    timestamp: entry.timestamp,
+    isActive: entry.entryId === activeEntryId,
+  };
+
+  if (typeof metadata?.messageIndex === 'number') {
+    item.messageIndex = metadata.messageIndex;
+  }
+  if (entry.type === 'message') {
+    item.messageRole = entry.message.role;
+    item.preview = truncatePreview(entry.message.content);
+  } else if (entry.type === 'compaction') {
+    item.preview = truncatePreview(entry.summary);
+  } else if (entry.type === 'usage') {
+    item.preview = `total_tokens=${entry.usage.total_tokens}`;
+  } else {
+    item.kind = entry.kind;
+    item.preview = truncatePreview(entry.content ?? entry.kind);
+  }
+
+  return item;
+}
+
+function truncatePreview(content: string, maxChars = 80): string {
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, maxChars)}...`;
 }
 
 function findFirstKeptEntryId(

@@ -2,7 +2,7 @@ import * as readline from 'node:readline';
 import { RuntimeSessionNotFoundError, type ToolConfirmationRequest, type ToolPermissionDecision } from '../core/runtime.js';
 import type { ContextBuildSummary } from '../core/context-builder.js';
 import type { ContextDiagnostics } from '../core/context-manager.js';
-import type { SessionTreeNode } from '../core/session-manager.js';
+import type { SessionEntryTreeViewNode, SessionTreeNode } from '../core/session-manager.js';
 import type { RuntimeHost } from '../core/runtime-host.js';
 import { Colors } from '../utils/terminal.js';
 import { createCliRenderer, createToolConfirmationPrompt, formatRuntimeDiagnostic } from './cli-ui.js';
@@ -185,6 +185,31 @@ function writeSessionTree({
       writeLine,
       depth: depth + 1,
     });
+  }
+}
+
+function writeEntryTree({
+  nodes,
+  writeLine,
+  depth = 0,
+}: {
+  nodes: SessionEntryTreeViewNode[];
+  writeLine: (message?: string) => void;
+  depth?: number;
+}): void {
+  for (const node of nodes) {
+    const entry = node.entry;
+    const activeMarker = entry.isActive ? '*' : ' ';
+    const indent = '  '.repeat(depth);
+    const timestamp = entry.timestamp > 0 ? new Date(entry.timestamp).toISOString() : 'unknown';
+    const role = entry.messageRole ? ` role=${entry.messageRole}` : '';
+    const kind = entry.kind ? ` kind=${entry.kind}` : '';
+    const messageIndex = typeof entry.messageIndex === 'number' ? ` message_index=${entry.messageIndex}` : '';
+    const preview = entry.preview ? ` preview="${entry.preview}"` : '';
+    writeLine(
+      `${indent}${activeMarker} ${entry.entryId} type=${entry.type}${role}${kind}${messageIndex} parent=${entry.parentEntryId ?? 'root'} updated=${timestamp}${preview}`,
+    );
+    writeEntryTree({ nodes: node.children, writeLine, depth: depth + 1 });
   }
 }
 
@@ -423,6 +448,19 @@ export async function handleInteractiveCommand({
       currentSessionId: host.sessionId,
       writeLine,
     });
+    writeLine();
+    return 'continue';
+  }
+
+  if (cmd === '/entries') {
+    const entryTree = host.runtime.sessionManager.listEntryTree(host.sessionId);
+    if (!entryTree.length) {
+      writeLine(`\n${Colors.YELLOW}No entry tree metadata found for current session.${Colors.RESET}\n`);
+      return 'continue';
+    }
+
+    writeLine(`\n${Colors.BRIGHT_CYAN}Current session entries:${Colors.RESET}`);
+    writeEntryTree({ nodes: entryTree, writeLine });
     writeLine();
     return 'continue';
   }
