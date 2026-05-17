@@ -577,6 +577,7 @@ test('SessionManager branches the active session to a specified entry path', asy
     assert.equal(summary.messageCount, 2);
     assert.equal(summary.targetEntry.messageRole, 'user');
     assert.equal(summary.targetEntry.preview, 'first task');
+    assert.equal(summary.targetEntry.isActivePath, true);
 
     await manager.appendMessage(sessionId, { role: 'assistant', content: 'branch answer' });
     assert.deepEqual(
@@ -590,12 +591,16 @@ test('SessionManager branches the active session to a specified entry path', asy
     const entryTree = manager.listEntryTree(sessionId);
     assert.equal(entryTree.length, 1);
     assert.equal(entryTree[0]?.entry.messageRole, 'system');
+    assert.equal(entryTree[0]?.entry.isActivePath, true);
     assert.equal(entryTree[0]?.children[0]?.entry.messageRole, 'user');
+    assert.equal(entryTree[0]?.children[0]?.entry.isActivePath, true);
     assert.deepEqual(
       entryTree[0]?.children[0]?.children.map((node) => node.entry.preview),
       ['later answer', 'branch answer'],
     );
     assert.equal(entryTree[0]?.children[0]?.children[1]?.entry.isActive, true);
+    assert.equal(entryTree[0]?.children[0]?.children[1]?.entry.isActivePath, true);
+    assert.equal(entryTree[0]?.children[0]?.children[0]?.entry.isActivePath, false);
 
     const reloaded = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
     assert.equal(await reloaded.loadSession(sessionId), true);

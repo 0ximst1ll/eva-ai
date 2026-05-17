@@ -203,15 +203,16 @@ function writeEntryTree({
 }): void {
   for (const node of nodes) {
     const entry = node.entry;
-    const activeMarker = entry.isActive ? '*' : ' ';
+    const activeMarker = entry.isActive ? '*' : entry.isActivePath ? '+' : ' ';
     const indent = '  '.repeat(depth);
     const timestamp = entry.timestamp > 0 ? new Date(entry.timestamp).toISOString() : 'unknown';
+    const activePath = entry.isActivePath ? ' active_path=true' : '';
     const role = entry.messageRole ? ` role=${entry.messageRole}` : '';
     const kind = entry.kind ? ` kind=${entry.kind}` : '';
     const messageIndex = typeof entry.messageIndex === 'number' ? ` message_index=${entry.messageIndex}` : '';
     const preview = entry.preview ? ` preview="${entry.preview}"` : '';
     writeLine(
-      `${indent}${activeMarker} ${entry.entryId} type=${entry.type}${role}${kind}${messageIndex} parent=${entry.parentEntryId ?? 'root'} updated=${timestamp}${preview}`,
+      `${indent}${activeMarker} ${entry.entryId} type=${entry.type}${activePath}${role}${kind}${messageIndex} parent=${entry.parentEntryId ?? 'root'} updated=${timestamp}${preview}`,
     );
     writeEntryTree({ nodes: node.children, writeLine, depth: depth + 1 });
   }
@@ -224,6 +225,20 @@ function formatBranchSummary(summary: SessionBranchSummary): string {
   const messageIndex = typeof target.messageIndex === 'number' ? ` message_index=${target.messageIndex}` : '';
   const preview = target.preview ? ` preview="${target.preview}"` : '';
   return `Path entries: ${summary.pathEntryCount}, messages: ${summary.messageCount}, target: ${target.entryId} type=${target.type}${role}${kind}${messageIndex}${preview}`;
+}
+
+function formatBranchError(error: unknown, leafEntryId: string): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/Entry not found in session/i.test(message)) {
+    return `Entry not found: ${leafEntryId}. Run /entries to inspect available entry ids.`;
+  }
+  if (/Entry path has no messages/i.test(message)) {
+    return `Entry path has no messages: ${leafEntryId}. Choose a message entry from /entries.`;
+  }
+  if (/Session not found/i.test(message)) {
+    return `Session not found while branching: ${message}`;
+  }
+  return `Branch failed: ${message}`;
 }
 
 function parseSessionForkArgs(args: string[]): { sessionId?: string; leafEntryId?: string } {
@@ -317,11 +332,15 @@ export async function handleInteractiveCommand({
       writeLine(`${Colors.RED}❌ Branch requires an entry id: /branch <entryId>${Colors.RESET}\n`);
       return 'continue';
     }
-    const summary = host.branchSession(leafEntryId);
-    writeLine(`${Colors.GREEN}✅ Branched current session at entry: ${leafEntryId}${Colors.RESET}`);
-    if (summary) {
-      writeLine(`${Colors.DIM}${formatBranchSummary(summary)}${Colors.RESET}`);
+    let summary: SessionBranchSummary;
+    try {
+      summary = host.branchSession(leafEntryId);
+    } catch (error) {
+      writeLine(`${Colors.RED}❌ ${formatBranchError(error, leafEntryId)}${Colors.RESET}\n`);
+      return 'continue';
     }
+    writeLine(`${Colors.GREEN}✅ Branched current session at entry: ${leafEntryId}${Colors.RESET}`);
+    writeLine(`${Colors.DIM}${formatBranchSummary(summary)}${Colors.RESET}`);
     writeLine(`${Colors.DIM}Session: ${host.sessionId}${Colors.RESET}\n`);
     return 'continue';
   }

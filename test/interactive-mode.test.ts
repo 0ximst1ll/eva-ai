@@ -243,6 +243,7 @@ test('/branch moves the active runtime session leaf through RuntimeHost', async 
           type: 'message',
           timestamp: Date.parse('2026-05-08T00:00:01.000Z'),
           isActive: true,
+          isActivePath: true,
           messageIndex: 1,
           messageRole: 'user',
           preview: 'branch target',
@@ -275,6 +276,25 @@ test('/branch reports missing entry id without throwing', async () => {
 
   assert.equal(result, 'continue');
   assert.match(output.join('\n'), /Branch requires an entry id/);
+});
+
+test('/branch reports missing target entry without throwing', async () => {
+  const output: string[] = [];
+  const host = {
+    branchSession() {
+      throw new Error('Entry not found in session session-current: missing-entry');
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/branch missing-entry',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.match(output.join('\n'), /Entry not found: missing-entry/);
+  assert.match(output.join('\n'), /Run \/entries/);
 });
 
 test('/export exports the active runtime session through RuntimeHost', async () => {
@@ -662,6 +682,7 @@ test('/entries prints current session entry tree with entry ids', async () => {
                   type: 'message',
                   timestamp: Date.parse('2026-05-08T00:00:00.000Z'),
                   isActive: false,
+                  isActivePath: true,
                   messageIndex: 0,
                   messageRole: 'system',
                   preview: 'system prompt',
@@ -674,6 +695,7 @@ test('/entries prints current session entry tree with entry ids', async () => {
                       type: 'message',
                       timestamp: Date.parse('2026-05-08T00:00:01.000Z'),
                       isActive: true,
+                      isActivePath: true,
                       messageIndex: 1,
                       messageRole: 'user',
                       preview: 'user task',
@@ -698,8 +720,8 @@ test('/entries prints current session entry tree with entry ids', async () => {
 
   assert.equal(result, 'continue');
   assert.match(text, /Current session entries:/);
-  assert.match(text, /entry-system type=message role=system message_index=0 parent=root/);
-  assert.match(text, /\* entry-user type=message role=user message_index=1 parent=entry-system/);
+  assert.match(text, /\+ entry-system type=message active_path=true role=system message_index=0 parent=root/);
+  assert.match(text, /\* entry-user type=message active_path=true role=user message_index=1 parent=entry-system/);
   assert.match(text, /preview="user task"/);
 });
 

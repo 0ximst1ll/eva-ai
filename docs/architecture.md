@@ -4,7 +4,7 @@
 
 ## 当前快照
 
-当前版本：2026-05-17
+当前版本：2026-05-18
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
@@ -76,7 +76,7 @@ createRuntime()
 - `/resume`、`/resume <id>`：通过 `RuntimeHost` 恢复 latest session 或切换到指定 session。
 - `/fork [id] [--entry <entryId>]`：通过 `RuntimeHost.forkSession()` 从当前 active session 的指定 entry path 创建分支 session；未指定 entry 时使用当前 active entry path。
 - `/clone [id] [--entry <entryId>]`：通过 `RuntimeHost.cloneSession()` 复制当前 active session；当前语义与 `pi-mono` 一致，是对指定 leaf entry path 执行 fork。
-- `/branch <entryId>`：通过 `RuntimeHost.branchSession()` 在当前 session 文件内移动 active leaf；下一条消息会从该 entry 形成新分支，并输出 path/message/target 摘要。
+- `/branch <entryId>`：通过 `RuntimeHost.branchSession()` 在当前 session 文件内移动 active leaf；下一条消息会从该 entry 形成新分支，并输出 path/message/target 摘要；常见失败会提示使用 `/entries` 查找可用 entry。
 - `/parent`：通过 `RuntimeHost.switchToParentSession()` 切换到当前 session 的 parent session；没有 parent 时只打印提示。
 - `/export [path]`：通过 `RuntimeHost.exportSession()` 将当前 session 导出为 JSONL。
 - `/import <path>`：通过 `RuntimeHost.importSession()` 导入 JSONL session 并切换到导入后的 session。
@@ -87,7 +87,7 @@ createRuntime()
 - `/diagnostics`：打印当前 runtime 的完整 diagnostics。
 - `/reload`：重新加载 runtime resources，并保持当前 session 不变。
 - `/sessions`：以 session lineage tree 展示当前 workspace 下的 sessions，并标记当前 active session 和 latest session。
-- `/entries`：以 entry tree 展示当前 session 文件内的 entries，包含 entry id、parent、type、message role、preview 和 active marker。
+- `/entries`：以 entry tree 展示当前 session 文件内的 entries，包含 entry id、parent、type、message role、preview、active leaf marker 和 active path marker。
 - `/log`：当前是忽略型占位命令。
 
 ## Headless RPC

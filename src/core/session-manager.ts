@@ -98,6 +98,7 @@ export interface SessionEntryTreeViewItem {
   type: SessionEntryNodeType;
   timestamp: number;
   isActive: boolean;
+  isActivePath: boolean;
   messageIndex?: number;
   messageRole?: Message['role'];
   kind?: string;
@@ -492,6 +493,9 @@ export class SessionManager {
   listEntryTree(sessionId: string): SessionEntryTreeViewNode[] {
     const entries = this.sessionPathEntries.get(sessionId) ?? [];
     const activeEntryId = this.sessionActiveEntryIds.get(sessionId);
+    const activePathEntryIds = new Set(
+      buildEntryPath(entries, activeEntryId).map((entry) => entry.entryId),
+    );
     const entryMetadata = new Map(
       (this.sessionEntryTrees.get(sessionId) ?? []).map((entry) => [entry.entryId, entry]),
     );
@@ -503,6 +507,7 @@ export class SessionManager {
           entry,
           metadata: entryMetadata.get(entry.entryId),
           activeEntryId,
+          activePathEntryIds,
         }),
         children: [],
       });
@@ -582,6 +587,7 @@ export class SessionManager {
         entry: targetEntry,
         metadata,
         activeEntryId: leafEntryId,
+        activePathEntryIds: new Set(entryPath.map((entry) => entry.entryId)),
       }),
     };
   }
@@ -1358,10 +1364,12 @@ function createEntryTreeViewItem({
   entry,
   metadata,
   activeEntryId,
+  activePathEntryIds,
 }: {
   entry: SessionPathEntry;
   metadata?: SessionEntryTreeNode;
   activeEntryId?: string;
+  activePathEntryIds?: Set<string>;
 }): SessionEntryTreeViewItem {
   const item: SessionEntryTreeViewItem = {
     entryId: entry.entryId,
@@ -1369,6 +1377,7 @@ function createEntryTreeViewItem({
     type: entry.type,
     timestamp: entry.timestamp,
     isActive: entry.entryId === activeEntryId,
+    isActivePath: activePathEntryIds?.has(entry.entryId) ?? entry.entryId === activeEntryId,
   };
 
   if (typeof metadata?.messageIndex === 'number') {
