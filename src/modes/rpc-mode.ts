@@ -266,8 +266,8 @@ function handleBranchSession({
     writeRpcError(output, id, 'invalid_request', 'leaf_entry_id is required');
     return;
   }
-  host.branchSession(leafEntryId);
-  writeEnvelope(output, { id, type: 'response', result: createState(host) });
+  const branch = host.branchSession(leafEntryId);
+  writeEnvelope(output, { id, type: 'response', result: { ...createState(host), branch } });
 }
 
 function handlePermissionDecision({

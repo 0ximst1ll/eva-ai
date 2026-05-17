@@ -673,11 +673,12 @@ user/assistant/tool: durable session history
 - `SessionManager.branchSession()` 已支持同 session 文件内移动 active leaf，并由当前 leaf path 派生 active messages。
 - `RuntimeHost.branchSession()`、interactive `/branch <entryId>` 和 RPC `branch_session` 已暴露 entry-level branch 最小入口。
 - `SessionManager.listEntryTree()` 和 interactive `/entries` 已支持当前 session entry tree 展示，使 `/branch <entryId>` 的 entry id 可发现。
+- `branchSession()` 已返回 branch operation summary，interactive `/branch` 和 RPC `branch_session` 会暴露 path entries 数、message 数和目标 entry view。
 
 后续仍需：
 
 - 更完整的 child branch navigation。
-- entry-level branch / navigate 继续增强：补 branch summary 和更完整导航体验。
+- entry-level branch / navigate 继续增强：补持久化 branch summary entry 和更完整导航体验。
 - entry-tree-first 收敛：让 append-only `SessionEntry` tree 成为主要事实源，`Message[]` 退化为 `buildSessionContext()` 的派生结果。
 - 跨 session parent/child entry graph 与 sidecar metadata。
 
@@ -698,6 +699,7 @@ user/assistant/tool: durable session history
 - `forkSession()` / `cloneSession()` 已优先复制指定 leaf path 上的 session entries，RuntimeHost、interactive slash command 和 RPC 均可传入 leaf entry。
 - `branchSession()` 已可在同 session 文件内移动 active leaf，下一次 append 会从该 leaf 形成新分支。
 - `/entries` 已可展示当前 session 文件内部 entry tree，但仍不是完整交互式 entry tree navigation。
+- `/branch` 和 RPC `branch_session` 已返回 branch operation summary，但还不是持久化的一等 branch summary entry。
 
 目标语义：
 
@@ -713,9 +715,10 @@ user/assistant/tool: durable session history
 2. 已完成指定 leaf entry 的 entry path fork/clone，并已暴露到 RuntimeHost、interactive slash command 和 RPC。
 3. 已完成 entry-level `branch(entryId)` 最小能力，先处理 message/compaction/internal/usage path。
 4. 已完成 entry tree 展示中的 entry id 可见性。
-5. 后续补 branch summary 和更完整 navigate UX。
-6. 再逐步把 `SessionManager` 内部主状态从 `Map<sessionId, Message[]>` 收敛为 entry tree + active leaf。
-7. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
+5. 已完成 branch operation summary 最小返回。
+6. 后续补持久化 branch summary entry 和更完整 navigate UX。
+7. 再逐步把 `SessionManager` 内部主状态从 `Map<sessionId, Message[]>` 收敛为 entry tree + active leaf。
+8. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
 
 非目标：
 

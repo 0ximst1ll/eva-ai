@@ -29,6 +29,22 @@
 29. 指定 Leaf Entry Fork / Clone 对外边界
 30. Entry-Level Branch 最小边界
 31. Entry Tree 展示最小边界
+32. Branch Operation Summary 最小边界
+
+
+# Branch Operation Summary 最小边界
+
+为 M4.x Entry Tree First 对齐补齐 branch 操作后的结构化摘要，但不引入新的持久化 branch summary entry 类型。
+
+核心变化：
+
+- `SessionManager.branchSession()` 返回 `SessionBranchSummary`，包含目标 leaf entry、path entries 数、message 数和目标 entry view。
+- `AgentSession.branchToEntry()` 与 `RuntimeHost.branchSession()` 透传该 summary。
+- interactive `/branch <entryId>` 成功后展示 path/message/target 摘要。
+- RPC `branch_session` response 增加 `branch` 字段。
+- 测试覆盖 `SessionManager`、`RuntimeHost`、interactive command 和 RPC response。
+
+当前仍未实现持久化的一等 branch summary entry、完整交互式 entry navigation UI 或 child branch navigation。
 
 
 # Entry Tree 展示最小边界
@@ -42,7 +58,7 @@
 - entry tree 展示会标记 active leaf，并展示 message role、message index、internal kind 或 usage/compaction preview。
 - 测试覆盖 `SessionManager` 的 tree view 和 interactive `/entries` 输出。
 
-当前仍未实现 branch summary、完整交互式 entry navigation UI 或 child branch navigation。
+当前仍未实现持久化的一等 branch summary entry、完整交互式 entry navigation UI 或 child branch navigation。
 
 
 # Entry-Level Branch 最小边界
@@ -59,7 +75,7 @@
 - 下一次 append 会以 branch 后的 active leaf 作为 parent，从而在同一个 session 文件内形成新分支。
 - 测试覆盖 `SessionManager`、`RuntimeHost`、interactive command 和 RPC 路径。
 
-当前仍未实现 branch summary；entry id 可发现性由后续 `/entries` 展示能力补齐。
+当前仍未实现持久化的一等 branch summary entry；entry id 可发现性由后续 `/entries` 展示能力补齐。
 
 
 # 指定 Leaf Entry Fork / Clone 对外边界

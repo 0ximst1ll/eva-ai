@@ -2,7 +2,11 @@ import * as readline from 'node:readline';
 import { RuntimeSessionNotFoundError, type ToolConfirmationRequest, type ToolPermissionDecision } from '../core/runtime.js';
 import type { ContextBuildSummary } from '../core/context-builder.js';
 import type { ContextDiagnostics } from '../core/context-manager.js';
-import type { SessionEntryTreeViewNode, SessionTreeNode } from '../core/session-manager.js';
+import type {
+  SessionBranchSummary,
+  SessionEntryTreeViewNode,
+  SessionTreeNode,
+} from '../core/session-manager.js';
 import type { RuntimeHost } from '../core/runtime-host.js';
 import { Colors } from '../utils/terminal.js';
 import { createCliRenderer, createToolConfirmationPrompt, formatRuntimeDiagnostic } from './cli-ui.js';
@@ -213,6 +217,15 @@ function writeEntryTree({
   }
 }
 
+function formatBranchSummary(summary: SessionBranchSummary): string {
+  const target = summary.targetEntry;
+  const role = target.messageRole ? ` role=${target.messageRole}` : '';
+  const kind = target.kind ? ` kind=${target.kind}` : '';
+  const messageIndex = typeof target.messageIndex === 'number' ? ` message_index=${target.messageIndex}` : '';
+  const preview = target.preview ? ` preview="${target.preview}"` : '';
+  return `Path entries: ${summary.pathEntryCount}, messages: ${summary.messageCount}, target: ${target.entryId} type=${target.type}${role}${kind}${messageIndex}${preview}`;
+}
+
 function parseSessionForkArgs(args: string[]): { sessionId?: string; leafEntryId?: string } {
   let sessionId: string | undefined;
   let leafEntryId: string | undefined;
@@ -304,8 +317,11 @@ export async function handleInteractiveCommand({
       writeLine(`${Colors.RED}❌ Branch requires an entry id: /branch <entryId>${Colors.RESET}\n`);
       return 'continue';
     }
-    host.branchSession(leafEntryId);
+    const summary = host.branchSession(leafEntryId);
     writeLine(`${Colors.GREEN}✅ Branched current session at entry: ${leafEntryId}${Colors.RESET}`);
+    if (summary) {
+      writeLine(`${Colors.DIM}${formatBranchSummary(summary)}${Colors.RESET}`);
+    }
     writeLine(`${Colors.DIM}Session: ${host.sessionId}${Colors.RESET}\n`);
     return 'continue';
   }

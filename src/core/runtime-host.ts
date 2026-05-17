@@ -6,6 +6,7 @@ import {
   RuntimeSessionNotFoundError,
 } from './runtime.js';
 import type { AgentSession } from './agent-session.js';
+import type { SessionBranchSummary } from './session-manager.js';
 
 export interface RuntimeHostOptions extends Omit<CreateRuntimeOptions, 'createNewSession' | 'sessionId' | 'createSessionIfMissing'> {
   createNewSession?: boolean;
@@ -82,9 +83,8 @@ export class RuntimeHost {
     return this.switchSession(parentSessionId);
   }
 
-  branchSession(leafEntryId: string): Runtime {
-    this.currentRuntime.session.branchToEntry(leafEntryId);
-    return this.currentRuntime;
+  branchSession(leafEntryId: string): SessionBranchSummary {
+    return this.currentRuntime.session.branchToEntry(leafEntryId);
   }
 
   async forkSession(sessionId?: string, leafEntryId?: string): Promise<Runtime> {

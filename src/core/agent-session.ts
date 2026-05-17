@@ -18,7 +18,12 @@ import type {
   BeforeToolCallResult,
   ToolExecutionMode,
 } from './agent-loop.js';
-import { SessionManager, type SessionCompactionInfo, type SessionUsageInfo } from './session-manager.js';
+import {
+  SessionManager,
+  type SessionBranchSummary,
+  type SessionCompactionInfo,
+  type SessionUsageInfo,
+} from './session-manager.js';
 
 type AgentRunAttempt = {
   result: string;
@@ -162,9 +167,10 @@ export class AgentSession {
     this.agent.reset(this.sessionManager.getMessages(this.sessionId));
   }
 
-  branchToEntry(leafEntryId: string): void {
-    this.sessionManager.branchSession({ sessionId: this.sessionId, leafEntryId });
+  branchToEntry(leafEntryId: string): SessionBranchSummary {
+    const summary = this.sessionManager.branchSession({ sessionId: this.sessionId, leafEntryId });
     this.agent.setMessages(this.sessionManager.getMessages(this.sessionId));
+    return summary;
   }
 
   async compact(customInstructions?: string): Promise<CompactionResult> {

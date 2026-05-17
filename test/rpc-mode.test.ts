@@ -121,6 +121,22 @@ function createHost(options: {
     },
     branchSession(leafEntryId: string) {
       branchCalls.push(leafEntryId);
+      return {
+        sessionId,
+        leafEntryId,
+        pathEntryCount: 4,
+        messageCount: messages.length,
+        targetEntry: {
+          entryId: leafEntryId,
+          parentEntryId: 'entry-2',
+          type: 'message',
+          timestamp: Date.parse('2026-05-08T00:00:03.000Z'),
+          isActive: true,
+          messageIndex: messages.length - 1,
+          messageRole: 'assistant',
+          preview: 'branch target',
+        },
+      };
     },
   } as unknown as RuntimeHost;
 
@@ -272,6 +288,22 @@ test('RPC session commands use RuntimeHost session operations', async () => {
   assert.deepEqual(stats.forkCalls, [{ sessionId: 'session-fork', leafEntryId: 'entry-1' }]);
   assert.deepEqual(stats.cloneCalls, [{ sessionId: 'session-clone', leafEntryId: 'entry-2' }]);
   assert.deepEqual(stats.branchCalls, ['entry-3']);
+  assert.deepEqual((output.envelopes().at(-1)?.['result'] as Record<string, unknown>)['branch'], {
+    sessionId: 'session-clone',
+    leafEntryId: 'entry-3',
+    pathEntryCount: 4,
+    messageCount: 1,
+    targetEntry: {
+      entryId: 'entry-3',
+      parentEntryId: 'entry-2',
+      type: 'message',
+      timestamp: Date.parse('2026-05-08T00:00:03.000Z'),
+      isActive: true,
+      messageIndex: 0,
+      messageRole: 'assistant',
+      preview: 'branch target',
+    },
+  });
   assert.deepEqual(
     output.envelopes().map((envelope) => envelope['type']),
     ['response', 'response', 'response', 'response', 'response', 'response'],

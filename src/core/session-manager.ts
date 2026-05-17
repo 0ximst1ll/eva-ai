@@ -109,6 +109,14 @@ export interface SessionEntryTreeViewNode {
   children: SessionEntryTreeViewNode[];
 }
 
+export interface SessionBranchSummary {
+  sessionId: string;
+  leafEntryId: string;
+  pathEntryCount: number;
+  messageCount: number;
+  targetEntry: SessionEntryTreeViewItem;
+}
+
 export type SessionPathEntry =
   | (MessageEntry & { entryId: string; parentEntryId: string | null })
   | (CompactionEntry & { entryId: string; parentEntryId: string | null })
@@ -542,7 +550,7 @@ export class SessionManager {
   }: {
     sessionId: string;
     leafEntryId: string;
-  }): void {
+  }): SessionBranchSummary {
     if (!this.sessions.has(sessionId)) {
       throw new Error(`Session not found: ${sessionId}`);
     }
@@ -557,6 +565,25 @@ export class SessionManager {
     this.sessions.set(sessionId, activeMessages);
     this.sessionCompactions.set(sessionId, getLatestCompactionFromPath(entryPath));
     this.setActiveEntryId(sessionId, leafEntryId);
+    const targetEntry = entryPath[entryPath.length - 1];
+    if (!targetEntry) {
+      throw new Error(`Entry path has no target in session ${sessionId}: ${leafEntryId}`);
+    }
+
+    const metadata = (this.sessionEntryTrees.get(sessionId) ?? []).find(
+      (entry) => entry.entryId === leafEntryId,
+    );
+    return {
+      sessionId,
+      leafEntryId,
+      pathEntryCount: entryPath.length,
+      messageCount: activeMessages.length,
+      targetEntry: createEntryTreeViewItem({
+        entry: targetEntry,
+        metadata,
+        activeEntryId: leafEntryId,
+      }),
+    };
   }
 
   async appendMessage(sessionId: string, message: Message): Promise<void> {

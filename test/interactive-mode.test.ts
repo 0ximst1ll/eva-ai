@@ -232,6 +232,22 @@ test('/branch moves the active runtime session leaf through RuntimeHost', async 
     },
     branchSession(leafEntryId: string) {
       branchedEntryIds.push(leafEntryId);
+      return {
+        sessionId: 'session-current',
+        leafEntryId,
+        pathEntryCount: 3,
+        messageCount: 2,
+        targetEntry: {
+          entryId: leafEntryId,
+          parentEntryId: 'entry-0',
+          type: 'message',
+          timestamp: Date.parse('2026-05-08T00:00:01.000Z'),
+          isActive: true,
+          messageIndex: 1,
+          messageRole: 'user',
+          preview: 'branch target',
+        },
+      };
     },
   } as unknown as RuntimeHost;
 
@@ -244,6 +260,7 @@ test('/branch moves the active runtime session leaf through RuntimeHost', async 
   assert.equal(result, 'continue');
   assert.deepEqual(branchedEntryIds, ['entry-1']);
   assert.match(output.join('\n'), /Branched current session at entry: entry-1/);
+  assert.match(output.join('\n'), /Path entries: 3, messages: 2, target: entry-1 type=message role=user message_index=1 preview="branch target"/);
 });
 
 test('/branch reports missing entry id without throwing', async () => {

@@ -566,12 +566,17 @@ test('SessionManager branches the active session to a specified entry path', asy
     assert.ok(leafEntryId);
     await manager.appendMessage(sessionId, { role: 'assistant', content: 'later answer' });
 
-    manager.branchSession({ sessionId, leafEntryId });
+    const summary = manager.branchSession({ sessionId, leafEntryId });
 
     assert.deepEqual(
       manager.getMessages(sessionId).map((message) => message.content),
       ['system', 'first task'],
     );
+    assert.equal(summary.leafEntryId, leafEntryId);
+    assert.equal(summary.pathEntryCount, 2);
+    assert.equal(summary.messageCount, 2);
+    assert.equal(summary.targetEntry.messageRole, 'user');
+    assert.equal(summary.targetEntry.preview, 'first task');
 
     await manager.appendMessage(sessionId, { role: 'assistant', content: 'branch answer' });
     assert.deepEqual(

@@ -157,11 +157,14 @@ test('RuntimeHost branches the active session through the runtime boundary', asy
     assert.ok(leafEntryId);
     await host.session.addUserMessage('later task');
 
-    host.branchSession(leafEntryId);
+    const summary = host.branchSession(leafEntryId);
 
     assert.equal(host.sessionId, sessionId);
     assert.equal(host.session.messages.length, 2);
     assert.equal(host.session.messages[1]?.content, 'source task');
+    assert.equal(summary.leafEntryId, leafEntryId);
+    assert.equal(summary.messageCount, 2);
+    assert.equal(summary.targetEntry.preview, 'source task');
 
     await host.session.addUserMessage('branch task');
     assert.equal(host.session.messages.at(-1)?.content, 'branch task');
