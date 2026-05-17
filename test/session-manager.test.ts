@@ -511,6 +511,45 @@ test('SessionManager forks sessions with persistent lineage metadata', async () 
   }
 });
 
+test('SessionManager forks from a specified leaf entry path', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-fork-entry-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+
+  try {
+    const manager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    const sourceSessionId = await manager.createSession('system', 'session-root');
+    await manager.appendMessage(sourceSessionId, { role: 'user', content: 'first task' });
+    const leafEntryId = manager
+      .getEntryPath(sourceSessionId)
+      .find((entry) => entry.type === 'message' && entry.message.content === 'first task')
+      ?.entryId;
+    assert.ok(leafEntryId);
+    await manager.appendMessage(sourceSessionId, { role: 'assistant', content: 'later answer' });
+
+    const forkSessionId = await manager.forkSession({
+      sourceSessionId,
+      sessionId: 'session-fork',
+      leafEntryId,
+    });
+
+    assert.deepEqual(
+      manager.getMessages(forkSessionId).map((message) => message.content),
+      ['system', 'first task'],
+    );
+    assert.deepEqual(
+      manager.getEntryPath(forkSessionId).map((entry) => entry.entryId),
+      manager.getEntryPath(sourceSessionId, leafEntryId).map((entry) => entry.entryId),
+    );
+    await assert.rejects(
+      () => manager.forkSession({ sourceSessionId, sessionId: 'missing-entry-fork', leafEntryId: 'missing-entry' }),
+      /Entry not found in session session-root: missing-entry/,
+    );
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('SessionManager clones sessions using current fork lineage semantics', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-clone-'));
   const workspaceDir = path.join(tempDir, 'workspace');

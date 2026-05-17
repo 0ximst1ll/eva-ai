@@ -33,6 +33,8 @@ function createHost(options: {
   let addUserMessageCalls = 0;
   let newSessionCalls = 0;
   let resumeLatestSessionCalls = 0;
+  const forkCalls: Array<{ sessionId?: string; leafEntryId?: string }> = [];
+  const cloneCalls: Array<{ sessionId?: string; leafEntryId?: string }> = [];
   const switchedSessions: string[] = [];
 
   const host = {
@@ -108,6 +110,14 @@ function createHost(options: {
       switchedSessions.push(nextSessionId);
       sessionId = nextSessionId;
     },
+    async forkSession(nextSessionId?: string, leafEntryId?: string) {
+      forkCalls.push({ sessionId: nextSessionId, leafEntryId });
+      sessionId = nextSessionId ?? 'session-fork';
+    },
+    async cloneSession(nextSessionId?: string, leafEntryId?: string) {
+      cloneCalls.push({ sessionId: nextSessionId, leafEntryId });
+      sessionId = nextSessionId ?? 'session-clone';
+    },
   } as unknown as RuntimeHost;
 
   return {
@@ -117,6 +127,8 @@ function createHost(options: {
       get addUserMessageCalls() { return addUserMessageCalls; },
       get newSessionCalls() { return newSessionCalls; },
       get resumeLatestSessionCalls() { return resumeLatestSessionCalls; },
+      forkCalls,
+      cloneCalls,
       switchedSessions,
       internalEntries,
     },
@@ -222,13 +234,35 @@ test('RPC session commands use RuntimeHost session operations', async () => {
     request: { id: 'switch', method: 'resume_session', params: { session_id: 'session-target' } },
     output: output as unknown as NodeJS.WritableStream,
   });
+  await handleRpcRequest({
+    host,
+    state: createState(),
+    request: {
+      id: 'fork',
+      method: 'fork_session',
+      params: { session_id: 'session-fork', leaf_entry_id: 'entry-1' },
+    },
+    output: output as unknown as NodeJS.WritableStream,
+  });
+  await handleRpcRequest({
+    host,
+    state: createState(),
+    request: {
+      id: 'clone',
+      method: 'clone_session',
+      params: { session_id: 'session-clone', leaf_entry_id: 'entry-2' },
+    },
+    output: output as unknown as NodeJS.WritableStream,
+  });
 
   assert.equal(stats.newSessionCalls, 1);
   assert.equal(stats.resumeLatestSessionCalls, 1);
   assert.deepEqual(stats.switchedSessions, ['session-target']);
+  assert.deepEqual(stats.forkCalls, [{ sessionId: 'session-fork', leafEntryId: 'entry-1' }]);
+  assert.deepEqual(stats.cloneCalls, [{ sessionId: 'session-clone', leafEntryId: 'entry-2' }]);
   assert.deepEqual(
     output.envelopes().map((envelope) => envelope['type']),
-    ['response', 'response', 'response'],
+    ['response', 'response', 'response', 'response', 'response'],
   );
 });
 

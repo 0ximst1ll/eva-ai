@@ -258,6 +258,9 @@ export class SessionManager {
     const id = sessionId ?? randomUUID();
     const now = Date.now();
     const sourceEntryPath = this.getEntryPath(sourceSessionId, leafEntryId);
+    if (leafEntryId && !sourceEntryPath.length) {
+      throw new Error(`Entry not found in session ${sourceSessionId}: ${leafEntryId}`);
+    }
     const forkedPathEntries = sourceEntryPath.length
       ? sourceEntryPath.map((entry) => copySessionPathEntryForSession(entry, id))
       : createLinearMessagePathEntries({

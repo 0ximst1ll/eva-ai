@@ -26,6 +26,22 @@
 26. Session Import / Export 最小边界
 27. Session Tree 展示与 Parent Navigation 最小边界
 28. Entry Path Fork / Clone 最小边界
+29. 指定 Leaf Entry Fork / Clone 对外边界
+
+
+# 指定 Leaf Entry Fork / Clone 对外边界
+
+为 M4.x Entry Tree First 对齐补齐指定 leaf entry fork/clone 的对外入口。
+
+核心变化：
+
+- `SessionManager.forkSession()` 指定 `leafEntryId` 时会校验 entry path 存在，不再静默回退。
+- `RuntimeHost.forkSession()` / `cloneSession()` 支持传入 `leafEntryId`。
+- interactive slash command 支持 `/fork [id] --entry <entryId>` 和 `/clone [id] --entry <entryId>`。
+- RPC 新增 `fork_session` / `clone_session`，支持 `session_id` 和 `leaf_entry_id` 参数。
+- 测试覆盖 `SessionManager`、`RuntimeHost`、interactive command 和 RPC 路径。
+
+当前仍未实现同 session 文件内的 entry-level branch/navigate；指定 leaf entry fork 仍会创建新的 session。
 
 
 # Entry Path Fork / Clone 最小边界

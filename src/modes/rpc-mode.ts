@@ -9,6 +9,8 @@ export type RpcMethod =
   | 'abort'
   | 'new_session'
   | 'resume_session'
+  | 'fork_session'
+  | 'clone_session'
   | 'approve_permission'
   | 'deny_permission';
 
@@ -162,6 +164,14 @@ export async function handleRpcRequest({
         await handleResumeSession({ host, id, params: request.params, output });
         return;
 
+      case 'fork_session':
+        await handleForkSession({ host, id, params: request.params, output, clone: false });
+        return;
+
+      case 'clone_session':
+        await handleForkSession({ host, id, params: request.params, output, clone: true });
+        return;
+
       case 'abort':
         if (state.activeAbortController) {
           state.activeAbortController.abort();
@@ -212,6 +222,29 @@ async function handleResumeSession({
   writeEnvelope(output, { id, type: 'response', result: createState(host) });
 }
 
+async function handleForkSession({
+  host,
+  id,
+  params,
+  output,
+  clone,
+}: {
+  host: RuntimeHost;
+  id: RpcRequest['id'];
+  params?: Record<string, unknown>;
+  output: NodeJS.WritableStream;
+  clone: boolean;
+}): Promise<void> {
+  const sessionId = parseOptionalStringParam(params, 'session_id');
+  const leafEntryId = parseOptionalStringParam(params, 'leaf_entry_id');
+  if (clone) {
+    await host.cloneSession(sessionId, leafEntryId);
+  } else {
+    await host.forkSession(sessionId, leafEntryId);
+  }
+  writeEnvelope(output, { id, type: 'response', result: createState(host) });
+}
+
 function handlePermissionDecision({
   state,
   id,
@@ -245,6 +278,11 @@ function handlePermissionDecision({
       resolved: true,
     },
   });
+}
+
+function parseOptionalStringParam(params: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = params?.[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
 async function handlePrompt({

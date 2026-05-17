@@ -188,6 +188,25 @@ function writeSessionTree({
   }
 }
 
+function parseSessionForkArgs(args: string[]): { sessionId?: string; leafEntryId?: string } {
+  let sessionId: string | undefined;
+  let leafEntryId: string | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--entry' || arg === '--leaf') {
+      leafEntryId = args[index + 1];
+      index += 1;
+      continue;
+    }
+    if (!sessionId) {
+      sessionId = arg;
+    }
+  }
+
+  return { sessionId, leafEntryId };
+}
+
 export async function handleInteractiveCommand({
   userInput,
   host,
@@ -238,8 +257,8 @@ export async function handleInteractiveCommand({
 
   if (cmd === '/fork') {
     const previousSessionId = host.sessionId;
-    const requestedSessionId = args[0];
-    await host.forkSession(requestedSessionId);
+    const { sessionId: requestedSessionId, leafEntryId } = parseSessionForkArgs(args);
+    await host.forkSession(requestedSessionId, leafEntryId);
     writeLine(`${Colors.GREEN}✅ Forked session: ${host.sessionId}${Colors.RESET}`);
     writeLine(`${Colors.DIM}Parent session: ${previousSessionId}${Colors.RESET}\n`);
     return 'continue';
@@ -247,8 +266,8 @@ export async function handleInteractiveCommand({
 
   if (cmd === '/clone') {
     const previousSessionId = host.sessionId;
-    const requestedSessionId = args[0];
-    await host.cloneSession(requestedSessionId);
+    const { sessionId: requestedSessionId, leafEntryId } = parseSessionForkArgs(args);
+    await host.cloneSession(requestedSessionId, leafEntryId);
     writeLine(`${Colors.GREEN}✅ Cloned session: ${host.sessionId}${Colors.RESET}`);
     writeLine(`${Colors.DIM}Source session: ${previousSessionId}${Colors.RESET}\n`);
     return 'continue';

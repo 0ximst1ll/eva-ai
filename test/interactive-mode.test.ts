@@ -171,26 +171,26 @@ test('/resume <id> reports missing sessions without throwing', async () => {
 
 test('/fork forks the active runtime session through RuntimeHost', async () => {
   let sessionId = 'session-current';
-  const forkedSessionIds: Array<string | undefined> = [];
+  const forkedSessions: Array<{ sessionId?: string; leafEntryId?: string }> = [];
   const output: string[] = [];
   const host = {
     get sessionId() {
       return sessionId;
     },
-    async forkSession(nextSessionId?: string) {
-      forkedSessionIds.push(nextSessionId);
+    async forkSession(nextSessionId?: string, leafEntryId?: string) {
+      forkedSessions.push({ sessionId: nextSessionId, leafEntryId });
       sessionId = nextSessionId ?? 'session-fork';
     },
   } as unknown as RuntimeHost;
 
   const result = await handleInteractiveCommand({
-    userInput: '/fork Session-Fork',
+    userInput: '/fork Session-Fork --entry entry-1',
     host,
     writeLine: (message = '') => output.push(message),
   });
 
   assert.equal(result, 'continue');
-  assert.deepEqual(forkedSessionIds, ['Session-Fork']);
+  assert.deepEqual(forkedSessions, [{ sessionId: 'Session-Fork', leafEntryId: 'entry-1' }]);
   assert.equal(sessionId, 'Session-Fork');
   assert.match(output.join('\n'), /Forked session: .*Session-Fork/);
   assert.match(output.join('\n'), /Parent session: .*session-current/);
@@ -198,28 +198,28 @@ test('/fork forks the active runtime session through RuntimeHost', async () => {
 
 test('/clone clones the active runtime session through RuntimeHost', async () => {
   let sessionId = 'session-current';
-  const clonedSessionIds: Array<string | undefined> = [];
+  const clonedSessions: Array<{ sessionId?: string; leafEntryId?: string }> = [];
   const output: string[] = [];
   const host = {
     get sessionId() {
       return sessionId;
     },
-    async cloneSession(nextSessionId?: string) {
-      clonedSessionIds.push(nextSessionId);
+    async cloneSession(nextSessionId?: string, leafEntryId?: string) {
+      clonedSessions.push({ sessionId: nextSessionId, leafEntryId });
       sessionId = nextSessionId ?? 'session-clone';
     },
   } as unknown as RuntimeHost;
 
   const result = await handleInteractiveCommand({
-    userInput: '/clone Session-Clone',
+    userInput: '/clone --entry entry-2',
     host,
     writeLine: (message = '') => output.push(message),
   });
 
   assert.equal(result, 'continue');
-  assert.deepEqual(clonedSessionIds, ['Session-Clone']);
-  assert.equal(sessionId, 'Session-Clone');
-  assert.match(output.join('\n'), /Cloned session: .*Session-Clone/);
+  assert.deepEqual(clonedSessions, [{ sessionId: undefined, leafEntryId: 'entry-2' }]);
+  assert.equal(sessionId, 'session-clone');
+  assert.match(output.join('\n'), /Cloned session: .*session-clone/);
   assert.match(output.join('\n'), /Source session: .*session-current/);
 });
 

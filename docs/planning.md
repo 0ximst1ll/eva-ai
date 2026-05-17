@@ -655,9 +655,9 @@ user/assistant/tool: durable session history
 - 旧 JSONL session 没有 lineage metadata 时会被视为 root session。
 - `SessionManager.forkSession()` 优先复制当前 active entry path 到新 session，并写入 lineage metadata；旧 JSONL 没有 entry metadata 时回退复制 active context messages。
 - `RuntimeHost.forkSession()` 暴露 fork 边界，mode 层不需要直接访问 `SessionManager`。
-- interactive/TUI slash command 可通过 `/fork [id]` 创建当前 session 分支。
+- interactive/TUI slash command 可通过 `/fork [id] [--entry <entryId>]` 创建当前 session 分支。
 - `SessionManager.cloneSession()` / `RuntimeHost.cloneSession()` 已按 `pi-mono` 的 current-leaf fork 语义实现 clone，并复用 entry-path fork。
-- interactive/TUI slash command 可通过 `/clone [id]` 克隆当前 session。
+- interactive/TUI slash command 可通过 `/clone [id] [--entry <entryId>]` 克隆当前 session。
 - `SessionManager.exportSession()` / `RuntimeHost.exportSession()` 已支持 JSONL session 导出。
 - `SessionManager.importSession()` / `RuntimeHost.importSession()` 已支持 JSONL session 导入并切换到导入后的 session。
 - interactive/TUI slash command 可通过 `/export [path]` 和 `/import <path>` 做最小 JSONL import/export。
@@ -669,11 +669,11 @@ user/assistant/tool: durable session history
 - interactive `/sessions` 已改为展示 session tree，并标记 current/latest session。
 - `RuntimeHost.switchToParentSession()` 已提供 mode 层向 parent session 导航边界，interactive `/parent` 可切换到当前 session 的 parent session。
 - M4.x entry-path fork/clone 第一小步已落地：fork/clone 不再只复制 active `Message[]` 快照，而是优先复制 active leaf path 上的 session entries。
+- RuntimeHost、interactive slash command 和 RPC 已支持指定 `leafEntryId` / `leaf_entry_id` 的 fork/clone。
 
 后续仍需：
 
 - 更完整的 child branch navigation。
-- entry-path fork/clone 继续增强：通过 mode/RPC 暴露指定 leaf entry fork，而不只是使用当前 active leaf。
 - entry-level branch / navigate：支持在同一个 session 文件内移动 active leaf，并基于 leaf path 派生 context。
 - entry-tree-first 收敛：让 append-only `SessionEntry` tree 成为主要事实源，`Message[]` 退化为 `buildSessionContext()` 的派生结果。
 - 跨 session parent/child entry graph 与 sidecar metadata。
@@ -692,7 +692,7 @@ user/assistant/tool: durable session history
 
 - Eva 已有 `entryId` / `parentEntryId`、`activeEntryId`、`getEntryPath()` 和 entry-path resume。
 - 但 `SessionManager` 仍维护 `Map<sessionId, Message[]>` 作为 active messages 主状态。
-- `forkSession()` / `cloneSession()` 已优先复制当前 active leaf path 上的 session entries；但 mode/RPC 还没有暴露指定 leaf entry fork。
+- `forkSession()` / `cloneSession()` 已优先复制指定 leaf path 上的 session entries，RuntimeHost、interactive slash command 和 RPC 均可传入 leaf entry。
 - session tree 展示当前是 session-level lineage tree，不是单个 session 文件内部完整 entry tree navigation。
 
 目标语义：
@@ -706,7 +706,7 @@ user/assistant/tool: durable session history
 推荐落地顺序：
 
 1. 先保留当前兼容层，新增 `buildSessionContextFromEntryPath()` 风格边界，让 message view 明确变成派生结果。
-2. 已完成当前 active leaf 的 entry path fork/clone；后续补 mode/RPC 指定 leaf entry fork。
+2. 已完成指定 leaf entry 的 entry path fork/clone，并已暴露到 RuntimeHost、interactive slash command 和 RPC。
 3. 增加 entry-level `branch(entryId)` / `navigate(entryId)` 最小能力，先只处理 message/compaction/internal/usage。
 4. 再逐步把 `SessionManager` 内部主状态从 `Map<sessionId, Message[]>` 收敛为 entry tree + active leaf。
 5. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。

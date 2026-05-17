@@ -82,10 +82,11 @@ export class RuntimeHost {
     return this.switchSession(parentSessionId);
   }
 
-  async forkSession(sessionId?: string): Promise<Runtime> {
+  async forkSession(sessionId?: string, leafEntryId?: string): Promise<Runtime> {
     const forkedSessionId = await this.currentRuntime.sessionManager.forkSession({
       sourceSessionId: this.sessionId,
       sessionId,
+      leafEntryId,
     });
     this.currentRuntime = await createRuntime({
       ...this.options,
@@ -96,10 +97,11 @@ export class RuntimeHost {
     return this.currentRuntime;
   }
 
-  async cloneSession(sessionId?: string): Promise<Runtime> {
+  async cloneSession(sessionId?: string, leafEntryId?: string): Promise<Runtime> {
     const clonedSessionId = await this.currentRuntime.sessionManager.cloneSession({
       sourceSessionId: this.sessionId,
       sessionId,
+      leafEntryId,
     });
     this.currentRuntime = await createRuntime({
       ...this.options,
