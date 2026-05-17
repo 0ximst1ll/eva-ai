@@ -240,9 +240,11 @@ export class SessionManager {
   async forkSession({
     sourceSessionId,
     sessionId,
+    leafEntryId,
   }: {
     sourceSessionId: string;
     sessionId?: string;
+    leafEntryId?: string;
   }): Promise<string> {
     if (!this.sessions.has(sourceSessionId) && !await this.loadSession(sourceSessionId)) {
       throw new Error(`Session not found: ${sourceSessionId}`);
@@ -255,8 +257,19 @@ export class SessionManager {
 
     const id = sessionId ?? randomUUID();
     const now = Date.now();
-    const forkedMessages = sourceMessages.map(copyMessage);
-    const forkedEntryNodes = createLinearMessageEntryTree(forkedMessages.length, now);
+    const sourceEntryPath = this.getEntryPath(sourceSessionId, leafEntryId);
+    const forkedPathEntries = sourceEntryPath.length
+      ? sourceEntryPath.map((entry) => copySessionPathEntryForSession(entry, id))
+      : createLinearMessagePathEntries({
+        sessionId: id,
+        messages: sourceMessages,
+        timestamp: now,
+      });
+    const forkedMessages = rebuildMessagesFromEntryPath(forkedPathEntries);
+    if (!forkedMessages.length) {
+      throw new Error(`Session has no messages to fork: ${sourceSessionId}`);
+    }
+    const forkedEntryNodes = createEntryTreeFromPathEntries(forkedPathEntries);
     const sourceLineage = this.getLineageInfo(sourceSessionId);
     const lineageInfo = createLineageInfo(id, now, {
       parentSessionId: sourceSessionId,
@@ -266,32 +279,20 @@ export class SessionManager {
 
     this.sessions.set(id, forkedMessages);
     this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
-    this.sessionCompactions.delete(id);
-    this.sessionUsage.delete(id);
-    this.sessionInternalEntries.delete(id);
+    this.sessionCompactions.set(id, getLatestCompactionFromPath(forkedPathEntries));
+    this.sessionUsage.set(id, getUsageFromPath(forkedPathEntries));
+    this.sessionInternalEntries.set(id, getInternalEntriesFromPath(forkedPathEntries));
     this.sessionLineage.set(id, lineageInfo);
     this.sessionEntryTrees.set(id, forkedEntryNodes);
-    this.sessionPathEntries.set(id, forkedEntryNodes.map((entryNode, index) => createMessagePathEntry({
-      sessionId: id,
-      timestamp: now,
-      entryNode,
-      message: forkedMessages[index],
-    })));
+    this.sessionPathEntries.set(id, forkedPathEntries.map(copySessionPathEntry));
     this.setActiveEntryId(id, forkedEntryNodes[forkedEntryNodes.length - 1]?.entryId);
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
       await this.ensureWorkspaceDir();
       await this.writeSessionStart(id, now, lineageInfo);
-      for (const [index, message] of forkedMessages.entries()) {
-        const entryNode = forkedEntryNodes[index];
-        await this.appendEntry({
-          type: 'message',
-          sessionId: id,
-          timestamp: now,
-          ...entryTreeFields(entryNode),
-          message,
-        });
+      for (const entry of forkedPathEntries) {
+        await this.appendEntry(entry);
       }
       await this.writeManifest({ latestSessionId: id, updatedAt: now });
     }
@@ -302,11 +303,13 @@ export class SessionManager {
   async cloneSession({
     sourceSessionId,
     sessionId,
+    leafEntryId,
   }: {
     sourceSessionId: string;
     sessionId?: string;
+    leafEntryId?: string;
   }): Promise<string> {
-    return this.forkSession({ sourceSessionId, sessionId });
+    return this.forkSession({ sourceSessionId, sessionId, leafEntryId });
   }
 
   async exportSession({
@@ -1141,6 +1144,24 @@ function createLinearMessageEntryTree(messageCount: number, timestamp: number): 
   return entries;
 }
 
+function createLinearMessagePathEntries({
+  sessionId,
+  messages,
+  timestamp,
+}: {
+  sessionId: string;
+  messages: Message[];
+  timestamp: number;
+}): SessionPathEntry[] {
+  const entryNodes = createLinearMessageEntryTree(messages.length, timestamp);
+  return entryNodes.map((entryNode, index) => createMessagePathEntry({
+    sessionId,
+    timestamp,
+    entryNode,
+    message: messages[index],
+  }));
+}
+
 function createMessagePathEntry({
   sessionId,
   timestamp,
@@ -1159,6 +1180,27 @@ function createMessagePathEntry({
     ...entryTreeFields(entryNode),
     message: copyMessage(message),
   };
+}
+
+function createEntryTreeFromPathEntries(entries: SessionPathEntry[]): SessionEntryTreeNode[] {
+  let messageIndex = 0;
+  return entries.map((entry) => {
+    const options: { messageIndex?: number; kind?: string } = {};
+    if (entry.type === 'message') {
+      options.messageIndex = messageIndex;
+      messageIndex += 1;
+    }
+    if (entry.type === 'internal') {
+      options.kind = entry.kind;
+    }
+    return {
+      entryId: entry.entryId,
+      parentEntryId: entry.parentEntryId,
+      type: entry.type,
+      timestamp: entry.timestamp,
+      ...options,
+    };
+  });
 }
 
 function entryTreeFields(entryNode: SessionEntryTreeNode): {
@@ -1259,6 +1301,46 @@ function copySessionPathEntry(entry: SessionPathEntry): SessionPathEntry {
     content: entry.content,
     metadata: entry.metadata ? { ...entry.metadata } : undefined,
   };
+}
+
+function copySessionPathEntryForSession(entry: SessionPathEntry, sessionId: string): SessionPathEntry {
+  const copy = copySessionPathEntry(entry);
+  copy.sessionId = sessionId;
+  return copy;
+}
+
+function getLatestCompactionFromPath(entries: SessionPathEntry[]): SessionCompactionInfo {
+  let compaction: SessionCompactionInfo = { compacted: false };
+  for (const entry of entries) {
+    if (entry.type !== 'compaction') continue;
+    compaction = {
+      compacted: true,
+      timestamp: entry.timestamp,
+      summaryLength: entry.summary.length,
+      firstKeptEntryId: entry.firstKeptEntryId,
+      firstKeptMessageIndex: entry.firstKeptMessageIndex,
+      messagesBefore: entry.messagesBefore,
+      messagesAfter: entry.messagesAfter,
+      customInstructions: entry.customInstructions,
+    };
+  }
+  return compaction;
+}
+
+function getUsageFromPath(entries: SessionPathEntry[]): SessionUsageInfo {
+  let usage = createEmptyUsageInfo();
+  for (const entry of entries) {
+    if (entry.type === 'usage') {
+      usage = addUsage(usage, entry.usage, entry.timestamp, entry.source);
+    }
+  }
+  return usage;
+}
+
+function getInternalEntriesFromPath(entries: SessionPathEntry[]): SessionInternalEntry[] {
+  return entries
+    .filter((entry): entry is SessionPathEntry & { type: 'internal' } => entry.type === 'internal')
+    .map(copyInternalEntry);
 }
 
 function buildEntryPath(entries: SessionPathEntry[], leafEntryId: string | undefined): SessionPathEntry[] {

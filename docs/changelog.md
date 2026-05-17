@@ -25,6 +25,22 @@
 25. Session Clone 最小边界
 26. Session Import / Export 最小边界
 27. Session Tree 展示与 Parent Navigation 最小边界
+28. Entry Path Fork / Clone 最小边界
+
+
+# Entry Path Fork / Clone 最小边界
+
+为 M4.x Entry Tree First 对齐增加 fork/clone 的第一步收敛。
+
+核心变化：
+
+- `SessionManager.forkSession()` 优先复制当前 active entry path，而不是只复制 active `Message[]` 快照。
+- `SessionManager.cloneSession()` 复用 entry-path fork 语义。
+- 新 session 会保留 path 上的 `message`、`compaction`、`usage` 和 `internal` entries，并重写 `sessionId`。
+- 旧 JSONL 没有 entry metadata 时仍回退到线性 message path，保持兼容。
+- 测试覆盖 fork 后 internal/usage entries、usage summary、entry path 和 reload 兼容性。
+
+当前仍只使用 active leaf；尚未在 mode/RPC 中暴露指定 leaf entry fork，也尚未实现同 session 文件内的 entry-level branch/navigate。
 
 
 # Session Tree 展示与 Parent Navigation 最小边界

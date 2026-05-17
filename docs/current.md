@@ -2,11 +2,11 @@
 
 ## 当前状态（2026-05-17）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork/clone schema、entry tree schema、entry-path rebuild、resume 主路径接入、JSONL import/export、session tree 展示和 parent navigation。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork/clone schema、entry tree schema、entry-path rebuild、entry-path fork/clone、resume 主路径接入、JSONL import/export、session tree 展示和 parent navigation。
 
 当前 M3 Headless RPC 已完成最小实现：`--rpc` 启动 JSONL stdin/stdout 协议，RPC mode 共享 `RuntimeHost` / `AgentSession` 路径，不新增第二套 agent 实现。RPC 真实 CLI 子进程 smoke test 已补齐，用于验证 stdout 协议纯净性。M3.1 RPC permission pending approval 最小闭环已实现：默认 fail-closed，`permission_mode=request` 时可通过 RPC event 和审批命令完成 tool permission 决策。
 
-当前 M4 已完成最小闭环：`SessionManager` 支持向后兼容的 lineage metadata、`forkSession()`、`cloneSession()`、`exportSession()`、`importSession()`、`listSessionTree()` 和旧 JSONL root fallback；RuntimeHost 暴露 `forkSession()`、`cloneSession()`、`exportSession()`、`importSession()` 和 `switchToParentSession()`；interactive/TUI 可通过 `/fork [id]` 创建当前 session 分支，也可通过 `/clone [id]` 按 `pi-mono` current-leaf fork 语义克隆当前 session，并可通过 `/export [path]`、`/import <path>` 做 JSONL import/export；interactive `/sessions` 已展示 session tree，`/parent` 可切换到当前 session 的 parent session；新写入的 session entries 已带有 `entryId` / `parentEntryId`；`SessionManager.getEntryPath()` 可从 active entry leaf 回溯 path entries；`SessionContextRebuilder` 已支持新 session 的 `entry_path` rebuild，并对旧 JSONL 回退 `flat_snapshot`；`SessionManager.loadSession()` 已在主加载路径中使用 active entry path 重建 active messages。
+当前 M4 已完成最小闭环：`SessionManager` 支持向后兼容的 lineage metadata、`forkSession()`、`cloneSession()`、`exportSession()`、`importSession()`、`listSessionTree()` 和旧 JSONL root fallback；RuntimeHost 暴露 `forkSession()`、`cloneSession()`、`exportSession()`、`importSession()` 和 `switchToParentSession()`；interactive/TUI 可通过 `/fork [id]` 创建当前 session 分支，也可通过 `/clone [id]` 按 `pi-mono` current-leaf fork 语义克隆当前 session，并可通过 `/export [path]`、`/import <path>` 做 JSONL import/export；interactive `/sessions` 已展示 session tree，`/parent` 可切换到当前 session 的 parent session；新写入的 session entries 已带有 `entryId` / `parentEntryId`；`SessionManager.getEntryPath()` 可从 active entry leaf 回溯 path entries；`SessionManager.forkSession()` / `cloneSession()` 已优先复制 active entry path 到新 session；`SessionContextRebuilder` 已支持新 session 的 `entry_path` rebuild，并对旧 JSONL 回退 `flat_snapshot`；`SessionManager.loadSession()` 已在主加载路径中使用 active entry path 重建 active messages。
 
 ## 已完成
 
@@ -51,8 +51,8 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - RPC permission tests 已覆盖 approve、deny、timeout 和 pending state summary。
 - `SessionManager` 的 `session_start` 已支持 `parentSessionId`、`rootSessionId` 和 `forkedFromMessageIndex`。
 - 旧 JSONL session 没有 lineage metadata 时会被视为 root session。
-- `SessionManager.forkSession()` 会复制当前 active context messages 到新 session，并写入 lineage metadata；父子 session 后续消息互不影响。
-- `SessionManager.cloneSession()` 当前复用 current-leaf fork 语义，保持与 `pi-mono` 的 clone 设计一致。
+- `SessionManager.forkSession()` 会优先复制当前 active entry path 到新 session，并写入 lineage metadata；旧 JSONL 没有 entry metadata 时回退复制 active context messages；父子 session 后续消息互不影响。
+- `SessionManager.cloneSession()` 当前复用 current-leaf entry-path fork 语义，保持与 `pi-mono` 的 clone 设计一致。
 - `SessionManager.exportSession()` / `importSession()` 已支持 JSONL 文件级别导出导入；导入时会重写 workspaceDir 到当前 workspace 并切换 latest session。
 - `SessionManager.listSessionTree()` 已支持 workspace session-level lineage tree。
 - 新写入的 `message`、`compaction`、`usage` 和 `internal` session entries 已带有 `entryId` / `parentEntryId`，可形成当前 session 文件内的 append-only parent chain。
@@ -69,12 +69,12 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 进行中
 
-- M4 后续：entry-tree-first 对齐计划已明确，但尚未实现；更完整的 child branch navigation、entry-path fork/clone、entry-level branch/navigate、跨 session parent/child entry graph 和 sidecar metadata 尚未实现。
+- M4 后续：entry-tree-first 对齐计划已明确，entry-path fork/clone 当前 active leaf 最小步已实现；指定 leaf entry fork、entry-level branch/navigate、更完整的 child branch navigation、跨 session parent/child entry graph 和 sidecar metadata 尚未实现。
 
 ## 下一步
 
-- 继续 M4：优先做 entry-tree-first 收敛的下一小步，例如将 fork/clone 从复制 active `Message[]` 快照改为基于指定 leaf 的 entry path 复制。
-- 也可先补更完整的 child branch navigation，但需要避免只增强 session-level lineage，而不推进 entry-level leaf/path 语义。
+- 继续 M4：补指定 leaf entry fork 的 mode/RPC 暴露，或先做 entry-level branch/navigate 最小边界。
+- 也可补更完整的 child branch navigation，但需要避免只增强 session-level lineage，而不推进 entry-level leaf/path 语义。
 - 后续进入 MCP/Skills/Extensions 前置骨架。
 
 ## 后续重点计划
@@ -97,6 +97,6 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
 - 当前 `max_steps` 字段名仍偏模糊，后续应迁移为 `max_steps_per_run` 或同类命名。
 - RPC mode 仍是最小闭环，尚未支持完整 ACP 兼容层。
-- 当前只支持当前 session 文件内的 entry path 和 session-level parent navigation；`SessionManager` 仍是 message-snapshot-first，entry-tree-first、entry-level branch/navigate、跨 session parent/child entry graph 与完整 child branch navigation 还未实现。
+- 当前只支持当前 session 文件内的 active entry path fork/clone 和 session-level parent navigation；`SessionManager` 仍维护 active `Message[]` 派生状态，entry-tree-first、entry-level branch/navigate、指定 leaf fork、跨 session parent/child entry graph 与完整 child branch navigation 还未实现。
 - tool result budget、超大输出持久化、完整 permission pipeline 尚未实现。
 - TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。

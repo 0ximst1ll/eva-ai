@@ -423,6 +423,20 @@ test('SessionManager forks sessions with persistent lineage metadata', async () 
     const sourceSessionId = await first.createSession('system', 'session-root');
     await first.appendMessage(sourceSessionId, { role: 'user', content: 'root task' });
     await first.appendMessage(sourceSessionId, { role: 'assistant', content: 'root answer' });
+    await first.appendInternalEntry({
+      sessionId: sourceSessionId,
+      kind: 'permission_pending',
+      content: 'approval needed',
+      metadata: { toolName: 'bash' },
+    });
+    await first.appendUsage({
+      sessionId: sourceSessionId,
+      usage: {
+        prompt_tokens: 10,
+        completion_tokens: 5,
+        total_tokens: 15,
+      },
+    });
 
     const forkSessionId = await first.forkSession({
       sourceSessionId,
@@ -438,6 +452,26 @@ test('SessionManager forks sessions with persistent lineage metadata', async () 
       forkedFromMessageIndex: 2,
       createdAt: first.getLineageInfo(forkSessionId).createdAt,
     });
+    assert.deepEqual(
+      first.getEntryPath(forkSessionId).map((entry) => ({
+        type: entry.type,
+        sessionId: entry.sessionId,
+        entryId: entry.entryId,
+        parentEntryId: entry.parentEntryId,
+      })),
+      first.getEntryPath(sourceSessionId).map((entry) => ({
+        type: entry.type,
+        sessionId: forkSessionId,
+        entryId: entry.entryId,
+        parentEntryId: entry.parentEntryId,
+      })),
+    );
+    assert.deepEqual(
+      first.getEntryPath(forkSessionId).map((entry) => entry.type),
+      ['message', 'message', 'message', 'internal', 'usage'],
+    );
+    assert.deepEqual(first.getInternalEntries(forkSessionId), first.getInternalEntries(sourceSessionId));
+    assert.deepEqual(first.getUsageInfo(forkSessionId), first.getUsageInfo(sourceSessionId));
 
     await first.appendMessage(forkSessionId, { role: 'user', content: 'fork task' });
     assert.deepEqual(
@@ -457,11 +491,15 @@ test('SessionManager forks sessions with persistent lineage metadata', async () 
     assert.match(rawForkLog, /"parentSessionId":"session-root"/);
     assert.match(rawForkLog, /"rootSessionId":"session-root"/);
     assert.match(rawForkLog, /"forkedFromMessageIndex":2/);
+    assert.match(rawForkLog, /"type":"internal"/);
+    assert.match(rawForkLog, /"type":"usage"/);
 
     const second = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
     assert.equal(await second.loadSession(forkSessionId), true);
     assert.deepEqual(second.getMessages(forkSessionId), first.getMessages(forkSessionId));
     assert.deepEqual(second.getLineageInfo(forkSessionId), first.getLineageInfo(forkSessionId));
+    assert.deepEqual(second.getInternalEntries(forkSessionId), first.getInternalEntries(forkSessionId));
+    assert.deepEqual(second.getUsageInfo(forkSessionId), first.getUsageInfo(forkSessionId));
 
     const listed = await second.listSessions();
     const forkListItem = listed.find((session) => session.sessionId === forkSessionId);
