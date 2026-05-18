@@ -73,7 +73,27 @@ export interface InternalEntry {
   metadata?: Record<string, unknown>;
 }
 
-export type SessionEntry = SessionStartEntry | MessageEntry | CompactionEntry | UsageEntry | InternalEntry;
+export interface BranchSummaryEntry {
+  type: 'branch_summary';
+  sessionId: string;
+  timestamp: number;
+  entryId?: string;
+  parentEntryId?: string | null;
+  fromEntryId: string | null;
+  toEntryId: string;
+  pathEntryCount: number;
+  messageCount: number;
+  label?: string;
+  reason?: string;
+}
+
+export type SessionEntry =
+  | SessionStartEntry
+  | MessageEntry
+  | CompactionEntry
+  | UsageEntry
+  | InternalEntry
+  | BranchSummaryEntry;
 
 export type SessionEntryNodeType = Exclude<SessionEntry['type'], 'session_start'>;
 
@@ -113,6 +133,8 @@ export interface SessionEntryTreeViewNode {
 export interface SessionBranchSummary {
   sessionId: string;
   leafEntryId: string;
+  branchEntryId: string;
+  fromEntryId: string | null;
   pathEntryCount: number;
   messageCount: number;
   targetEntry: SessionEntryTreeViewItem;
@@ -129,7 +151,8 @@ export type SessionPathEntry =
   | (MessageEntry & { entryId: string; parentEntryId: string | null })
   | (CompactionEntry & { entryId: string; parentEntryId: string | null })
   | (UsageEntry & { entryId: string; parentEntryId: string | null })
-  | (InternalEntry & { entryId: string; parentEntryId: string | null });
+  | (InternalEntry & { entryId: string; parentEntryId: string | null })
+  | (BranchSummaryEntry & { entryId: string; parentEntryId: string | null });
 
 interface SessionMetadata {
   createdAt: number;
@@ -559,33 +582,66 @@ export class SessionManager {
     return pathEntries;
   }
 
-  branchSession({
+  async branchSession({
     sessionId,
     leafEntryId,
   }: {
     sessionId: string;
     leafEntryId: string;
-  }): SessionBranchSummary {
+  }): Promise<SessionBranchSummary> {
     if (!this.sessions.has(sessionId)) {
       throw new Error(`Session not found: ${sessionId}`);
     }
+    const fromEntryId = this.sessionActiveEntryIds.get(sessionId) ?? null;
     const { entryPath, state, targetEntry } = this.applyActiveEntryPath(sessionId, leafEntryId);
+    const now = Date.now();
+    const branchEntryNode = this.createNextEntryTreeNode(sessionId, 'branch_summary', now);
+    this.recordEntryTreeNode(sessionId, branchEntryNode);
+    this.recordPathEntry(sessionId, {
+      type: 'branch_summary',
+      sessionId,
+      timestamp: now,
+      ...entryTreeFields(branchEntryNode),
+      fromEntryId,
+      toEntryId: leafEntryId,
+      pathEntryCount: entryPath.length,
+      messageCount: state.messages.length,
+    });
+    this.touchSession(sessionId, now);
 
     const metadata = (this.sessionEntryTrees.get(sessionId) ?? []).find(
       (entry) => entry.entryId === leafEntryId,
     );
-    return {
+    const summary: SessionBranchSummary = {
       sessionId,
       leafEntryId,
+      branchEntryId: branchEntryNode.entryId,
+      fromEntryId,
       pathEntryCount: entryPath.length,
       messageCount: state.messages.length,
       targetEntry: createEntryTreeViewItem({
         entry: targetEntry,
         metadata,
-        activeEntryId: leafEntryId,
-        activePathEntryIds: new Set(entryPath.map((entry) => entry.entryId)),
+        activeEntryId: branchEntryNode.entryId,
+        activePathEntryIds: new Set([...entryPath.map((entry) => entry.entryId), branchEntryNode.entryId]),
       }),
     };
+
+    if (this.mode === 'jsonl') {
+      await this.appendEntry({
+        type: 'branch_summary',
+        sessionId,
+        timestamp: now,
+        ...entryTreeFields(branchEntryNode),
+        fromEntryId,
+        toEntryId: leafEntryId,
+        pathEntryCount: entryPath.length,
+        messageCount: state.messages.length,
+      });
+      await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
+    }
+
+    return summary;
   }
 
   async appendMessage(sessionId: string, message: Message): Promise<void> {
@@ -1218,6 +1274,20 @@ export class SessionManager {
           }
           updatedAt = Math.max(updatedAt, entry.timestamp);
           internalEntries.push(copyInternalEntry(entry));
+          continue;
+        }
+        if (entry.type === 'branch_summary') {
+          const entryNode = readEntryTreeNode(entry);
+          if (entryNode) {
+            entryTree.push(entryNode);
+            pathEntries.push(copySessionPathEntry({
+              ...entry,
+              entryId: entryNode.entryId,
+              parentEntryId: entryNode.parentEntryId,
+            }));
+            activeEntryId = entryNode.entryId;
+          }
+          updatedAt = Math.max(updatedAt, entry.timestamp);
         }
       } catch {
         continue;
@@ -1360,7 +1430,7 @@ function entryTreeFields(entryNode: SessionEntryTreeNode): {
 }
 
 function readEntryTreeNode(
-  entry: MessageEntry | CompactionEntry | UsageEntry | InternalEntry,
+  entry: MessageEntry | CompactionEntry | UsageEntry | InternalEntry | BranchSummaryEntry,
   options: {
     messageIndex?: number;
     kind?: string;
@@ -1420,6 +1490,8 @@ function createEntryTreeViewItem({
     item.preview = truncatePreview(entry.summary);
   } else if (entry.type === 'usage') {
     item.preview = `total_tokens=${entry.usage.total_tokens}`;
+  } else if (entry.type === 'branch_summary') {
+    item.preview = `from=${entry.fromEntryId ?? 'root'} to=${entry.toEntryId} path_entries=${entry.pathEntryCount} messages=${entry.messageCount}`;
   } else {
     item.kind = entry.kind;
     item.preview = truncatePreview(entry.content ?? entry.kind);
@@ -1479,6 +1551,21 @@ function copySessionPathEntry(entry: SessionPathEntry): SessionPathEntry {
       parentEntryId: entry.parentEntryId,
       source: entry.source,
       usage: { ...entry.usage },
+    };
+  }
+  if (entry.type === 'branch_summary') {
+    return {
+      type: 'branch_summary',
+      sessionId: entry.sessionId,
+      timestamp: entry.timestamp,
+      entryId: entry.entryId,
+      parentEntryId: entry.parentEntryId,
+      fromEntryId: entry.fromEntryId,
+      toEntryId: entry.toEntryId,
+      pathEntryCount: entry.pathEntryCount,
+      messageCount: entry.messageCount,
+      label: entry.label,
+      reason: entry.reason,
     };
   }
   return {

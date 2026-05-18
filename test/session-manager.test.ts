@@ -574,14 +574,18 @@ test('SessionManager branches the active session to a specified entry path', asy
       kind: 'permission_pending',
       content: 'abandoned branch pending permission',
     });
+    const fromEntryId = manager.getEntryPath(sessionId).at(-1)?.entryId;
+    assert.ok(fromEntryId);
 
-    const summary = manager.branchSession({ sessionId, leafEntryId });
+    const summary = await manager.branchSession({ sessionId, leafEntryId });
 
     assert.deepEqual(
       manager.getMessages(sessionId).map((message) => message.content),
       ['system', 'first task'],
     );
     assert.equal(summary.leafEntryId, leafEntryId);
+    assert.ok(summary.branchEntryId);
+    assert.equal(summary.fromEntryId, fromEntryId);
     assert.equal(summary.pathEntryCount, 2);
     assert.equal(summary.messageCount, 2);
     assert.equal(summary.targetEntry.messageRole, 'user');
@@ -597,7 +601,7 @@ test('SessionManager branches the active session to a specified entry path', asy
     );
     assert.deepEqual(
       manager.getEntryPath(sessionId).map((entry) => entry.type === 'message' ? entry.message.content : entry.type),
-      ['system', 'first task', 'branch answer'],
+      ['system', 'first task', 'branch_summary', 'branch answer'],
     );
     assert.equal(manager.getUsageInfo(sessionId).count, 0);
     assert.deepEqual(manager.getInternalEntries(sessionId), []);
@@ -607,12 +611,11 @@ test('SessionManager branches the active session to a specified entry path', asy
     assert.equal(entryTree[0]?.entry.isActivePath, true);
     assert.equal(entryTree[0]?.children[0]?.entry.messageRole, 'user');
     assert.equal(entryTree[0]?.children[0]?.entry.isActivePath, true);
-    assert.deepEqual(
-      entryTree[0]?.children[0]?.children.map((node) => node.entry.preview),
-      ['later answer', 'branch answer'],
-    );
-    assert.equal(entryTree[0]?.children[0]?.children[1]?.entry.isActive, true);
-    assert.equal(entryTree[0]?.children[0]?.children[1]?.entry.isActivePath, true);
+    assert.equal(entryTree[0]?.children[0]?.children[0]?.entry.preview, 'later answer');
+    assert.equal(entryTree[0]?.children[0]?.children[1]?.entry.type, 'branch_summary');
+    assert.match(entryTree[0]?.children[0]?.children[1]?.entry.preview ?? '', /to=/);
+    assert.equal(entryTree[0]?.children[0]?.children[1]?.children[0]?.entry.isActive, true);
+    assert.equal(entryTree[0]?.children[0]?.children[1]?.children[0]?.entry.isActivePath, true);
     assert.equal(entryTree[0]?.children[0]?.children[0]?.entry.isActivePath, false);
 
     const reloaded = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
@@ -621,7 +624,7 @@ test('SessionManager branches the active session to a specified entry path', asy
       reloaded.getMessages(sessionId).map((message) => message.content),
       ['system', 'first task', 'branch answer'],
     );
-    assert.throws(
+    await assert.rejects(
       () => manager.branchSession({ sessionId, leafEntryId: 'missing-entry' }),
       /Entry not found in session session-root: missing-entry/,
     );
@@ -650,9 +653,10 @@ test('SessionManager branches to non-message leaf entries and appends from the a
     assert.ok(usageEntryId);
     await manager.appendMessage(sessionId, { role: 'assistant', content: 'abandoned answer' });
 
-    const summary = manager.branchSession({ sessionId, leafEntryId: usageEntryId });
+    const summary = await manager.branchSession({ sessionId, leafEntryId: usageEntryId });
 
     assert.equal(summary.leafEntryId, usageEntryId);
+    assert.ok(summary.branchEntryId);
     assert.equal(summary.messageCount, 2);
     assert.equal(summary.targetEntry.type, 'usage');
     assert.equal(manager.getUsageInfo(sessionId).count, 1);
@@ -664,14 +668,14 @@ test('SessionManager branches to non-message leaf entries and appends from the a
     await manager.appendMessage(sessionId, { role: 'assistant', content: 'branch answer' });
     assert.deepEqual(
       manager.getEntryPath(sessionId).map((entry) => entry.type === 'message' ? entry.message.content : entry.type),
-      ['system', 'first task', 'usage', 'branch answer'],
+      ['system', 'first task', 'usage', 'branch_summary', 'branch answer'],
     );
 
     const reloaded = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
     assert.equal(await reloaded.loadSession(sessionId), true);
     assert.deepEqual(
       reloaded.getEntryPath(sessionId).map((entry) => entry.type === 'message' ? entry.message.content : entry.type),
-      ['system', 'first task', 'usage', 'branch answer'],
+      ['system', 'first task', 'usage', 'branch_summary', 'branch answer'],
     );
     assert.equal(reloaded.getUsageInfo(sessionId).count, 1);
   } finally {

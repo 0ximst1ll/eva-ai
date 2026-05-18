@@ -334,7 +334,7 @@ export async function handleInteractiveCommand({
     }
     let summary: SessionBranchSummary;
     try {
-      summary = host.branchSession(leafEntryId);
+      summary = await host.branchSession(leafEntryId);
     } catch (error) {
       writeLine(`${Colors.RED}❌ ${formatBranchError(error, leafEntryId)}${Colors.RESET}\n`);
       return 'continue';

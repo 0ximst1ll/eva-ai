@@ -167,8 +167,8 @@ export class AgentSession {
     this.agent.reset(this.sessionManager.getMessages(this.sessionId));
   }
 
-  branchToEntry(leafEntryId: string): SessionBranchSummary {
-    const summary = this.sessionManager.branchSession({ sessionId: this.sessionId, leafEntryId });
+  async branchToEntry(leafEntryId: string): Promise<SessionBranchSummary> {
+    const summary = await this.sessionManager.branchSession({ sessionId: this.sessionId, leafEntryId });
     this.agent.setMessages(this.sessionManager.getMessages(this.sessionId));
     return summary;
   }

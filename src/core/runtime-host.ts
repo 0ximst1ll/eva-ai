@@ -83,7 +83,7 @@ export class RuntimeHost {
     return this.switchSession(parentSessionId);
   }
 
-  branchSession(leafEntryId: string): SessionBranchSummary {
+  async branchSession(leafEntryId: string): Promise<SessionBranchSummary> {
     return this.currentRuntime.session.branchToEntry(leafEntryId);
   }
 

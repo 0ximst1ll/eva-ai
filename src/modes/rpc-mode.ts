@@ -174,7 +174,7 @@ export async function handleRpcRequest({
         return;
 
       case 'branch_session':
-        handleBranchSession({ host, id, params: request.params, output });
+        await handleBranchSession({ host, id, params: request.params, output });
         return;
 
       case 'abort':
@@ -250,7 +250,7 @@ async function handleForkSession({
   writeEnvelope(output, { id, type: 'response', result: createState(host) });
 }
 
-function handleBranchSession({
+async function handleBranchSession({
   host,
   id,
   params,
@@ -260,13 +260,13 @@ function handleBranchSession({
   id: RpcRequest['id'];
   params?: Record<string, unknown>;
   output: NodeJS.WritableStream;
-}): void {
+}): Promise<void> {
   const leafEntryId = parseOptionalStringParam(params, 'leaf_entry_id');
   if (!leafEntryId) {
     writeRpcError(output, id, 'invalid_request', 'leaf_entry_id is required');
     return;
   }
-  const branch = host.branchSession(leafEntryId);
+  const branch = await host.branchSession(leafEntryId);
   writeEnvelope(output, { id, type: 'response', result: { ...createState(host), branch } });
 }
 
