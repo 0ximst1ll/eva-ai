@@ -202,6 +202,7 @@ export class SessionManager {
   private readonly workspaceDir: string;
   private readonly baseDir: string;
   private readonly workspaceKey: string;
+  // Runtime cache for the current active leaf path, not the canonical session history.
   private readonly sessions = new Map<string, Message[]>();
   private readonly sessionMetadata = new Map<string, SessionMetadata>();
   private readonly sessionCompactions = new Map<string, SessionCompactionInfo>();
@@ -398,18 +399,19 @@ export class SessionManager {
       throw new Error(`Imported session has no messages: ${targetSessionId}`);
     }
 
-    this.sessions.set(targetSessionId, parsed.state.messages);
     this.sessionMetadata.set(targetSessionId, {
       createdAt: parsed.createdAt ?? parsed.updatedAt,
       updatedAt: parsed.updatedAt,
     });
-    this.sessionCompactions.set(targetSessionId, parsed.state.compaction);
-    this.sessionUsage.set(targetSessionId, parsed.state.usage);
-    this.sessionInternalEntries.set(targetSessionId, parsed.state.internalEntries);
     this.sessionLineage.set(targetSessionId, parsed.lineage);
     this.sessionEntryTrees.set(targetSessionId, parsed.entryTree);
     this.sessionPathEntries.set(targetSessionId, parsed.pathEntries);
-    this.setActiveEntryId(targetSessionId, parsed.activeEntryId);
+    if (parsed.activeEntryId && parsed.pathEntries.length) {
+      this.applyActiveEntryPath(targetSessionId, parsed.activeEntryId);
+    } else {
+      this.applyEntryPathState(targetSessionId, parsed.state);
+      this.setActiveEntryId(targetSessionId, parsed.activeEntryId);
+    }
     this.latestSessionId = targetSessionId;
 
     let destinationPath: string | undefined;
@@ -446,18 +448,19 @@ export class SessionManager {
       const content = await fs.readFile(this.getSessionFilePath(sessionId), 'utf-8');
       const parsed = this.parseSessionLog(content, sessionId);
       if (!parsed.state.messages.length) return false;
-      this.sessions.set(sessionId, parsed.state.messages);
       this.sessionMetadata.set(sessionId, {
         createdAt: parsed.createdAt ?? parsed.updatedAt,
         updatedAt: parsed.updatedAt,
       });
-      this.sessionCompactions.set(sessionId, parsed.state.compaction);
-      this.sessionUsage.set(sessionId, parsed.state.usage);
-      this.sessionInternalEntries.set(sessionId, parsed.state.internalEntries);
       this.sessionLineage.set(sessionId, parsed.lineage);
       this.sessionEntryTrees.set(sessionId, parsed.entryTree);
       this.sessionPathEntries.set(sessionId, parsed.pathEntries);
-      this.setActiveEntryId(sessionId, parsed.activeEntryId);
+      if (parsed.activeEntryId && parsed.pathEntries.length) {
+        this.applyActiveEntryPath(sessionId, parsed.activeEntryId);
+      } else {
+        this.applyEntryPathState(sessionId, parsed.state);
+        this.setActiveEntryId(sessionId, parsed.activeEntryId);
+      }
       await this.markLatestSession(sessionId);
       return true;
     } catch {
@@ -566,20 +569,7 @@ export class SessionManager {
     if (!this.sessions.has(sessionId)) {
       throw new Error(`Session not found: ${sessionId}`);
     }
-    const entryPath = this.getEntryPath(sessionId, leafEntryId);
-    if (!entryPath.length) {
-      throw new Error(`Entry not found in session ${sessionId}: ${leafEntryId}`);
-    }
-    const activeState = buildSessionStateFromEntryPath(entryPath);
-    if (!activeState.messages.length) {
-      throw new Error(`Entry path has no messages in session ${sessionId}: ${leafEntryId}`);
-    }
-    this.applyEntryPathState(sessionId, activeState);
-    this.setActiveEntryId(sessionId, leafEntryId);
-    const targetEntry = entryPath[entryPath.length - 1];
-    if (!targetEntry) {
-      throw new Error(`Entry path has no target in session ${sessionId}: ${leafEntryId}`);
-    }
+    const { entryPath, state, targetEntry } = this.applyActiveEntryPath(sessionId, leafEntryId);
 
     const metadata = (this.sessionEntryTrees.get(sessionId) ?? []).find(
       (entry) => entry.entryId === leafEntryId,
@@ -588,7 +578,7 @@ export class SessionManager {
       sessionId,
       leafEntryId,
       pathEntryCount: entryPath.length,
-      messageCount: activeState.messages.length,
+      messageCount: state.messages.length,
       targetEntry: createEntryTreeViewItem({
         entry: targetEntry,
         metadata,
@@ -1068,6 +1058,32 @@ export class SessionManager {
     } else {
       this.sessionActiveEntryIds.delete(sessionId);
     }
+  }
+
+  private applyActiveEntryPath(sessionId: string, leafEntryId: string): {
+    entryPath: SessionPathEntry[];
+    state: SessionEntryPathState;
+    targetEntry: SessionPathEntry;
+  } {
+    const entryPath = this.getEntryPath(sessionId, leafEntryId);
+    if (!entryPath.length) {
+      throw new Error(`Entry not found in session ${sessionId}: ${leafEntryId}`);
+    }
+
+    const state = buildSessionStateFromEntryPath(entryPath);
+    if (!state.messages.length) {
+      throw new Error(`Entry path has no messages in session ${sessionId}: ${leafEntryId}`);
+    }
+
+    const targetEntry = entryPath[entryPath.length - 1];
+    if (!targetEntry) {
+      throw new Error(`Entry path has no target in session ${sessionId}: ${leafEntryId}`);
+    }
+
+    this.applyEntryPathState(sessionId, state);
+    this.setActiveEntryId(sessionId, leafEntryId);
+
+    return { entryPath, state, targetEntry };
   }
 
   private applyEntryPathState(sessionId: string, state: SessionEntryPathState): void {

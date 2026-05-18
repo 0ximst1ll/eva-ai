@@ -31,6 +31,22 @@
 31. Entry Tree 展示最小边界
 32. Branch Operation Summary 最小边界
 33. Entry Path State Derivation 最小边界
+34. Active Entry Path Application 最小边界
+
+
+# Active Entry Path Application 最小边界
+
+继续收紧 M4.x Entry Tree First 的内部 active state cache 边界。
+
+核心变化：
+
+- 新增 `SessionManager.applyActiveEntryPath()` 内部 helper，统一执行 get entry path、derive active state、写入 active state cache 和设置 active entry id。
+- `branchSession()` 改为通过 `applyActiveEntryPath()` 应用目标 leaf。
+- `loadSession()` 和 `importSession()` 在恢复 entry metadata 后通过 `applyActiveEntryPath()` 应用 active leaf；旧 flat JSONL 仍使用 flat fallback state。
+- `sessions` map 语义明确为当前 active leaf path 的运行期缓存，不再作为 canonical session history 描述。
+- 测试覆盖 branch 到 `usage` 这类非 message leaf 后继续 append，新 message 的 parent 是当前 active leaf。
+
+当前仍保留 active state cache；还未完全收敛为只保存 entry tree + active leaf。
 
 
 # Entry Path State Derivation 最小边界

@@ -630,6 +630,55 @@ test('SessionManager branches the active session to a specified entry path', asy
   }
 });
 
+test('SessionManager branches to non-message leaf entries and appends from the active leaf', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-branch-non-message-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+
+  try {
+    const manager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    const sessionId = await manager.createSession('system', 'session-root');
+    await manager.appendMessage(sessionId, { role: 'user', content: 'first task' });
+    await manager.appendUsage({
+      sessionId,
+      usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 },
+    });
+    const usageEntryId = manager
+      .getEntryPath(sessionId)
+      .find((entry) => entry.type === 'usage')
+      ?.entryId;
+    assert.ok(usageEntryId);
+    await manager.appendMessage(sessionId, { role: 'assistant', content: 'abandoned answer' });
+
+    const summary = manager.branchSession({ sessionId, leafEntryId: usageEntryId });
+
+    assert.equal(summary.leafEntryId, usageEntryId);
+    assert.equal(summary.messageCount, 2);
+    assert.equal(summary.targetEntry.type, 'usage');
+    assert.equal(manager.getUsageInfo(sessionId).count, 1);
+    assert.deepEqual(
+      manager.getMessages(sessionId).map((message) => message.content),
+      ['system', 'first task'],
+    );
+
+    await manager.appendMessage(sessionId, { role: 'assistant', content: 'branch answer' });
+    assert.deepEqual(
+      manager.getEntryPath(sessionId).map((entry) => entry.type === 'message' ? entry.message.content : entry.type),
+      ['system', 'first task', 'usage', 'branch answer'],
+    );
+
+    const reloaded = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    assert.equal(await reloaded.loadSession(sessionId), true);
+    assert.deepEqual(
+      reloaded.getEntryPath(sessionId).map((entry) => entry.type === 'message' ? entry.message.content : entry.type),
+      ['system', 'first task', 'usage', 'branch answer'],
+    );
+    assert.equal(reloaded.getUsageInfo(sessionId).count, 1);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('SessionManager clones sessions using current fork lineage semantics', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-clone-'));
   const workspaceDir = path.join(tempDir, 'workspace');
