@@ -30,6 +30,22 @@
 30. Entry-Level Branch 最小边界
 31. Entry Tree 展示最小边界
 32. Branch Operation Summary 最小边界
+33. Entry Path State Derivation 最小边界
+
+
+# Entry Path State Derivation 最小边界
+
+为 M4.x Entry Tree First 对齐补齐 active leaf path 的统一状态派生边界。
+
+核心变化：
+
+- 新增 `buildSessionStateFromEntryPath()`，统一从 entry path 派生 active messages、compaction、usage 和 internal entries。
+- `forkSession()`、`branchSession()`、`loadSession()` / import path 和 `SessionContextRebuilder` 共享该派生边界。
+- `branchSession()` 不再只更新 messages/compaction，也会按目标 leaf path 重建 usage 和 internal entries，避免 abandoned branch metadata 泄漏到 active state。
+- `SessionContextRebuilder` 复用同一派生逻辑，移除重复的 entry path message rebuild 实现。
+- 测试覆盖 branch 后 abandoned branch usage/internal 不进入 active state。
+
+当前 `SessionManager` 仍维护 active `Message[]` 作为运行期缓存；还未完全收敛为只保存 entry tree + active leaf。
 
 
 # Branch Operation Summary 最小边界

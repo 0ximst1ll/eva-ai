@@ -675,12 +675,13 @@ user/assistant/tool: durable session history
 - `SessionManager.listEntryTree()` 和 interactive `/entries` 已支持当前 session entry tree 展示，使 `/branch <entryId>` 的 entry id 可发现。
 - `branchSession()` 已返回 branch operation summary，interactive `/branch` 和 RPC `branch_session` 会暴露 path entries 数、message 数和目标 entry view。
 - `/entries` 已区分 active path 与 active leaf，interactive `/branch` 已对常见 entry 错误给出可操作提示。
+- `buildSessionStateFromEntryPath()` 已成为 entry path 派生边界，branch、fork、load 和 context rebuild 共享该边界派生 active messages、compaction、usage 和 internal entries。
 
 后续仍需：
 
 - 更完整的 child branch navigation。
 - entry-level branch / navigate 继续增强：补持久化 branch summary entry、更完整导航体验和 TUI selector。
-- entry-tree-first 收敛：让 append-only `SessionEntry` tree 成为主要事实源，`Message[]` 退化为 `buildSessionContext()` 的派生结果。
+- entry-tree-first 继续收敛：让 append-only `SessionEntry` tree 成为主要事实源，`Message[]` 进一步退化为 active leaf path 的运行期缓存。
 - 跨 session parent/child entry graph 与 sidecar metadata。
 
 验收标准：
@@ -696,7 +697,7 @@ user/assistant/tool: durable session history
 当前状态：
 
 - Eva 已有 `entryId` / `parentEntryId`、`activeEntryId`、`getEntryPath()` 和 entry-path resume。
-- 但 `SessionManager` 仍维护 `Map<sessionId, Message[]>` 作为 active messages 主状态。
+- `SessionManager` 仍维护 `Map<sessionId, Message[]>` 作为 active messages 运行期缓存，但 branch、fork、load 和 context rebuild 已共享 entry path state derivation。
 - `forkSession()` / `cloneSession()` 已优先复制指定 leaf path 上的 session entries，RuntimeHost、interactive slash command 和 RPC 均可传入 leaf entry。
 - `branchSession()` 已可在同 session 文件内移动 active leaf，下一次 append 会从该 leaf 形成新分支。
 - `/entries` 已可展示当前 session 文件内部 entry tree，并区分 active path 与 active leaf，但仍不是完整交互式 entry tree navigation。
@@ -718,9 +719,10 @@ user/assistant/tool: durable session history
 4. 已完成 entry tree 展示中的 entry id 可见性。
 5. 已完成 branch operation summary 最小返回。
 6. 已完成 active path 展示和 branch 常见错误提示。
-7. 后续补持久化 branch summary entry 和更完整 navigate UX。
-8. 再逐步把 `SessionManager` 内部主状态从 `Map<sessionId, Message[]>` 收敛为 entry tree + active leaf。
-9. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
+7. 已完成 `buildSessionStateFromEntryPath()` 最小边界，active messages、compaction、usage 和 internal entries 可从 active leaf path 派生。
+8. 后续补持久化 branch summary entry 和更完整 navigate UX。
+9. 再逐步把 `SessionManager` 内部主状态从 `Map<sessionId, Message[]>` 收敛为 entry tree + active leaf。
+10. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
 
 非目标：
 

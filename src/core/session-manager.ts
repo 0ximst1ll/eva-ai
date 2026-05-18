@@ -118,6 +118,13 @@ export interface SessionBranchSummary {
   targetEntry: SessionEntryTreeViewItem;
 }
 
+export interface SessionEntryPathState {
+  messages: Message[];
+  compaction: SessionCompactionInfo;
+  usage: SessionUsageInfo;
+  internalEntries: SessionInternalEntry[];
+}
+
 export type SessionPathEntry =
   | (MessageEntry & { entryId: string; parentEntryId: string | null })
   | (CompactionEntry & { entryId: string; parentEntryId: string | null })
@@ -294,8 +301,8 @@ export class SessionManager {
         messages: sourceMessages,
         timestamp: now,
       });
-    const forkedMessages = rebuildMessagesFromEntryPath(forkedPathEntries);
-    if (!forkedMessages.length) {
+    const forkedState = buildSessionStateFromEntryPath(forkedPathEntries);
+    if (!forkedState.messages.length) {
       throw new Error(`Session has no messages to fork: ${sourceSessionId}`);
     }
     const forkedEntryNodes = createEntryTreeFromPathEntries(forkedPathEntries);
@@ -303,14 +310,14 @@ export class SessionManager {
     const lineageInfo = createLineageInfo(id, now, {
       parentSessionId: sourceSessionId,
       rootSessionId: sourceLineage.rootSessionId,
-      forkedFromMessageIndex: forkedMessages.length - 1,
+      forkedFromMessageIndex: forkedState.messages.length - 1,
     });
 
-    this.sessions.set(id, forkedMessages);
+    this.sessions.set(id, forkedState.messages);
     this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
-    this.sessionCompactions.set(id, getLatestCompactionFromPath(forkedPathEntries));
-    this.sessionUsage.set(id, getUsageFromPath(forkedPathEntries));
-    this.sessionInternalEntries.set(id, getInternalEntriesFromPath(forkedPathEntries));
+    this.sessionCompactions.set(id, forkedState.compaction);
+    this.sessionUsage.set(id, forkedState.usage);
+    this.sessionInternalEntries.set(id, forkedState.internalEntries);
     this.sessionLineage.set(id, lineageInfo);
     this.sessionEntryTrees.set(id, forkedEntryNodes);
     this.sessionPathEntries.set(id, forkedPathEntries.map(copySessionPathEntry));
@@ -387,18 +394,18 @@ export class SessionManager {
       workspaceDir: this.workspaceDir,
     });
     const parsed = this.parseSessionLog(rewrittenContent, targetSessionId);
-    if (!parsed.messages.length) {
+    if (!parsed.state.messages.length) {
       throw new Error(`Imported session has no messages: ${targetSessionId}`);
     }
 
-    this.sessions.set(targetSessionId, parsed.messages);
+    this.sessions.set(targetSessionId, parsed.state.messages);
     this.sessionMetadata.set(targetSessionId, {
       createdAt: parsed.createdAt ?? parsed.updatedAt,
       updatedAt: parsed.updatedAt,
     });
-    this.sessionCompactions.set(targetSessionId, parsed.compaction);
-    this.sessionUsage.set(targetSessionId, parsed.usage);
-    this.sessionInternalEntries.set(targetSessionId, parsed.internalEntries);
+    this.sessionCompactions.set(targetSessionId, parsed.state.compaction);
+    this.sessionUsage.set(targetSessionId, parsed.state.usage);
+    this.sessionInternalEntries.set(targetSessionId, parsed.state.internalEntries);
     this.sessionLineage.set(targetSessionId, parsed.lineage);
     this.sessionEntryTrees.set(targetSessionId, parsed.entryTree);
     this.sessionPathEntries.set(targetSessionId, parsed.pathEntries);
@@ -438,15 +445,15 @@ export class SessionManager {
     try {
       const content = await fs.readFile(this.getSessionFilePath(sessionId), 'utf-8');
       const parsed = this.parseSessionLog(content, sessionId);
-      if (!parsed.messages.length) return false;
-      this.sessions.set(sessionId, parsed.messages);
+      if (!parsed.state.messages.length) return false;
+      this.sessions.set(sessionId, parsed.state.messages);
       this.sessionMetadata.set(sessionId, {
         createdAt: parsed.createdAt ?? parsed.updatedAt,
         updatedAt: parsed.updatedAt,
       });
-      this.sessionCompactions.set(sessionId, parsed.compaction);
-      this.sessionUsage.set(sessionId, parsed.usage);
-      this.sessionInternalEntries.set(sessionId, parsed.internalEntries);
+      this.sessionCompactions.set(sessionId, parsed.state.compaction);
+      this.sessionUsage.set(sessionId, parsed.state.usage);
+      this.sessionInternalEntries.set(sessionId, parsed.state.internalEntries);
       this.sessionLineage.set(sessionId, parsed.lineage);
       this.sessionEntryTrees.set(sessionId, parsed.entryTree);
       this.sessionPathEntries.set(sessionId, parsed.pathEntries);
@@ -563,12 +570,11 @@ export class SessionManager {
     if (!entryPath.length) {
       throw new Error(`Entry not found in session ${sessionId}: ${leafEntryId}`);
     }
-    const activeMessages = rebuildMessagesFromEntryPath(entryPath);
-    if (!activeMessages.length) {
+    const activeState = buildSessionStateFromEntryPath(entryPath);
+    if (!activeState.messages.length) {
       throw new Error(`Entry path has no messages in session ${sessionId}: ${leafEntryId}`);
     }
-    this.sessions.set(sessionId, activeMessages);
-    this.sessionCompactions.set(sessionId, getLatestCompactionFromPath(entryPath));
+    this.applyEntryPathState(sessionId, activeState);
     this.setActiveEntryId(sessionId, leafEntryId);
     const targetEntry = entryPath[entryPath.length - 1];
     if (!targetEntry) {
@@ -582,7 +588,7 @@ export class SessionManager {
       sessionId,
       leafEntryId,
       pathEntryCount: entryPath.length,
-      messageCount: activeMessages.length,
+      messageCount: activeState.messages.length,
       targetEntry: createEntryTreeViewItem({
         entry: targetEntry,
         metadata,
@@ -877,10 +883,10 @@ export class SessionManager {
       try {
         const content = await fs.readFile(this.getSessionFilePath(sessionId), 'utf-8');
         const parsed = this.parseSessionLog(content, sessionId);
-        if (!parsed.messages.length) continue;
+        if (!parsed.state.messages.length) continue;
         sessions.push({
           sessionId,
-          messageCount: parsed.messages.length,
+          messageCount: parsed.state.messages.length,
           updatedAt: parsed.updatedAt,
           isLatest: manifest?.latestSessionId === sessionId,
           parentSessionId: parsed.lineage.parentSessionId,
@@ -1064,6 +1070,13 @@ export class SessionManager {
     }
   }
 
+  private applyEntryPathState(sessionId: string, state: SessionEntryPathState): void {
+    this.sessions.set(sessionId, state.messages);
+    this.sessionCompactions.set(sessionId, state.compaction);
+    this.sessionUsage.set(sessionId, state.usage);
+    this.sessionInternalEntries.set(sessionId, state.internalEntries);
+  }
+
   private async markLatestSession(sessionId: string): Promise<void> {
     const updatedAt = Date.now();
     this.touchSession(sessionId, updatedAt);
@@ -1076,12 +1089,9 @@ export class SessionManager {
     content: string,
     sessionId: string,
   ): {
-    messages: Message[];
+    state: SessionEntryPathState;
     createdAt?: number;
     updatedAt: number;
-    compaction: SessionCompactionInfo;
-    usage: SessionUsageInfo;
-    internalEntries: SessionInternalEntry[];
     lineage: SessionLineageInfo;
     entryTree: SessionEntryTreeNode[];
     pathEntries: SessionPathEntry[];
@@ -1199,15 +1209,19 @@ export class SessionManager {
     }
 
     const activePathEntries = buildEntryPath(pathEntries, activeEntryId);
-    const activeMessages = rebuildMessagesFromEntryPath(activePathEntries);
+    const activeState = buildSessionStateFromEntryPath(activePathEntries);
 
     return {
-      messages: activeMessages.length ? activeMessages : messages,
+      state: activeState.messages.length
+        ? activeState
+        : {
+          messages,
+          compaction,
+          usage,
+          internalEntries,
+        },
       createdAt,
       updatedAt,
-      compaction,
-      usage,
-      internalEntries,
       lineage,
       entryTree,
       pathEntries,
@@ -1467,6 +1481,15 @@ function copySessionPathEntryForSession(entry: SessionPathEntry, sessionId: stri
   const copy = copySessionPathEntry(entry);
   copy.sessionId = sessionId;
   return copy;
+}
+
+export function buildSessionStateFromEntryPath(entryPath: SessionPathEntry[]): SessionEntryPathState {
+  return {
+    messages: rebuildMessagesFromEntryPath(entryPath),
+    compaction: getLatestCompactionFromPath(entryPath),
+    usage: getUsageFromPath(entryPath),
+    internalEntries: getInternalEntriesFromPath(entryPath),
+  };
 }
 
 function getLatestCompactionFromPath(entries: SessionPathEntry[]): SessionCompactionInfo {

@@ -565,6 +565,15 @@ test('SessionManager branches the active session to a specified entry path', asy
       ?.entryId;
     assert.ok(leafEntryId);
     await manager.appendMessage(sessionId, { role: 'assistant', content: 'later answer' });
+    await manager.appendUsage({
+      sessionId,
+      usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+    });
+    await manager.appendInternalEntry({
+      sessionId,
+      kind: 'permission_pending',
+      content: 'abandoned branch pending permission',
+    });
 
     const summary = manager.branchSession({ sessionId, leafEntryId });
 
@@ -578,6 +587,8 @@ test('SessionManager branches the active session to a specified entry path', asy
     assert.equal(summary.targetEntry.messageRole, 'user');
     assert.equal(summary.targetEntry.preview, 'first task');
     assert.equal(summary.targetEntry.isActivePath, true);
+    assert.equal(manager.getUsageInfo(sessionId).count, 0);
+    assert.deepEqual(manager.getInternalEntries(sessionId), []);
 
     await manager.appendMessage(sessionId, { role: 'assistant', content: 'branch answer' });
     assert.deepEqual(
@@ -588,6 +599,8 @@ test('SessionManager branches the active session to a specified entry path', asy
       manager.getEntryPath(sessionId).map((entry) => entry.type === 'message' ? entry.message.content : entry.type),
       ['system', 'first task', 'branch answer'],
     );
+    assert.equal(manager.getUsageInfo(sessionId).count, 0);
+    assert.deepEqual(manager.getInternalEntries(sessionId), []);
     const entryTree = manager.listEntryTree(sessionId);
     assert.equal(entryTree.length, 1);
     assert.equal(entryTree[0]?.entry.messageRole, 'system');

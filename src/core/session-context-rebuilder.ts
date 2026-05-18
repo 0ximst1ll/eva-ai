@@ -1,13 +1,12 @@
 import type { Message } from '../schema.js';
-import { createCompactionSummaryMessage } from './compaction.js';
-import type {
-  SessionCompactionInfo,
-  SessionEntryTreeInfo,
-  SessionInternalEntry,
-  SessionLineageInfo,
-  SessionManager,
-  SessionPathEntry,
-  SessionUsageInfo,
+import {
+  buildSessionStateFromEntryPath,
+  type SessionCompactionInfo,
+  type SessionEntryTreeInfo,
+  type SessionInternalEntry,
+  type SessionLineageInfo,
+  type SessionManager,
+  type SessionUsageInfo,
 } from './session-manager.js';
 
 export type SessionContextRebuildStrategy = 'flat_snapshot' | 'entry_path';
@@ -48,10 +47,10 @@ export async function rebuildSessionContext({
   }
 
   const entryPath = sessionManager.getEntryPath(sessionId);
-  const pathMessages = rebuildMessagesFromEntryPath(entryPath);
-  const strategy: SessionContextRebuildStrategy = pathMessages.length ? 'entry_path' : 'flat_snapshot';
-  if (pathMessages.length) {
-    messages = pathMessages;
+  const pathState = buildSessionStateFromEntryPath(entryPath);
+  const strategy: SessionContextRebuildStrategy = pathState.messages.length ? 'entry_path' : 'flat_snapshot';
+  if (pathState.messages.length) {
+    messages = pathState.messages;
   }
 
   if (!messages.length) return null;
@@ -63,11 +62,24 @@ export async function rebuildSessionContext({
     messages,
     lineage,
     branchPath: createBranchPath(lineage),
-    compaction: sessionManager.getCompactionInfo(sessionId),
-    usage: sessionManager.getUsageInfo(sessionId),
-    internalEntries: sessionManager.getInternalEntries(sessionId, internalKind),
+    compaction: strategy === 'entry_path' ? pathState.compaction : sessionManager.getCompactionInfo(sessionId),
+    usage: strategy === 'entry_path' ? pathState.usage : sessionManager.getUsageInfo(sessionId),
+    internalEntries: strategy === 'entry_path'
+      ? filterInternalEntries(pathState.internalEntries, internalKind)
+      : sessionManager.getInternalEntries(sessionId, internalKind),
     entryTree: sessionManager.getEntryTreeInfo(sessionId),
   };
+}
+
+function filterInternalEntries(entries: SessionInternalEntry[], kind?: string): SessionInternalEntry[] {
+  return entries
+    .filter((entry) => !kind || entry.kind === kind)
+    .map((entry) => ({
+      timestamp: entry.timestamp,
+      kind: entry.kind,
+      content: entry.content,
+      metadata: entry.metadata ? { ...entry.metadata } : undefined,
+    }));
 }
 
 function createBranchPath(lineage: SessionLineageInfo): SessionContextBranchNode[] {
@@ -98,65 +110,4 @@ function createBranchPath(lineage: SessionLineageInfo): SessionContextBranchNode
     },
     currentNode,
   ];
-}
-
-function rebuildMessagesFromEntryPath(entryPath: SessionPathEntry[]): Message[] {
-  if (!entryPath.length) return [];
-
-  let compactionIndex = -1;
-  for (let index = entryPath.length - 1; index >= 0; index -= 1) {
-    if (entryPath[index].type === 'compaction') {
-      compactionIndex = index;
-      break;
-    }
-  }
-
-  if (compactionIndex < 0) {
-    return entryPath
-      .filter((entry): entry is SessionPathEntry & { type: 'message' } => entry.type === 'message')
-      .map((entry) => copyMessage(entry.message));
-  }
-
-  const compactionEntry = entryPath[compactionIndex];
-  if (compactionEntry.type !== 'compaction') return [];
-
-  const messages: Message[] = [];
-  const beforeCompaction = entryPath.slice(0, compactionIndex);
-  const systemMessage = beforeCompaction.find((entry) => (
-    entry.type === 'message' && entry.message.role === 'system'
-  ));
-  if (systemMessage?.type === 'message') {
-    messages.push(copyMessage(systemMessage.message));
-  }
-
-  messages.push(createCompactionSummaryMessage(compactionEntry.summary));
-
-  let keepMessages = false;
-  let messageIndex = 0;
-  for (const entry of beforeCompaction) {
-    if (entry.type !== 'message') continue;
-    if (compactionEntry.firstKeptEntryId) {
-      if (entry.entryId === compactionEntry.firstKeptEntryId) {
-        keepMessages = true;
-      }
-    } else if (messageIndex >= compactionEntry.firstKeptMessageIndex) {
-      keepMessages = true;
-    }
-    messageIndex += 1;
-    if (!keepMessages) continue;
-    if (systemMessage?.entryId === entry.entryId) continue;
-    messages.push(copyMessage(entry.message));
-  }
-
-  for (const entry of entryPath.slice(compactionIndex + 1)) {
-    if (entry.type === 'message') {
-      messages.push(copyMessage(entry.message));
-    }
-  }
-
-  return messages;
-}
-
-function copyMessage(message: Message): Message {
-  return JSON.parse(JSON.stringify(message)) as Message;
 }
