@@ -983,6 +983,11 @@ export class SessionManager {
     return sortNodes(roots);
   }
 
+  async listChildSessions(sessionId: string): Promise<SessionListItem[]> {
+    const sessions = await this.listSessions();
+    return sessions.filter((session) => session.parentSessionId === sessionId);
+  }
+
   private getWorkspaceDataDir(): string {
     return path.join(this.baseDir, this.workspaceKey);
   }

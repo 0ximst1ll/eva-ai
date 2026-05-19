@@ -278,6 +278,41 @@ test('RuntimeHost switches to the parent session through the runtime boundary', 
   }
 });
 
+test('RuntimeHost switches to child sessions through the runtime boundary', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-child-'));
+
+  try {
+    const configPath = await writeConfig(tempDir);
+    const sessionBaseDir = path.join(tempDir, 'sessions');
+    const host = await RuntimeHost.create({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'jsonl',
+      sessionBaseDir,
+      createNewSession: true,
+      tools: [],
+    });
+    const parentSessionId = host.sessionId;
+    await host.forkSession('child-session');
+    assert.equal(host.sessionId, 'child-session');
+    await host.switchToParentSession();
+    assert.equal(host.sessionId, parentSessionId);
+
+    assert.deepEqual(
+      (await host.listChildSessions()).map((session) => session.sessionId),
+      ['child-session'],
+    );
+
+    const runtime = await host.switchToChildSession();
+
+    assert.ok(runtime);
+    assert.equal(host.sessionId, 'child-session');
+    assert.equal(await host.switchToChildSession(), null);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('RuntimeHost resumes sessions using the active entry path', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-entry-path-'));
 

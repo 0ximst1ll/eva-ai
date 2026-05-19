@@ -668,6 +668,7 @@ user/assistant/tool: durable session history
 - `SessionManager.listSessionTree()` 已支持基于 `parentSessionId` 的 workspace session-level lineage tree。
 - interactive `/sessions` 已改为展示 session tree，并标记 current/latest session。
 - `RuntimeHost.switchToParentSession()` 已提供 mode 层向 parent session 导航边界，interactive `/parent` 可切换到当前 session 的 parent session。
+- `SessionManager.listChildSessions()` 和 `RuntimeHost.switchToChildSession()` 已提供 session-level direct child navigation 边界；interactive `/children` 可列出 direct children，`/child [id]` 可切换到 direct child session。
 - M4.x entry-path fork/clone 第一小步已落地：fork/clone 不再只复制 active `Message[]` 快照，而是优先复制 active leaf path 上的 session entries。
 - RuntimeHost、interactive slash command 和 RPC 已支持指定 `leafEntryId` / `leaf_entry_id` 的 fork/clone。
 - `SessionManager.branchSession()` 已支持同 session 文件内移动 active leaf，并由当前 leaf path 派生 active messages。
@@ -682,7 +683,7 @@ user/assistant/tool: durable session history
 后续仍需：
 
 - 更完整的 child branch navigation。
-- entry-level branch / navigate 继续增强：补更完整导航体验和 TUI selector。
+- entry-level branch / navigate 继续增强：补更完整导航体验。
 - entry-tree-first 继续收敛：让 append-only `SessionEntry` tree 成为主要事实源，active state cache 进一步退化为 active leaf path 的运行期缓存。
 - 跨 session parent/child entry graph 与 sidecar metadata。
 
@@ -704,6 +705,7 @@ user/assistant/tool: durable session history
 - `branchSession()` 已可在同 session 文件内移动 active leaf，下一次 append 会从该 leaf 形成新分支。
 - `/entries` 已可展示当前 session 文件内部 entry tree，并区分 active path 与 active leaf；TUI `/entries` 已提供 entry selector，选中后复用 `/branch <entryId>` 切换 active leaf。
 - `/branch` 和 RPC `branch_session` 已返回 branch operation summary，且 branch 操作会写入持久化 `branch_summary` entry。
+- session-level direct child navigation 已有最小边界：`/children` 列出 direct children，`/child [id]` 切换 direct child session。
 
 目标语义：
 
@@ -726,9 +728,10 @@ user/assistant/tool: durable session history
 9. 已完成持久化 `branch_summary` entry 最小闭环。
 10. 已完成 active state 读取边界，`getMessages()`、`getCompactionInfo()`、`getUsageInfo()`、`getInternalEntries()` 和 `SessionContextRebuilder` 优先从 active entry path 派生。
 11. 已完成 TUI entry selector 最小 UX，TUI `/entries` 可选择当前 session entry 并复用 durable branch summary 路径切换 active leaf。
-12. 后续按需补 session-level child navigation 或更完整 entry navigation UI。
-13. 再逐步把 `SessionManager` 内部主状态从 active state cache 收敛为 entry tree + active leaf。
-14. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
+12. 已完成 session-level direct child navigation 最小边界。
+13. 后续按需补更完整 entry navigation UI。
+14. 再逐步把 `SessionManager` 内部主状态从 active state cache 收敛为 entry tree + active leaf。
+15. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
 
 非目标：
 

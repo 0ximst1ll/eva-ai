@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createContextBuilder } from '../src/core/context-builder.js';
 import { RuntimeSessionNotFoundError } from '../src/core/runtime.js';
-import type { RuntimeHost } from '../src/core/runtime-host.js';
+import {
+  RuntimeChildSessionAmbiguousError,
+  RuntimeChildSessionNotFoundError,
+  type RuntimeHost,
+} from '../src/core/runtime-host.js';
 import { defaultConvertToLlm } from '../src/core/agent-messages.js';
 import { estimateMessagesTokens } from '../src/core/token-estimator.js';
 import { handleInteractiveCommand } from '../src/modes/interactive-mode.js';
@@ -414,6 +418,118 @@ test('/parent reports when the current session has no parent', async () => {
 
   assert.equal(result, 'continue');
   assert.match(output.join('\n'), /No parent session/);
+});
+
+test('/children lists direct child sessions', async () => {
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-parent';
+    },
+    async listChildSessions() {
+      return [{
+        sessionId: 'session-child',
+        messageCount: 3,
+        updatedAt: Date.parse('2026-05-19T00:00:00.000Z'),
+        isLatest: true,
+        parentSessionId: 'session-parent',
+        rootSessionId: 'session-parent',
+        forkedFromMessageIndex: 1,
+      }];
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/children',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.match(output.join('\n'), /Child sessions/);
+  assert.match(output.join('\n'), /session-child messages=3/);
+  assert.match(output.join('\n'), /forked_from=1/);
+});
+
+test('/child switches to a direct child runtime session', async () => {
+  let sessionId = 'session-parent';
+  let switchToChildCalls = 0;
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return sessionId;
+    },
+    async switchToChildSession(requestedSessionId?: string) {
+      switchToChildCalls += 1;
+      assert.equal(requestedSessionId, 'session-child');
+      sessionId = 'session-child';
+      return {};
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/child session-child',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.equal(switchToChildCalls, 1);
+  assert.equal(sessionId, 'session-child');
+  assert.match(output.join('\n'), /Switched to child session: .*session-child/);
+  assert.match(output.join('\n'), /Previous session: .*session-parent/);
+});
+
+test('/child reports ambiguous or missing child sessions without throwing', async () => {
+  const ambiguousOutput: string[] = [];
+  const ambiguousHost = {
+    get sessionId() {
+      return 'session-parent';
+    },
+    async switchToChildSession() {
+      throw new RuntimeChildSessionAmbiguousError('session-parent', [
+        {
+          sessionId: 'child-a',
+          messageCount: 1,
+          updatedAt: 0,
+          isLatest: false,
+          parentSessionId: 'session-parent',
+          rootSessionId: 'session-parent',
+        },
+        {
+          sessionId: 'child-b',
+          messageCount: 2,
+          updatedAt: 0,
+          isLatest: true,
+          parentSessionId: 'session-parent',
+          rootSessionId: 'session-parent',
+        },
+      ]);
+    },
+  } as unknown as RuntimeHost;
+
+  assert.equal(await handleInteractiveCommand({
+    userInput: '/child',
+    host: ambiguousHost,
+    writeLine: (message = '') => ambiguousOutput.push(message),
+  }), 'continue');
+  assert.match(ambiguousOutput.join('\n'), /Multiple child sessions/);
+  assert.match(ambiguousOutput.join('\n'), /child-a/);
+  assert.match(ambiguousOutput.join('\n'), /child-b/);
+
+  const missingOutput: string[] = [];
+  const missingHost = {
+    async switchToChildSession() {
+      throw new RuntimeChildSessionNotFoundError('session-parent', 'missing-child');
+    },
+  } as unknown as RuntimeHost;
+
+  assert.equal(await handleInteractiveCommand({
+    userInput: '/child missing-child',
+    host: missingHost,
+    writeLine: (message = '') => missingOutput.push(message),
+  }), 'continue');
+  assert.match(missingOutput.join('\n'), /Child session not found: missing-child/);
 });
 
 test('/history prints current session id and message count', async () => {

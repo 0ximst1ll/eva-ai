@@ -4,10 +4,15 @@ import type { ContextBuildSummary } from '../core/context-builder.js';
 import type { ContextDiagnostics } from '../core/context-manager.js';
 import type {
   SessionBranchSummary,
+  SessionListItem,
   SessionEntryTreeViewNode,
   SessionTreeNode,
 } from '../core/session-manager.js';
-import type { RuntimeHost } from '../core/runtime-host.js';
+import {
+  RuntimeChildSessionAmbiguousError,
+  RuntimeChildSessionNotFoundError,
+  type RuntimeHost,
+} from '../core/runtime-host.js';
 import { Colors } from '../utils/terminal.js';
 import { createCliRenderer, createToolConfirmationPrompt, formatRuntimeDiagnostic } from './cli-ui.js';
 
@@ -192,6 +197,23 @@ function writeSessionTree({
   }
 }
 
+function writeChildSessions({
+  sessions,
+  writeLine,
+}: {
+  sessions: SessionListItem[];
+  writeLine: (message?: string) => void;
+}): void {
+  for (const session of sessions) {
+    const latestMarker = session.isLatest ? ' latest' : '';
+    const updatedAt = session.updatedAt > 0 ? new Date(session.updatedAt).toISOString() : 'unknown';
+    const forkInfo = typeof session.forkedFromMessageIndex === 'number'
+      ? ` forked_from=${session.forkedFromMessageIndex}`
+      : '';
+    writeLine(`  ${session.sessionId} messages=${session.messageCount} updated=${updatedAt}${latestMarker}${forkInfo}`);
+  }
+}
+
 function writeEntryTree({
   nodes,
   writeLine,
@@ -354,6 +376,44 @@ export async function handleInteractiveCommand({
     }
     writeLine(`${Colors.GREEN}✅ Switched to parent session: ${host.sessionId}${Colors.RESET}`);
     writeLine(`${Colors.DIM}Previous session: ${previousSessionId}${Colors.RESET}\n`);
+    return 'continue';
+  }
+
+  if (cmd === '/children') {
+    const childSessions = await host.listChildSessions();
+    if (!childSessions.length) {
+      writeLine(`${Colors.YELLOW}No child sessions for current session: ${host.sessionId}${Colors.RESET}\n`);
+      return 'continue';
+    }
+
+    writeLine(`\n${Colors.BRIGHT_CYAN}Child sessions:${Colors.RESET}`);
+    writeChildSessions({ sessions: childSessions, writeLine });
+    writeLine();
+    return 'continue';
+  }
+
+  if (cmd === '/child') {
+    const previousSessionId = host.sessionId;
+    const requestedSessionId = args[0];
+    try {
+      const childRuntime = await host.switchToChildSession(requestedSessionId);
+      if (!childRuntime) {
+        writeLine(`${Colors.YELLOW}No child sessions for current session: ${previousSessionId}${Colors.RESET}\n`);
+        return 'continue';
+      }
+      writeLine(`${Colors.GREEN}✅ Switched to child session: ${host.sessionId}${Colors.RESET}`);
+      writeLine(`${Colors.DIM}Previous session: ${previousSessionId}${Colors.RESET}\n`);
+    } catch (e) {
+      if (e instanceof RuntimeChildSessionAmbiguousError) {
+        writeLine(`${Colors.YELLOW}Multiple child sessions found. Use /child <sessionId>.${Colors.RESET}`);
+        writeChildSessions({ sessions: e.childSessions, writeLine });
+        writeLine();
+      } else if (e instanceof RuntimeChildSessionNotFoundError) {
+        writeLine(`${Colors.RED}❌ Child session not found: ${e.sessionId}${Colors.RESET}\n`);
+      } else {
+        throw e;
+      }
+    }
     return 'continue';
   }
 

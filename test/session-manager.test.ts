@@ -815,6 +815,8 @@ test('SessionManager lists sessions as a lineage tree', async () => {
     });
 
     const tree = await manager.listSessionTree();
+    const rootChildren = await manager.listChildSessions(rootSessionId);
+    const forkChildren = await manager.listChildSessions(forkSessionId);
 
     assert.equal(tree.length, 1);
     assert.equal(tree[0]?.session.sessionId, rootSessionId);
@@ -822,6 +824,8 @@ test('SessionManager lists sessions as a lineage tree', async () => {
     assert.equal(tree[0]?.children[0]?.session.sessionId, forkSessionId);
     assert.equal(tree[0]?.children[0]?.children.length, 1);
     assert.equal(tree[0]?.children[0]?.children[0]?.session.sessionId, cloneSessionId);
+    assert.deepEqual(rootChildren.map((session) => session.sessionId), [forkSessionId]);
+    assert.deepEqual(forkChildren.map((session) => session.sessionId), [cloneSessionId]);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

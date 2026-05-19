@@ -6,11 +6,35 @@ import {
   RuntimeSessionNotFoundError,
 } from './runtime.js';
 import type { AgentSession } from './agent-session.js';
-import type { SessionBranchSummary } from './session-manager.js';
+import type { SessionBranchSummary, SessionListItem } from './session-manager.js';
 
 export interface RuntimeHostOptions extends Omit<CreateRuntimeOptions, 'createNewSession' | 'sessionId' | 'createSessionIfMissing'> {
   createNewSession?: boolean;
   sessionId?: string;
+}
+
+export class RuntimeChildSessionNotFoundError extends Error {
+  readonly parentSessionId: string;
+  readonly sessionId: string;
+
+  constructor(parentSessionId: string, sessionId: string) {
+    super(`Child session not found under ${parentSessionId}: ${sessionId}`);
+    this.name = 'RuntimeChildSessionNotFoundError';
+    this.parentSessionId = parentSessionId;
+    this.sessionId = sessionId;
+  }
+}
+
+export class RuntimeChildSessionAmbiguousError extends Error {
+  readonly parentSessionId: string;
+  readonly childSessions: SessionListItem[];
+
+  constructor(parentSessionId: string, childSessions: SessionListItem[]) {
+    super(`Multiple child sessions found under ${parentSessionId}`);
+    this.name = 'RuntimeChildSessionAmbiguousError';
+    this.parentSessionId = parentSessionId;
+    this.childSessions = childSessions;
+  }
 }
 
 export class RuntimeHost {
@@ -81,6 +105,31 @@ export class RuntimeHost {
     const parentSessionId = this.currentRuntime.sessionManager.getLineageInfo(this.sessionId).parentSessionId;
     if (!parentSessionId) return null;
     return this.switchSession(parentSessionId);
+  }
+
+  async listChildSessions(): Promise<SessionListItem[]> {
+    return this.currentRuntime.sessionManager.listChildSessions(this.sessionId);
+  }
+
+  async switchToChildSession(sessionId?: string): Promise<Runtime | null> {
+    const childSessions = await this.listChildSessions();
+    if (!childSessions.length) return null;
+
+    const firstChildSession = childSessions[0];
+    if (!firstChildSession) return null;
+
+    let targetSession = firstChildSession;
+    if (sessionId) {
+      const matchingSession = childSessions.find((session) => session.sessionId === sessionId);
+      if (!matchingSession) {
+        throw new RuntimeChildSessionNotFoundError(this.sessionId, sessionId);
+      }
+      targetSession = matchingSession;
+    } else if (childSessions.length > 1) {
+      throw new RuntimeChildSessionAmbiguousError(this.sessionId, childSessions);
+    }
+
+    return this.switchSession(targetSession.sessionId);
   }
 
   async branchSession(leafEntryId: string): Promise<SessionBranchSummary> {
