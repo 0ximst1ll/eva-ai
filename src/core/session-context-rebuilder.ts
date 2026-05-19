@@ -1,6 +1,5 @@
 import type { Message } from '../schema.js';
 import {
-  buildSessionStateFromEntryPath,
   type SessionCompactionInfo,
   type SessionEntryTreeInfo,
   type SessionInternalEntry,
@@ -47,10 +46,12 @@ export async function rebuildSessionContext({
   }
 
   const entryPath = sessionManager.getEntryPath(sessionId);
-  const pathState = buildSessionStateFromEntryPath(entryPath);
-  const strategy: SessionContextRebuildStrategy = pathState.messages.length ? 'entry_path' : 'flat_snapshot';
-  if (pathState.messages.length) {
-    messages = pathState.messages;
+  const activeState = sessionManager.getActiveState(sessionId);
+  const strategy: SessionContextRebuildStrategy = entryPath.length && activeState.messages.length
+    ? 'entry_path'
+    : 'flat_snapshot';
+  if (activeState.messages.length) {
+    messages = activeState.messages;
   }
 
   if (!messages.length) return null;
@@ -62,11 +63,9 @@ export async function rebuildSessionContext({
     messages,
     lineage,
     branchPath: createBranchPath(lineage),
-    compaction: strategy === 'entry_path' ? pathState.compaction : sessionManager.getCompactionInfo(sessionId),
-    usage: strategy === 'entry_path' ? pathState.usage : sessionManager.getUsageInfo(sessionId),
-    internalEntries: strategy === 'entry_path'
-      ? filterInternalEntries(pathState.internalEntries, internalKind)
-      : sessionManager.getInternalEntries(sessionId, internalKind),
+    compaction: activeState.compaction,
+    usage: activeState.usage,
+    internalEntries: filterInternalEntries(activeState.internalEntries, internalKind),
     entryTree: sessionManager.getEntryTreeInfo(sessionId),
   };
 }

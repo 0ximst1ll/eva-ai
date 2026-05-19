@@ -492,19 +492,19 @@ export class SessionManager {
   }
 
   getMessages(sessionId: string): Message[] {
-    return [...(this.sessions.get(sessionId) ?? [])];
+    return this.getActiveState(sessionId).messages;
   }
 
   getCompactionInfo(sessionId: string): SessionCompactionInfo {
-    return this.sessionCompactions.get(sessionId) ?? { compacted: false };
+    return this.getActiveState(sessionId).compaction;
   }
 
   getUsageInfo(sessionId: string): SessionUsageInfo {
-    return this.sessionUsage.get(sessionId) ?? createEmptyUsageInfo();
+    return this.getActiveState(sessionId).usage;
   }
 
   getInternalEntries(sessionId: string, kind?: string): SessionInternalEntry[] {
-    const entries = this.sessionInternalEntries.get(sessionId) ?? [];
+    const entries = this.getActiveState(sessionId).internalEntries;
     return entries
       .filter((entry) => !kind || entry.kind === kind)
       .map(copyInternalEntry);
@@ -521,6 +521,10 @@ export class SessionManager {
       activeEntryId,
       entries: (this.sessionEntryTrees.get(sessionId) ?? []).map(copyEntryTreeNode),
     };
+  }
+
+  getActiveState(sessionId: string): SessionEntryPathState {
+    return copySessionEntryPathState(this.buildActiveState(sessionId));
   }
 
   listEntryTree(sessionId: string): SessionEntryTreeViewNode[] {
@@ -645,16 +649,16 @@ export class SessionManager {
   }
 
   async appendMessage(sessionId: string, message: Message): Promise<void> {
-    const existing = this.sessions.get(sessionId);
-    if (!existing) {
+    if (!this.sessions.has(sessionId)) {
       throw new Error(`Session not found: ${sessionId}`);
     }
+    const existing = this.buildActiveState(sessionId).messages;
     const now = Date.now();
     const entryNode = this.createNextEntryTreeNode(sessionId, 'message', now, {
       messageIndex: existing.length,
     });
-    existing.push(message);
-    this.sessions.set(sessionId, existing);
+    existing.push(copyMessage(message));
+    this.sessions.set(sessionId, existing.map(copyMessage));
     this.recordEntryTreeNode(sessionId, entryNode);
     this.recordPathEntry(sessionId, createMessagePathEntry({
       sessionId,
@@ -693,7 +697,7 @@ export class SessionManager {
     const entryNode = this.createNextEntryTreeNode(sessionId, 'usage', now);
     this.sessionUsage.set(
       sessionId,
-      addUsage(this.getUsageInfo(sessionId), usage, now, source),
+      addUsage(this.buildActiveState(sessionId).usage, usage, now, source),
     );
     this.recordEntryTreeNode(sessionId, entryNode);
     this.recordPathEntry(sessionId, {
@@ -749,7 +753,7 @@ export class SessionManager {
       metadata: metadata ? { ...metadata } : undefined,
     };
     this.sessionInternalEntries.set(sessionId, [
-      ...(this.sessionInternalEntries.get(sessionId) ?? []),
+      ...this.buildActiveState(sessionId).internalEntries,
       copyInternalEntry(entry),
     ]);
     this.recordEntryTreeNode(sessionId, entryNode);
@@ -785,10 +789,10 @@ export class SessionManager {
     customInstructions?: string;
     keepRecentMessages?: number;
   }): Promise<CompactionResult> {
-    const existing = this.sessions.get(sessionId);
-    if (!existing) {
+    if (!this.sessions.has(sessionId)) {
       throw new Error(`Session not found: ${sessionId}`);
     }
+    const existing = this.buildActiveState(sessionId).messages;
     if (existing.length <= 2) {
       throw new Error('Nothing to compact (session too small)');
     }
@@ -801,8 +805,8 @@ export class SessionManager {
     });
     const now = Date.now();
     const entryNode = this.createNextEntryTreeNode(sessionId, 'compaction', now);
-    const firstKeptEntryId = findFirstKeptEntryId(
-      this.sessionEntryTrees.get(sessionId) ?? [],
+    const firstKeptEntryId = findFirstKeptEntryIdFromPath(
+      this.getEntryPath(sessionId),
       firstKeptMessageIndex,
     );
     const result: CompactionResult = {
@@ -812,7 +816,7 @@ export class SessionManager {
       messagesAfter: compactedMessages.length,
     };
 
-    this.sessions.set(sessionId, compactedMessages);
+    this.sessions.set(sessionId, compactedMessages.map(copyMessage));
     this.sessionCompactions.set(sessionId, {
       compacted: true,
       timestamp: now,
@@ -899,11 +903,11 @@ export class SessionManager {
   async listSessions(): Promise<SessionListItem[]> {
     if (this.mode === 'memory') {
       return this.sortSessionList(
-        [...this.sessions.entries()].map(([sessionId, messages]) => {
+        [...this.sessions.keys()].map((sessionId) => {
           const lineage = this.getLineageInfo(sessionId);
           return {
             sessionId,
-            messageCount: messages.length,
+            messageCount: this.buildActiveState(sessionId).messages.length,
             updatedAt: this.sessionMetadata.get(sessionId)?.updatedAt ?? 0,
             isLatest: this.latestSessionId === sessionId,
             parentSessionId: lineage.parentSessionId,
@@ -1143,10 +1147,25 @@ export class SessionManager {
   }
 
   private applyEntryPathState(sessionId: string, state: SessionEntryPathState): void {
-    this.sessions.set(sessionId, state.messages);
-    this.sessionCompactions.set(sessionId, state.compaction);
-    this.sessionUsage.set(sessionId, state.usage);
-    this.sessionInternalEntries.set(sessionId, state.internalEntries);
+    const copiedState = copySessionEntryPathState(state);
+    this.sessions.set(sessionId, copiedState.messages);
+    this.sessionCompactions.set(sessionId, copiedState.compaction);
+    this.sessionUsage.set(sessionId, copiedState.usage);
+    this.sessionInternalEntries.set(sessionId, copiedState.internalEntries);
+  }
+
+  private buildActiveState(sessionId: string): SessionEntryPathState {
+    const entryPath = this.getEntryPath(sessionId);
+    if (entryPath.length) {
+      return buildSessionStateFromEntryPath(entryPath);
+    }
+
+    return {
+      messages: (this.sessions.get(sessionId) ?? []).map(copyMessage),
+      compaction: copyCompactionInfo(this.sessionCompactions.get(sessionId) ?? { compacted: false }),
+      usage: copyUsageInfo(this.sessionUsage.get(sessionId) ?? createEmptyUsageInfo()),
+      internalEntries: (this.sessionInternalEntries.get(sessionId) ?? []).map(copyInternalEntry),
+    };
   }
 
   private async markLatestSession(sessionId: string): Promise<void> {
@@ -1506,14 +1525,17 @@ function truncatePreview(content: string, maxChars = 80): string {
   return `${normalized.slice(0, maxChars)}...`;
 }
 
-function findFirstKeptEntryId(
-  entries: SessionEntryTreeNode[],
+function findFirstKeptEntryIdFromPath(
+  entries: SessionPathEntry[],
   firstKeptMessageIndex: number,
 ): string | undefined {
-  return entries.find((entry) => (
-    entry.type === 'message'
-    && entry.messageIndex === firstKeptMessageIndex
-  ))?.entryId;
+  let messageIndex = 0;
+  for (const entry of entries) {
+    if (entry.type !== 'message') continue;
+    if (messageIndex === firstKeptMessageIndex) return entry.entryId;
+    messageIndex += 1;
+  }
+  return undefined;
 }
 
 function copySessionPathEntry(entry: SessionPathEntry): SessionPathEntry {
@@ -1705,6 +1727,30 @@ function copyInternalEntry(entry: SessionInternalEntry): SessionInternalEntry {
     content: entry.content,
     metadata: entry.metadata ? { ...entry.metadata } : undefined,
   };
+}
+
+function copySessionEntryPathState(state: SessionEntryPathState): SessionEntryPathState {
+  return {
+    messages: state.messages.map(copyMessage),
+    compaction: copyCompactionInfo(state.compaction),
+    usage: copyUsageInfo(state.usage),
+    internalEntries: state.internalEntries.map(copyInternalEntry),
+  };
+}
+
+function copyCompactionInfo(info: SessionCompactionInfo): SessionCompactionInfo {
+  return { ...info };
+}
+
+function copyUsageInfo(info: SessionUsageInfo): SessionUsageInfo {
+  const copy: SessionUsageInfo = {
+    count: info.count,
+    total: { ...info.total },
+  };
+  if (info.latest) copy.latest = { ...info.latest };
+  if (typeof info.latestTimestamp === 'number') copy.latestTimestamp = info.latestTimestamp;
+  if (info.latestSource) copy.latestSource = info.latestSource;
+  return copy;
 }
 
 function createLineageInfo(

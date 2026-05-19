@@ -683,6 +683,79 @@ test('SessionManager branches to non-message leaf entries and appends from the a
   }
 });
 
+test('SessionManager derives active state and compaction anchors from the active entry path', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-active-state-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+
+  try {
+    const manager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    const sessionId = await manager.createSession('system', 'session-active-state');
+    await manager.appendMessage(sessionId, { role: 'user', content: 'first task' });
+    await manager.appendUsage({
+      sessionId,
+      usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 },
+    });
+    const leafEntryId = manager
+      .getEntryPath(sessionId)
+      .find((entry) => entry.type === 'message' && entry.message.content === 'first task')
+      ?.entryId;
+    assert.ok(leafEntryId);
+    await manager.appendMessage(sessionId, { role: 'assistant', content: 'abandoned answer' });
+    await manager.appendUsage({
+      sessionId,
+      usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+    });
+    await manager.appendInternalEntry({
+      sessionId,
+      kind: 'permission_pending',
+      content: 'abandoned permission',
+    });
+
+    await manager.branchSession({ sessionId, leafEntryId });
+    await manager.appendMessage(sessionId, { role: 'assistant', content: 'branch answer' });
+
+    const activeState = manager.getActiveState(sessionId);
+    assert.deepEqual(
+      activeState.messages.map((message) => message.content),
+      ['system', 'first task', 'branch answer'],
+    );
+    assert.deepEqual(activeState.messages, manager.getMessages(sessionId));
+    assert.deepEqual(activeState.usage, manager.getUsageInfo(sessionId));
+    assert.deepEqual(activeState.internalEntries, manager.getInternalEntries(sessionId));
+    assert.equal(activeState.usage.count, 0);
+    assert.equal(activeState.internalEntries.length, 0);
+
+    activeState.messages.push({ role: 'user', content: 'mutated copy' });
+    activeState.usage.total.total_tokens = 999;
+    activeState.internalEntries.push({
+      timestamp: 1,
+      kind: 'mutated',
+      content: 'copy only',
+    });
+    assert.deepEqual(
+      manager.getMessages(sessionId).map((message) => message.content),
+      ['system', 'first task', 'branch answer'],
+    );
+    assert.equal(manager.getUsageInfo(sessionId).total.total_tokens, 0);
+    assert.deepEqual(manager.getInternalEntries(sessionId), []);
+
+    const branchAnswerEntryId = manager
+      .getEntryPath(sessionId)
+      .find((entry) => entry.type === 'message' && entry.message.content === 'branch answer')
+      ?.entryId;
+    assert.ok(branchAnswerEntryId);
+    await manager.appendCompaction({
+      sessionId,
+      summary: 'Branched work summary.',
+      keepRecentMessages: 1,
+    });
+    assert.equal(manager.getCompactionInfo(sessionId).firstKeptEntryId, branchAnswerEntryId);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('SessionManager clones sessions using current fork lineage semantics', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-clone-'));
   const workspaceDir = path.join(tempDir, 'workspace');
