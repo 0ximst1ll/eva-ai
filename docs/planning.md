@@ -702,7 +702,7 @@ user/assistant/tool: durable session history
 - `SessionManager` 仍维护 active state cache，但 branch、load/import、context rebuild 和 getter 读取已共享 entry path state derivation / application / read 边界。
 - `forkSession()` / `cloneSession()` 已优先复制指定 leaf path 上的 session entries，RuntimeHost、interactive slash command 和 RPC 均可传入 leaf entry。
 - `branchSession()` 已可在同 session 文件内移动 active leaf，下一次 append 会从该 leaf 形成新分支。
-- `/entries` 已可展示当前 session 文件内部 entry tree，并区分 active path 与 active leaf，但仍不是完整交互式 entry tree navigation。
+- `/entries` 已可展示当前 session 文件内部 entry tree，并区分 active path 与 active leaf；TUI `/entries` 已提供 entry selector，选中后复用 `/branch <entryId>` 切换 active leaf。
 - `/branch` 和 RPC `branch_session` 已返回 branch operation summary，且 branch 操作会写入持久化 `branch_summary` entry。
 
 目标语义：
@@ -725,9 +725,10 @@ user/assistant/tool: durable session history
 8. 已完成 `applyActiveEntryPath()` 最小边界，branch、load 和 import path 统一应用 active leaf path。
 9. 已完成持久化 `branch_summary` entry 最小闭环。
 10. 已完成 active state 读取边界，`getMessages()`、`getCompactionInfo()`、`getUsageInfo()`、`getInternalEntries()` 和 `SessionContextRebuilder` 优先从 active entry path 派生。
-11. 后续补更完整 navigate UX。
-12. 再逐步把 `SessionManager` 内部主状态从 active state cache 收敛为 entry tree + active leaf。
-13. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
+11. 已完成 TUI entry selector 最小 UX，TUI `/entries` 可选择当前 session entry 并复用 durable branch summary 路径切换 active leaf。
+12. 后续按需补 session-level child navigation 或更完整 entry navigation UI。
+13. 再逐步把 `SessionManager` 内部主状态从 active state cache 收敛为 entry tree + active leaf。
+14. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
 
 非目标：
 

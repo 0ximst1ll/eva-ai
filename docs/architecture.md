@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界、permission pending durable diagnostics、最小 Headless RPC mode、RPC permission pending approval 最小闭环，以及 M4 session lineage / fork / entry tree / entry path rebuild / entry-path fork / entry-level branch / durable branch summary / branch operation summary / entry path state derivation / active entry path application / active state read boundary / entry tree display / session tree display / parent navigation 最小边界。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。完整跨 session parent/child graph、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界、permission pending durable diagnostics、最小 Headless RPC mode、RPC permission pending approval 最小闭环，以及 M4 session lineage / fork / entry tree / entry path rebuild / entry-path fork / entry-level branch / durable branch summary / branch operation summary / entry path state derivation / active entry path application / active state read boundary / entry tree display / TUI entry selector / session tree display / parent navigation 最小边界。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。完整跨 session parent/child graph、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -67,7 +67,7 @@ createRuntime()
 - 基础组件：Text、Markdown、Input、MultilineInput、Footer、Spinner、SelectList；
 - 输入编辑辅助：kill ring、undo stack 和 key matching。
 
-`tui-mode.ts` 采用 header、chat、status、input、footer 布局。普通消息通过 `AgentSession.addUserMessage()` 和 `AgentSession.run()` 驱动；slash commands 复用 readline interactive mode 的 `handleInteractiveCommand()`；tool confirmation 在 TUI 内替换 input 区域并返回 `allow` 或 `deny`。TUI 当前仍是最小框架，已有基础组件和 renderer 单元测试，但尚未做完整终端兼容性矩阵验证。
+`tui-mode.ts` 采用 header、chat、status、input、footer 布局。普通消息通过 `AgentSession.addUserMessage()` 和 `AgentSession.run()` 驱动；slash commands 复用 readline interactive mode 的 `handleInteractiveCommand()`；TUI 会拦截 `/sessions` 显示 session selector，也会拦截 `/entries` 显示 entry selector，选中 entry 后复用 `/branch <entryId>` 切换 active leaf；tool confirmation 在 TUI 内替换 input 区域并返回 `allow` 或 `deny`。TUI 当前仍是最小框架，已有基础组件和 renderer 单元测试，但尚未做完整终端兼容性矩阵验证。
 
 当前 interactive slash commands：
 
@@ -87,7 +87,7 @@ createRuntime()
 - `/diagnostics`：打印当前 runtime 的完整 diagnostics。
 - `/reload`：重新加载 runtime resources，并保持当前 session 不变。
 - `/sessions`：以 session lineage tree 展示当前 workspace 下的 sessions，并标记当前 active session 和 latest session。
-- `/entries`：以 entry tree 展示当前 session 文件内的 entries，包含 entry id、parent、type、message role、preview、active leaf marker 和 active path marker。
+- `/entries`：readline interactive mode 会以 entry tree 展示当前 session 文件内的 entries，包含 entry id、parent、type、message role、preview、active leaf marker 和 active path marker；TUI mode 会显示 entry selector，选中后复用 `/branch <entryId>`。
 - `/log`：当前是忽略型占位命令。
 
 ## Headless RPC
@@ -425,7 +425,7 @@ JSONL 模式下：
 
 `src/core/session-context-rebuilder.ts` 是当前最小 session context rebuild 边界。它从 `SessionManager.getActiveState()` 读取当前 session snapshot，返回 active messages、lineage、branch path、compaction、usage、internal entries 和 entry tree metadata。新 session 如果存在 entry path，会标记为 `entry_path` 策略；旧 JSONL 没有 entry metadata 时仍使用 `flat_snapshot` 兼容策略。compaction path rebuild 会使用 active path 上的 `firstKeptEntryId` 优先恢复 compact summary 后的保留消息，并兼容旧的 `firstKeptMessageIndex`。
 
-`SessionManager.loadSession()` / `importSession()` 已在主加载路径中先恢复 entry metadata，再通过 `applyActiveEntryPath()` 应用 active leaf；因此 `RuntimeHost` resume/switch 后创建的 `AgentSession` 会使用 entry-path 后的上下文和 metadata。旧 JSONL 没有 entry metadata 时仍沿用 flat rebuild。当前 session model 支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry、branch summary entry、lineage metadata、entry tree metadata、基于指定 leaf entry path 的 fork/clone session、同 session 文件内 active leaf branch、branch operation summary、entry tree 展示、JSONL import/export、session-level lineage tree、向 parent session 导航，以及基于 active leaf 的最小 path-aware context rebuild；还不支持跨 session parent/child entry graph 或完整 child branch navigation。
+`SessionManager.loadSession()` / `importSession()` 已在主加载路径中先恢复 entry metadata，再通过 `applyActiveEntryPath()` 应用 active leaf；因此 `RuntimeHost` resume/switch 后创建的 `AgentSession` 会使用 entry-path 后的上下文和 metadata。旧 JSONL 没有 entry metadata 时仍沿用 flat rebuild。当前 session model 支持 flat JSONL 兼容的 compaction entry、usage entry、internal entry、branch summary entry、lineage metadata、entry tree metadata、基于指定 leaf entry path 的 fork/clone session、同 session 文件内 active leaf branch、branch operation summary、entry tree 展示、TUI entry selector、JSONL import/export、session-level lineage tree、向 parent session 导航，以及基于 active leaf 的最小 path-aware context rebuild；还不支持跨 session parent/child entry graph 或完整 child branch navigation。
 
 ## Tools
 

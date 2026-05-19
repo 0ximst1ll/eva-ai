@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { handleIdleCtrlCExit, type CtrlCExitState } from '../src/modes/tui-mode.js';
+import { createEntrySelectItems, handleIdleCtrlCExit, type CtrlCExitState } from '../src/modes/tui-mode.js';
 import { Input } from '../src/tui/components/input.js';
 import { MultilineInput } from '../src/tui/components/multiline-input.js';
 import { Text } from '../src/tui/components/text.js';
@@ -163,4 +163,46 @@ test('idle Ctrl-C requires a second press within the exit window', () => {
   assert.equal(handleIdleCtrlCExit({ state, now: 5000 }), 'prompt');
   assert.equal(handleIdleCtrlCExit({ state, now: 8001 }), 'prompt');
   assert.equal(state.pending, true);
+});
+
+test('TUI entry selector items preserve entry hierarchy and active markers', () => {
+  const items = createEntrySelectItems([
+    {
+      entry: {
+        entryId: 'entry-system-abcdef',
+        parentEntryId: null,
+        type: 'message',
+        timestamp: 1,
+        isActive: false,
+        isActivePath: true,
+        messageIndex: 0,
+        messageRole: 'system',
+        preview: 'system prompt',
+      },
+      children: [
+        {
+          entry: {
+            entryId: 'entry-user-abcdef',
+            parentEntryId: 'entry-system-abcdef',
+            type: 'message',
+            timestamp: 2,
+            isActive: true,
+            isActivePath: true,
+            messageIndex: 1,
+            messageRole: 'user',
+            preview: 'selected task',
+          },
+          children: [],
+        },
+      ],
+    },
+  ]);
+
+  assert.equal(items.length, 2);
+  assert.equal(items[0]?.value, 'entry-system-abcdef');
+  assert.match(items[0]?.label ?? '', /^\+ entry-system/);
+  assert.match(items[0]?.description ?? '', /active path/);
+  assert.equal(items[1]?.value, 'entry-user-abcdef');
+  assert.match(items[1]?.label ?? '', /^  \* entry-user/);
+  assert.match(items[1]?.description ?? '', /selected task/);
 });

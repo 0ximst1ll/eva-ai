@@ -1,4 +1,5 @@
 import type { RuntimeHost } from '../core/runtime-host.js';
+import type { SessionEntryTreeViewNode } from '../core/session-manager.js';
 import type { AgentSessionEvent } from '../schema.js';
 import type { ToolConfirmationRequest, ToolPermissionDecision } from '../core/runtime.js';
 import { TUI } from '../tui/tui.js';
@@ -10,7 +11,7 @@ import { MultilineInput } from '../tui/components/multiline-input.js';
 import { Footer } from '../tui/components/footer.js';
 import { Spinner } from '../tui/components/spinner.js';
 import { Markdown } from '../tui/components/markdown.js';
-import { SelectList } from '../tui/components/select-list.js';
+import { SelectList, type SelectItem } from '../tui/components/select-list.js';
 import { matchesKey } from '../tui/keys.js';
 import { Colors } from '../utils/terminal.js';
 import { handleInteractiveCommand } from './interactive-mode.js';
@@ -62,6 +63,33 @@ function formatArg(key: string, value: unknown): string {
   const s = String(value);
   const truncated = s.length > 80 ? s.slice(0, 80) + '…' : s;
   return `  ${Colors.DIM}${key}:${Colors.RESET} ${truncated}`;
+}
+
+export function createEntrySelectItems(
+  nodes: SessionEntryTreeViewNode[],
+  depth = 0,
+): SelectItem[] {
+  const items: SelectItem[] = [];
+  for (const node of nodes) {
+    const entry = node.entry;
+    const activeMarker = entry.isActive ? '*' : entry.isActivePath ? '+' : ' ';
+    const role = entry.messageRole ? ` ${entry.messageRole}` : '';
+    const kind = entry.kind ? ` ${entry.kind}` : '';
+    const messageIndex = typeof entry.messageIndex === 'number' ? `#${entry.messageIndex}` : '';
+    const label = `${'  '.repeat(depth)}${activeMarker} ${entry.entryId.slice(0, 12)} ${entry.type}${role}${kind}${messageIndex}`;
+    const details = [
+      entry.isActive ? 'active' : entry.isActivePath ? 'active path' : undefined,
+      `parent=${entry.parentEntryId ?? 'root'}`,
+      entry.preview,
+    ].filter((part): part is string => Boolean(part));
+    items.push({
+      value: entry.entryId,
+      label,
+      description: details.join(' · '),
+    });
+    items.push(...createEntrySelectItems(node.children, depth + 1));
+  }
+  return items;
 }
 
 // ── Main ──────────────────────────────────────────────────
@@ -339,6 +367,49 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
     });
   };
 
+  const showEntrySelector = async (): Promise<void> => {
+    const entryTree = host.runtime.sessionManager.listEntryTree(host.sessionId);
+    const items = createEntrySelectItems(entryTree);
+    if (!items.length) {
+      chatContainer.addChild(new Text(`${Colors.DIM}No entry tree metadata found for current session.${Colors.RESET}`, { wrap: false }));
+      tui.requestRender();
+      return;
+    }
+
+    const selector = new SelectList(items, Math.min(10, items.length));
+    selector.attachTui(tui);
+
+    chatContainer.addChild(new Text(`${Colors.BRIGHT_CYAN}Select entry:${Colors.RESET}`, { wrap: false }));
+    chatContainer.addChild(selector);
+    tui.setFocus(selector);
+    tui.requestRender();
+
+    await new Promise<void>((resolve) => {
+      selector.onSelect = async (item) => {
+        chatContainer.removeChild(selector);
+        tui.setFocus(input);
+        await handleInteractiveCommand({
+          userInput: `/branch ${item.value}`,
+          host,
+          writeLine: commandWriteLine,
+        });
+        footer.update({
+          model: host.runtime.config.llm.model,
+          provider: host.runtime.config.llm.provider,
+          sessionId: host.sessionId,
+        });
+        tui.requestRender();
+        resolve();
+      };
+      selector.onCancel = () => {
+        chatContainer.removeChild(selector);
+        tui.setFocus(input);
+        tui.requestRender();
+        resolve();
+      };
+    });
+  };
+
   // ── Submit handler ────────────────────────────────────────
   input.onSubmit(async (rawValue) => {
     const userInput = rawValue.trim();
@@ -348,6 +419,11 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
     // Intercept /sessions for interactive TUI selector
     if (userInput === '/sessions') {
       await showSessionSelector();
+      return;
+    }
+
+    if (userInput === '/entries') {
+      await showEntrySelector();
       return;
     }
 
