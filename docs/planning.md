@@ -700,12 +700,13 @@ user/assistant/tool: durable session history
 当前状态：
 
 - Eva 已有 `entryId` / `parentEntryId`、`activeEntryId`、`getEntryPath()` 和 entry-path resume。
-- `SessionManager` 仍维护 active state cache，但 branch、load/import、context rebuild 和 getter 读取已共享 entry path state derivation / application / read 边界。
+- `SessionManager` 仍维护 active state cache，但 branch、load/import、context rebuild、getter 读取和 append path cache sync 已共享 entry path state derivation / application / read 边界。
 - `forkSession()` / `cloneSession()` 已优先复制指定 leaf path 上的 session entries，RuntimeHost、interactive slash command 和 RPC 均可传入 leaf entry。
 - `branchSession()` 已可在同 session 文件内移动 active leaf，下一次 append 会从该 leaf 形成新分支。
 - `/entries` 已可展示当前 session 文件内部 entry tree，并区分 active path 与 active leaf；TUI `/entries` 已提供 entry selector，选中后复用 `/branch <entryId>` 切换 active leaf。
 - `/branch` 和 RPC `branch_session` 已返回 branch operation summary，且 branch 操作会写入持久化 `branch_summary` entry。
 - session-level direct child navigation 已有最小边界：`/children` 列出 direct children，`/child [id]` 切换 direct child session。
+- append message/usage/internal/compaction 路径已先写入 entry/path entry，再从 active entry path 派生并同步运行期 active state cache。
 
 目标语义：
 
@@ -729,9 +730,10 @@ user/assistant/tool: durable session history
 10. 已完成 active state 读取边界，`getMessages()`、`getCompactionInfo()`、`getUsageInfo()`、`getInternalEntries()` 和 `SessionContextRebuilder` 优先从 active entry path 派生。
 11. 已完成 TUI entry selector 最小 UX，TUI `/entries` 可选择当前 session entry 并复用 durable branch summary 路径切换 active leaf。
 12. 已完成 session-level direct child navigation 最小边界。
-13. 后续按需补更完整 entry navigation UI。
-14. 再逐步把 `SessionManager` 内部主状态从 active state cache 收敛为 entry tree + active leaf。
-15. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
+13. 已完成 append path cache sync：message/usage/internal/compaction append 先写 entry/path entry，再由 active path 派生 cache。
+14. 后续按需补更完整 entry navigation UI。
+15. 再逐步把 `SessionManager` 内部主状态从 active state cache 收敛为 entry tree + active leaf。
+16. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
 
 非目标：
 

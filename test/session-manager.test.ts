@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
-import { SessionManager } from '../src/core/session-manager.js';
+import { buildSessionStateFromEntryPath, SessionManager } from '../src/core/session-manager.js';
 
 test('SessionManager stores and resets memory sessions', async () => {
   const manager = new SessionManager({ workspaceDir: '/workspace', mode: 'memory' });
@@ -716,10 +716,12 @@ test('SessionManager derives active state and compaction anchors from the active
     await manager.appendMessage(sessionId, { role: 'assistant', content: 'branch answer' });
 
     const activeState = manager.getActiveState(sessionId);
+    const pathState = buildSessionStateFromEntryPath(manager.getEntryPath(sessionId));
     assert.deepEqual(
       activeState.messages.map((message) => message.content),
       ['system', 'first task', 'branch answer'],
     );
+    assert.deepEqual(activeState, pathState);
     assert.deepEqual(activeState.messages, manager.getMessages(sessionId));
     assert.deepEqual(activeState.usage, manager.getUsageInfo(sessionId));
     assert.deepEqual(activeState.internalEntries, manager.getInternalEntries(sessionId));
@@ -751,6 +753,7 @@ test('SessionManager derives active state and compaction anchors from the active
       keepRecentMessages: 1,
     });
     assert.equal(manager.getCompactionInfo(sessionId).firstKeptEntryId, branchAnswerEntryId);
+    assert.deepEqual(manager.getActiveState(sessionId), buildSessionStateFromEntryPath(manager.getEntryPath(sessionId)));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

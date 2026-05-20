@@ -657,8 +657,6 @@ export class SessionManager {
     const entryNode = this.createNextEntryTreeNode(sessionId, 'message', now, {
       messageIndex: existing.length,
     });
-    existing.push(copyMessage(message));
-    this.sessions.set(sessionId, existing.map(copyMessage));
     this.recordEntryTreeNode(sessionId, entryNode);
     this.recordPathEntry(sessionId, createMessagePathEntry({
       sessionId,
@@ -666,6 +664,7 @@ export class SessionManager {
       entryNode,
       message,
     }));
+    this.syncActiveStateCache(sessionId);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -695,10 +694,6 @@ export class SessionManager {
 
     const now = Date.now();
     const entryNode = this.createNextEntryTreeNode(sessionId, 'usage', now);
-    this.sessionUsage.set(
-      sessionId,
-      addUsage(this.buildActiveState(sessionId).usage, usage, now, source),
-    );
     this.recordEntryTreeNode(sessionId, entryNode);
     this.recordPathEntry(sessionId, {
       type: 'usage',
@@ -708,6 +703,7 @@ export class SessionManager {
       source,
       usage: { ...usage },
     });
+    this.syncActiveStateCache(sessionId);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -752,10 +748,6 @@ export class SessionManager {
       content,
       metadata: metadata ? { ...metadata } : undefined,
     };
-    this.sessionInternalEntries.set(sessionId, [
-      ...this.buildActiveState(sessionId).internalEntries,
-      copyInternalEntry(entry),
-    ]);
     this.recordEntryTreeNode(sessionId, entryNode);
     this.recordPathEntry(sessionId, {
       type: 'internal',
@@ -763,6 +755,7 @@ export class SessionManager {
       ...entryTreeFields(entryNode),
       ...copyInternalEntry(entry),
     });
+    this.syncActiveStateCache(sessionId);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -816,17 +809,6 @@ export class SessionManager {
       messagesAfter: compactedMessages.length,
     };
 
-    this.sessions.set(sessionId, compactedMessages.map(copyMessage));
-    this.sessionCompactions.set(sessionId, {
-      compacted: true,
-      timestamp: now,
-      summaryLength: summary.length,
-      firstKeptEntryId,
-      firstKeptMessageIndex,
-      messagesBefore: result.messagesBefore,
-      messagesAfter: result.messagesAfter,
-      customInstructions,
-    });
     this.recordEntryTreeNode(sessionId, entryNode);
     this.recordPathEntry(sessionId, {
       type: 'compaction',
@@ -840,6 +822,7 @@ export class SessionManager {
       messagesAfter: result.messagesAfter,
       customInstructions,
     });
+    this.syncActiveStateCache(sessionId);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -1157,6 +1140,12 @@ export class SessionManager {
     this.sessionCompactions.set(sessionId, copiedState.compaction);
     this.sessionUsage.set(sessionId, copiedState.usage);
     this.sessionInternalEntries.set(sessionId, copiedState.internalEntries);
+  }
+
+  private syncActiveStateCache(sessionId: string): SessionEntryPathState {
+    const state = this.buildActiveState(sessionId);
+    this.applyEntryPathState(sessionId, state);
+    return state;
   }
 
   private buildActiveState(sessionId: string): SessionEntryPathState {
