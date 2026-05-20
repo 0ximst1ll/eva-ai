@@ -263,20 +263,19 @@ export class SessionManager {
       timestamp: now,
       messageIndex: 0,
     });
-    this.sessions.set(id, initialMessages);
-    this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
-    this.sessionCompactions.delete(id);
-    this.sessionUsage.delete(id);
-    this.sessionInternalEntries.delete(id);
-    this.sessionLineage.set(id, lineageInfo);
-    this.sessionEntryTrees.set(id, [systemEntryNode]);
-    this.sessionPathEntries.set(id, [createMessagePathEntry({
+    const initialPathEntries = [createMessagePathEntry({
       sessionId: id,
       timestamp: now,
       entryNode: systemEntryNode,
       message: initialMessages[0],
-    })]);
+    })];
+    const initialState = buildSessionStateFromEntryPath(initialPathEntries);
+    this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
+    this.sessionLineage.set(id, lineageInfo);
+    this.sessionEntryTrees.set(id, [systemEntryNode]);
+    this.sessionPathEntries.set(id, initialPathEntries.map(copySessionPathEntry));
     this.sessionActiveEntryIds.set(id, systemEntryNode.entryId);
+    this.applyEntryPathState(id, initialState);
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
@@ -337,15 +336,12 @@ export class SessionManager {
       forkedFromMessageIndex: forkedState.messages.length - 1,
     });
 
-    this.sessions.set(id, forkedState.messages);
     this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
-    this.sessionCompactions.set(id, forkedState.compaction);
-    this.sessionUsage.set(id, forkedState.usage);
-    this.sessionInternalEntries.set(id, forkedState.internalEntries);
     this.sessionLineage.set(id, lineageInfo);
     this.sessionEntryTrees.set(id, forkedEntryNodes);
     this.sessionPathEntries.set(id, forkedPathEntries.map(copySessionPathEntry));
     this.setActiveEntryId(id, forkedEntryNodes[forkedEntryNodes.length - 1]?.entryId);
+    this.applyEntryPathState(id, forkedState);
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
@@ -853,20 +849,19 @@ export class SessionManager {
       timestamp: now,
       messageIndex: 0,
     });
-    this.sessions.set(sessionId, resetMessages);
-    this.sessionCompactions.delete(sessionId);
-    this.sessionUsage.delete(sessionId);
-    this.sessionInternalEntries.delete(sessionId);
-    const lineageInfo = this.sessionLineage.get(sessionId) ?? createLineageInfo(sessionId, now);
-    this.sessionLineage.set(sessionId, lineageInfo);
-    this.sessionEntryTrees.set(sessionId, [systemEntryNode]);
-    this.sessionPathEntries.set(sessionId, [createMessagePathEntry({
+    const resetPathEntries = [createMessagePathEntry({
       sessionId,
       timestamp: now,
       entryNode: systemEntryNode,
       message: resetMessages[0],
-    })]);
+    })];
+    const resetState = buildSessionStateFromEntryPath(resetPathEntries);
+    const lineageInfo = this.sessionLineage.get(sessionId) ?? createLineageInfo(sessionId, now);
+    this.sessionLineage.set(sessionId, lineageInfo);
+    this.sessionEntryTrees.set(sessionId, [systemEntryNode]);
+    this.sessionPathEntries.set(sessionId, resetPathEntries.map(copySessionPathEntry));
     this.sessionActiveEntryIds.set(sessionId, systemEntryNode.entryId);
+    this.applyEntryPathState(sessionId, resetState);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {

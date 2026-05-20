@@ -22,6 +22,7 @@ test('SessionManager stores and resets memory sessions', async () => {
       total_tokens: 0,
     },
   });
+  assert.deepEqual(manager.getActiveState(sessionId), buildSessionStateFromEntryPath(manager.getEntryPath(sessionId)));
 
   await manager.appendMessage(sessionId, { role: 'user', content: 'hello' });
   await manager.appendUsage({
@@ -59,6 +60,7 @@ test('SessionManager stores and resets memory sessions', async () => {
       total_tokens: 0,
     },
   });
+  assert.deepEqual(manager.getActiveState(sessionId), buildSessionStateFromEntryPath(manager.getEntryPath(sessionId)));
   assert.deepEqual(
     (await manager.listSessions()).map((session) => ({
       sessionId: session.sessionId,
@@ -469,6 +471,10 @@ test('SessionManager forks sessions with persistent lineage metadata', async () 
     assert.deepEqual(
       first.getEntryPath(forkSessionId).map((entry) => entry.type),
       ['message', 'message', 'message', 'internal', 'usage'],
+    );
+    assert.deepEqual(
+      first.getActiveState(forkSessionId),
+      buildSessionStateFromEntryPath(first.getEntryPath(forkSessionId)),
     );
     assert.deepEqual(first.getInternalEntries(forkSessionId), first.getInternalEntries(sourceSessionId));
     assert.deepEqual(first.getUsageInfo(forkSessionId), first.getUsageInfo(sourceSessionId));

@@ -2,7 +2,7 @@
 
 ## 当前状态（2026-05-20）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork/clone schema、entry tree schema、entry-path rebuild、entry path state derivation、active entry path application、active state 读取边界、append path cache sync、指定 leaf entry fork/clone、entry-level branch、durable branch summary、branch operation summary、resume 主路径接入、JSONL import/export、session tree 展示、entry tree active path 展示、TUI entry selector、parent navigation 和 child navigation。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork/clone schema、entry tree schema、entry-path rebuild、entry path state derivation、active entry path application、active state 读取边界、append path cache sync、create/reset/fork cache sync、指定 leaf entry fork/clone、entry-level branch、durable branch summary、branch operation summary、resume 主路径接入、JSONL import/export、session tree 展示、entry tree active path 展示、TUI entry selector、parent navigation 和 child navigation。
 
 当前 M3 Headless RPC 已完成最小实现：`--rpc` 启动 JSONL stdin/stdout 协议，RPC mode 共享 `RuntimeHost` / `AgentSession` 路径，不新增第二套 agent 实现。RPC 真实 CLI 子进程 smoke test 已补齐，用于验证 stdout 协议纯净性。M3.1 RPC permission pending approval 最小闭环已实现：默认 fail-closed，`permission_mode=request` 时可通过 RPC event 和审批命令完成 tool permission 决策。
 
@@ -77,11 +77,11 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 进行中
 
-- M4.x Entry Tree First 后续：append path active state cache sync 已完成；下一步可以继续收敛 fork/load/reset 等兼容层写入职责，或进入 MCP/Skills/Extensions 前置骨架。
+- M4.x Entry Tree First 后续：create/reset/fork cache 写入已收敛到 entry path state application；下一步可以继续收敛 import/load fallback 细节，或进入 MCP/Skills/Extensions 前置骨架。
 
 ## 下一步
 
-- 评估是否继续收敛 fork/load/reset 等兼容层写入职责，或进入 MCP/Skills/Extensions 前置骨架。
+- 评估是否继续收敛 import/load fallback 细节，或进入 MCP/Skills/Extensions 前置骨架。
 - 后续进入 MCP/Skills/Extensions 前置骨架。
 
 ## 后续重点计划
@@ -90,7 +90,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - ContextManager 后续再承接完整 token budget 和 skills/resource reinjection 策略。
 - 当前 `max_steps` 后续应进一步迁移为 print/headless/RPC 场景下的命名更明确的可选 runaway guard。
 - 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 逐步建立。
-- entry-tree-first 对齐 pi-mono 应作为 M4 后续主线：append-only `SessionEntry` tree 成为主要事实源，`Message[]` 已开始退化为从 active leaf path 派生出的 context view；append 路径已先写 entry 再派生 cache，后续再继续减少兼容层 cache 写入职责。
+- entry-tree-first 对齐 pi-mono 应作为 M4 后续主线：append-only `SessionEntry` tree 成为主要事实源，`Message[]` 已开始退化为从 active leaf path 派生出的 context view；append 与 create/reset/fork 路径已通过 active path 派生 cache，后续再继续减少剩余兼容层 cache 写入职责。
 - 跨 session parent/child entry graph、sidecar metadata 和更完整 child branch navigation 放入后续 session model 阶段。
 - 完整 permission pipeline 后续继续补 permission modes、rules、diagnostics 和 RPC/ACP pending event。
 
