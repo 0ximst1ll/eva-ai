@@ -3,7 +3,11 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
-import { buildSessionStateFromEntryPath, SessionManager } from '../src/core/session-manager.js';
+import {
+  buildSessionStateFromEntryPath,
+  CURRENT_SESSION_SCHEMA_VERSION,
+  SessionManager,
+} from '../src/core/session-manager.js';
 
 test('SessionManager stores and resets memory sessions', async () => {
   const manager = new SessionManager({ workspaceDir: '/workspace', mode: 'memory' });
@@ -178,11 +182,18 @@ test('SessionManager writes and reloads entry tree parent links', async () => {
         type: string;
         entryId?: string;
         parentEntryId?: string | null;
+        schemaVersion?: number;
       });
+    const startEntry = entries.find((entry) => entry.type === 'session_start');
     const messageEntries = entries.filter((entry) => entry.type === 'message');
     const usageEntry = entries.find((entry) => entry.type === 'usage');
     const internalEntry = entries.find((entry) => entry.type === 'internal');
 
+    assert.equal(startEntry?.schemaVersion, CURRENT_SESSION_SCHEMA_VERSION);
+    assert.deepEqual(first.getSessionFormatInfo(sessionId), {
+      schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
+      isLegacy: false,
+    });
     assert.equal(messageEntries.length, 2);
     assert.ok(messageEntries[0].entryId);
     assert.equal(messageEntries[0].parentEntryId, null);
@@ -200,6 +211,7 @@ test('SessionManager writes and reloads entry tree parent links', async () => {
 
     const second = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
     assert.equal(await second.loadSession(sessionId), true);
+    assert.deepEqual(second.getSessionFormatInfo(sessionId), first.getSessionFormatInfo(sessionId));
     assert.deepEqual(second.getEntryTreeInfo(sessionId), first.getEntryTreeInfo(sessionId));
     assert.deepEqual(second.getEntryPath(sessionId), first.getEntryPath(sessionId));
 
@@ -885,6 +897,10 @@ test('SessionManager exports and imports JSONL sessions', async () => {
       target.getActiveState(sessionId),
       buildSessionStateFromEntryPath(target.getEntryPath(sessionId)),
     );
+    assert.deepEqual(target.getSessionFormatInfo(sessionId), {
+      schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
+      isLegacy: false,
+    });
     assert.equal(await target.loadLatestSession(), sessionId);
 
     const targetWorkspaceKey = encodeURIComponent(path.resolve(targetWorkspaceDir));
@@ -892,6 +908,7 @@ test('SessionManager exports and imports JSONL sessions', async () => {
       path.join(targetBaseDir, targetWorkspaceKey, 'session-export.jsonl'),
       'utf-8',
     );
+    assert.match(importedRawLog, new RegExp(`"schemaVersion":${CURRENT_SESSION_SCHEMA_VERSION}`));
     assert.match(importedRawLog, new RegExp(`"workspaceDir":"${escapeRegExp(path.resolve(targetWorkspaceDir))}"`));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
@@ -934,6 +951,7 @@ test('SessionManager treats old session_start entries as root sessions', async (
       rootSessionId: 'old-session',
       createdAt: 123,
     });
+    assert.deepEqual(manager.getSessionFormatInfo('old-session'), { isLegacy: true });
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

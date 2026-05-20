@@ -12,6 +12,8 @@ import {
 
 type PersistenceMode = 'memory' | 'jsonl';
 
+export const CURRENT_SESSION_SCHEMA_VERSION = 1;
+
 interface SessionManifest {
   latestSessionId: string;
   updatedAt: number;
@@ -22,6 +24,7 @@ export interface SessionStartEntry {
   sessionId: string;
   workspaceDir: string;
   createdAt: number;
+  schemaVersion?: number;
   parentSessionId?: string;
   rootSessionId?: string;
   forkedFromMessageIndex?: number;
@@ -203,6 +206,11 @@ export interface SessionLineageInfo {
   createdAt?: number;
 }
 
+export interface SessionFormatInfo {
+  schemaVersion?: number;
+  isLegacy: boolean;
+}
+
 export interface SessionExportResult {
   sessionId: string;
   path: string;
@@ -228,6 +236,7 @@ interface ParsedSessionLog {
   entryTree: SessionEntryTreeNode[];
   pathEntries: SessionPathEntry[];
   activeEntryId?: string;
+  format: SessionFormatInfo;
 }
 
 export class SessionManager {
@@ -242,6 +251,7 @@ export class SessionManager {
   private readonly sessionUsage = new Map<string, SessionUsageInfo>();
   private readonly sessionInternalEntries = new Map<string, SessionInternalEntry[]>();
   private readonly sessionLineage = new Map<string, SessionLineageInfo>();
+  private readonly sessionFormats = new Map<string, SessionFormatInfo>();
   private readonly sessionEntryTrees = new Map<string, SessionEntryTreeNode[]>();
   private readonly sessionPathEntries = new Map<string, SessionPathEntry[]>();
   private readonly sessionActiveEntryIds = new Map<string, string>();
@@ -282,6 +292,7 @@ export class SessionManager {
     const initialState = buildSessionStateFromEntryPath(initialPathEntries);
     this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
     this.sessionLineage.set(id, lineageInfo);
+    this.sessionFormats.set(id, createCurrentSessionFormatInfo());
     this.sessionEntryTrees.set(id, [systemEntryNode]);
     this.sessionPathEntries.set(id, initialPathEntries.map(copySessionPathEntry));
     this.sessionActiveEntryIds.set(id, systemEntryNode.entryId);
@@ -348,6 +359,7 @@ export class SessionManager {
 
     this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
     this.sessionLineage.set(id, lineageInfo);
+    this.sessionFormats.set(id, createCurrentSessionFormatInfo());
     this.sessionEntryTrees.set(id, forkedEntryNodes);
     this.sessionPathEntries.set(id, forkedPathEntries.map(copySessionPathEntry));
     this.setActiveEntryId(id, forkedEntryNodes[forkedEntryNodes.length - 1]?.entryId);
@@ -494,6 +506,10 @@ export class SessionManager {
 
   getLineageInfo(sessionId: string): SessionLineageInfo {
     return copyLineageInfo(this.sessionLineage.get(sessionId) ?? createLineageInfo(sessionId));
+  }
+
+  getSessionFormatInfo(sessionId: string): SessionFormatInfo {
+    return copySessionFormatInfo(this.sessionFormats.get(sessionId) ?? createLegacySessionFormatInfo());
   }
 
   getEntryTreeInfo(sessionId: string): SessionEntryTreeInfo {
@@ -844,6 +860,7 @@ export class SessionManager {
     const resetState = buildSessionStateFromEntryPath(resetPathEntries);
     const lineageInfo = this.sessionLineage.get(sessionId) ?? createLineageInfo(sessionId, now);
     this.sessionLineage.set(sessionId, lineageInfo);
+    this.sessionFormats.set(sessionId, createCurrentSessionFormatInfo());
     this.sessionEntryTrees.set(sessionId, [systemEntryNode]);
     this.sessionPathEntries.set(sessionId, resetPathEntries.map(copySessionPathEntry));
     this.sessionActiveEntryIds.set(sessionId, systemEntryNode.entryId);
@@ -978,6 +995,7 @@ export class SessionManager {
       sessionId,
       workspaceDir: this.workspaceDir,
       createdAt,
+      schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
       parentSessionId: lineage.parentSessionId,
       rootSessionId: lineage.rootSessionId,
       forkedFromMessageIndex: lineage.forkedFromMessageIndex,
@@ -1016,6 +1034,7 @@ export class SessionManager {
         sessionId,
         workspaceDir: this.workspaceDir,
         createdAt,
+        schemaVersion: this.getSessionFormatInfo(sessionId).schemaVersion ?? CURRENT_SESSION_SCHEMA_VERSION,
         parentSessionId: lineage.parentSessionId,
         rootSessionId: lineage.rootSessionId,
         forkedFromMessageIndex: lineage.forkedFromMessageIndex,
@@ -1135,6 +1154,7 @@ export class SessionManager {
       updatedAt: parsed.updatedAt,
     });
     this.sessionLineage.set(sessionId, parsed.lineage);
+    this.sessionFormats.set(sessionId, parsed.format);
     this.sessionEntryTrees.set(sessionId, parsed.entryTree);
     this.sessionPathEntries.set(sessionId, parsed.pathEntries);
     if (parsed.activeEntryId && parsed.pathEntries.length) {
@@ -1181,6 +1201,7 @@ export class SessionManager {
     const entryTree: SessionEntryTreeNode[] = [];
     const pathEntries: SessionPathEntry[] = [];
     let activeEntryId: string | undefined;
+    let format = createLegacySessionFormatInfo();
 
     for (const line of content.split('\n')) {
       const trimmed = line.trim();
@@ -1191,6 +1212,7 @@ export class SessionManager {
         if (entry.type === 'session_start') {
           createdAt = entry.createdAt;
           updatedAt = Math.max(updatedAt, entry.createdAt);
+          format = readSessionFormatInfo(entry);
           lineage = createLineageInfo(sessionId, entry.createdAt, {
             parentSessionId: entry.parentSessionId,
             rootSessionId: entry.rootSessionId,
@@ -1314,6 +1336,7 @@ export class SessionManager {
       entryTree,
       pathEntries,
       activeEntryId,
+      format,
     };
   }
 
@@ -1719,6 +1742,37 @@ function copySessionEntryPathState(state: SessionEntryPathState): SessionEntryPa
     usage: copyUsageInfo(state.usage),
     internalEntries: state.internalEntries.map(copyInternalEntry),
   };
+}
+
+function createCurrentSessionFormatInfo(): SessionFormatInfo {
+  return {
+    schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
+    isLegacy: false,
+  };
+}
+
+function createLegacySessionFormatInfo(): SessionFormatInfo {
+  return {
+    isLegacy: true,
+  };
+}
+
+function readSessionFormatInfo(entry: SessionStartEntry): SessionFormatInfo {
+  if (typeof entry.schemaVersion !== 'number') {
+    return createLegacySessionFormatInfo();
+  }
+  return {
+    schemaVersion: entry.schemaVersion,
+    isLegacy: entry.schemaVersion < CURRENT_SESSION_SCHEMA_VERSION,
+  };
+}
+
+function copySessionFormatInfo(info: SessionFormatInfo): SessionFormatInfo {
+  const copy: SessionFormatInfo = {
+    isLegacy: info.isLegacy,
+  };
+  if (typeof info.schemaVersion === 'number') copy.schemaVersion = info.schemaVersion;
+  return copy;
 }
 
 function copyCompactionInfo(info: SessionCompactionInfo): SessionCompactionInfo {

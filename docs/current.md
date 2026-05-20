@@ -2,7 +2,7 @@
 
 ## 当前状态（2026-05-20）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork/clone schema、entry tree schema、entry-path rebuild、entry path state derivation、active entry path application、active state 读取边界、append path cache sync、create/reset/fork cache sync、parsed session application、指定 leaf entry fork/clone、entry-level branch、durable branch summary、branch operation summary、resume 主路径接入、JSONL import/export、session tree 展示、entry tree active path 展示、TUI entry selector、parent navigation 和 child navigation。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork/clone schema、entry tree schema、entry-path rebuild、entry path state derivation、active entry path application、active state 读取边界、append path cache sync、create/reset/fork cache sync、parsed session application、session schema version / legacy 状态、指定 leaf entry fork/clone、entry-level branch、durable branch summary、branch operation summary、resume 主路径接入、JSONL import/export、session tree 展示、entry tree active path 展示、TUI entry selector、parent navigation 和 child navigation。
 
 当前 M3 Headless RPC 已完成最小实现：`--rpc` 启动 JSONL stdin/stdout 协议，RPC mode 共享 `RuntimeHost` / `AgentSession` 路径，不新增第二套 agent 实现。RPC 真实 CLI 子进程 smoke test 已补齐，用于验证 stdout 协议纯净性。M3.1 RPC permission pending approval 最小闭环已实现：默认 fail-closed，`permission_mode=request` 时可通过 RPC event 和审批命令完成 tool permission 决策。
 
@@ -50,6 +50,7 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - RPC `get_state` 已包含 pending permission 摘要。
 - RPC permission tests 已覆盖 approve、deny、timeout 和 pending state summary。
 - `SessionManager` 的 `session_start` 已支持 `parentSessionId`、`rootSessionId` 和 `forkedFromMessageIndex`。
+- `SessionManager` 的新 `session_start` 已写入当前 `schemaVersion`；旧 JSONL 无 version 时仍可读取，并通过 `getSessionFormatInfo()` 标记 legacy 状态。
 - 旧 JSONL session 没有 lineage metadata 时会被视为 root session。
 - `SessionManager.forkSession()` 会优先复制指定 leaf entry path 到新 session，并写入 lineage metadata；未指定 leaf 时使用当前 active entry path；旧 JSONL 没有 entry metadata 时回退复制 active context messages；父子 session 后续消息互不影响。
 - `SessionManager.cloneSession()` 当前复用 leaf entry-path fork 语义，保持与 `pi-mono` 的 clone 设计一致。
@@ -77,11 +78,10 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 进行中
 
-- M4.x Entry Tree First 后续：load/import parsed session application 边界已收敛，fork fallback 已改为使用 active state view；下一步可以做 session version / migration 预留，或进入 MCP/Skills/Extensions 前置骨架。
+- M4.x Entry Tree First 后续：session schema version / legacy 状态最小边界已完成；下一步可以进入 MCP/Skills/Extensions 前置骨架。
 
 ## 下一步
 
-- 评估是否继续做 session version / migration 预留，或进入 MCP/Skills/Extensions 前置骨架。
 - 后续进入 MCP/Skills/Extensions 前置骨架。
 
 ## 后续重点计划
