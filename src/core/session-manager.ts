@@ -220,6 +220,16 @@ interface SessionLineageOptions {
   forkedFromMessageIndex?: number;
 }
 
+interface ParsedSessionLog {
+  state: SessionEntryPathState;
+  createdAt?: number;
+  updatedAt: number;
+  lineage: SessionLineageInfo;
+  entryTree: SessionEntryTreeNode[];
+  pathEntries: SessionPathEntry[];
+  activeEntryId?: string;
+}
+
 export class SessionManager {
   private readonly mode: PersistenceMode;
   private readonly workspaceDir: string;
@@ -306,8 +316,8 @@ export class SessionManager {
       throw new Error(`Session not found: ${sourceSessionId}`);
     }
 
-    const sourceMessages = this.sessions.get(sourceSessionId);
-    if (!sourceMessages?.length) {
+    const sourceState = this.buildActiveState(sourceSessionId);
+    if (!sourceState.messages.length) {
       throw new Error(`Session not found: ${sourceSessionId}`);
     }
 
@@ -321,7 +331,7 @@ export class SessionManager {
       ? sourceEntryPath.map((entry) => copySessionPathEntryForSession(entry, id))
       : createLinearMessagePathEntries({
         sessionId: id,
-        messages: sourceMessages,
+        messages: sourceState.messages,
         timestamp: now,
       });
     const forkedState = buildSessionStateFromEntryPath(forkedPathEntries);
@@ -418,19 +428,7 @@ export class SessionManager {
       throw new Error(`Imported session has no messages: ${targetSessionId}`);
     }
 
-    this.sessionMetadata.set(targetSessionId, {
-      createdAt: parsed.createdAt ?? parsed.updatedAt,
-      updatedAt: parsed.updatedAt,
-    });
-    this.sessionLineage.set(targetSessionId, parsed.lineage);
-    this.sessionEntryTrees.set(targetSessionId, parsed.entryTree);
-    this.sessionPathEntries.set(targetSessionId, parsed.pathEntries);
-    if (parsed.activeEntryId && parsed.pathEntries.length) {
-      this.applyActiveEntryPath(targetSessionId, parsed.activeEntryId);
-    } else {
-      this.applyEntryPathState(targetSessionId, parsed.state);
-      this.setActiveEntryId(targetSessionId, parsed.activeEntryId);
-    }
+    this.applyParsedSessionLog(targetSessionId, parsed);
     this.latestSessionId = targetSessionId;
 
     let destinationPath: string | undefined;
@@ -467,19 +465,7 @@ export class SessionManager {
       const content = await fs.readFile(this.getSessionFilePath(sessionId), 'utf-8');
       const parsed = this.parseSessionLog(content, sessionId);
       if (!parsed.state.messages.length) return false;
-      this.sessionMetadata.set(sessionId, {
-        createdAt: parsed.createdAt ?? parsed.updatedAt,
-        updatedAt: parsed.updatedAt,
-      });
-      this.sessionLineage.set(sessionId, parsed.lineage);
-      this.sessionEntryTrees.set(sessionId, parsed.entryTree);
-      this.sessionPathEntries.set(sessionId, parsed.pathEntries);
-      if (parsed.activeEntryId && parsed.pathEntries.length) {
-        this.applyActiveEntryPath(sessionId, parsed.activeEntryId);
-      } else {
-        this.applyEntryPathState(sessionId, parsed.state);
-        this.setActiveEntryId(sessionId, parsed.activeEntryId);
-      }
+      this.applyParsedSessionLog(sessionId, parsed);
       await this.markLatestSession(sessionId);
       return true;
     } catch {
@@ -1143,6 +1129,22 @@ export class SessionManager {
     return state;
   }
 
+  private applyParsedSessionLog(sessionId: string, parsed: ParsedSessionLog): void {
+    this.sessionMetadata.set(sessionId, {
+      createdAt: parsed.createdAt ?? parsed.updatedAt,
+      updatedAt: parsed.updatedAt,
+    });
+    this.sessionLineage.set(sessionId, parsed.lineage);
+    this.sessionEntryTrees.set(sessionId, parsed.entryTree);
+    this.sessionPathEntries.set(sessionId, parsed.pathEntries);
+    if (parsed.activeEntryId && parsed.pathEntries.length) {
+      this.applyActiveEntryPath(sessionId, parsed.activeEntryId);
+    } else {
+      this.applyEntryPathState(sessionId, parsed.state);
+      this.setActiveEntryId(sessionId, parsed.activeEntryId);
+    }
+  }
+
   private buildActiveState(sessionId: string): SessionEntryPathState {
     const entryPath = this.getEntryPath(sessionId);
     if (entryPath.length) {
@@ -1168,15 +1170,7 @@ export class SessionManager {
   private parseSessionLog(
     content: string,
     sessionId: string,
-  ): {
-    state: SessionEntryPathState;
-    createdAt?: number;
-    updatedAt: number;
-    lineage: SessionLineageInfo;
-    entryTree: SessionEntryTreeNode[];
-    pathEntries: SessionPathEntry[];
-    activeEntryId?: string;
-  } {
+  ): ParsedSessionLog {
     const messages: Message[] = [];
     let createdAt: number | undefined;
     let updatedAt = 0;

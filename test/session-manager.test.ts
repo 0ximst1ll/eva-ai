@@ -881,6 +881,10 @@ test('SessionManager exports and imports JSONL sessions', async () => {
       ['system', 'task', 'answer'],
     );
     assert.equal(target.getUsageInfo(sessionId).total.total_tokens, 5);
+    assert.deepEqual(
+      target.getActiveState(sessionId),
+      buildSessionStateFromEntryPath(target.getEntryPath(sessionId)),
+    );
     assert.equal(await target.loadLatestSession(), sessionId);
 
     const targetWorkspaceKey = encodeURIComponent(path.resolve(targetWorkspaceDir));

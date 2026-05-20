@@ -708,6 +708,7 @@ user/assistant/tool: durable session history
 - session-level direct child navigation 已有最小边界：`/children` 列出 direct children，`/child [id]` 切换 direct child session。
 - append message/usage/internal/compaction 路径已先写入 entry/path entry，再从 active entry path 派生并同步运行期 active state cache。
 - create/reset/fork 路径已先建立 entry path state，再通过统一 state application 初始化运行期 active state cache。
+- load/import 已通过统一 parsed session application 边界恢复 metadata、entry tree、path entries 和 active state；fork fallback 已使用 active state view。
 
 目标语义：
 
@@ -733,9 +734,10 @@ user/assistant/tool: durable session history
 12. 已完成 session-level direct child navigation 最小边界。
 13. 已完成 append path cache sync：message/usage/internal/compaction append 先写 entry/path entry，再由 active path 派生 cache。
 14. 已完成 create/reset/fork cache sync：初始化类路径先建立 entry path state，再由 state application 初始化 cache。
-15. 后续按需补更完整 entry navigation UI。
-16. 再逐步把 `SessionManager` 内部主状态从 active state cache 收敛为 entry tree + active leaf。
-17. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
+15. 已完成 parsed session application 边界，load/import 共享同一恢复路径。
+16. 后续按需补更完整 entry navigation UI。
+17. 再逐步把 `SessionManager` 内部主状态从 active state cache 收敛为 entry tree + active leaf。
+18. 最后补 session version / migration，支持旧 JSONL 到 entry-tree-first 的兼容迁移。
 
 非目标：
 
