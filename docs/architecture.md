@@ -86,9 +86,9 @@ createRuntime()
 - `/compact [custom instructions]`：手动压缩当前 session context，生成摘要并保留最近消息。
 - `/skill:name`、`/skill name`：将指定 skill 全文排入下一次 provider request 的 transient context；不写入 durable session history。没有参数时列出当前加载的 skills。
 - `/history`：打印当前 session id 和消息数量。
-- `/stats`：打印当前 session、message count、token usage、context usage、compaction recommendation、provider、model 和 tool count。
+- `/stats`：打印当前 session、message count、token usage、context usage、compaction recommendation、provider、model、tool count 和 skills 摘要。
 - `/diagnostics`：打印当前 runtime 的完整 diagnostics。
-- `/reload`：重新加载 runtime resources，并保持当前 session 不变。
+- `/reload`：重新加载 runtime resources，并保持当前 session 不变；输出 project context 和 skills 数量。
 - `/sessions`：以 session lineage tree 展示当前 workspace 下的 sessions，并标记当前 active session 和 latest session。
 - `/entries`：readline interactive mode 会以 entry tree 展示当前 session 文件内的 entries，包含 entry id、parent、type、message role、preview、active leaf marker 和 active path marker；TUI mode 会显示 entry selector，选中后复用 `/branch <entryId>`。
 - `/log`：当前是忽略型占位命令。
@@ -307,6 +307,7 @@ References are relative to /workspace/skills/review.
 - 读取 durable `permission_pending` internal entries；
 - 暴露 active messages 的估算 token 数；
 - 暴露 project context 资源、字符预算和最近一次 context build 摘要；
+- 暴露 skills resources、visible/hidden 数量和最近一次显式 invocation；
 - 暴露最近一次 request/project context token estimate。
 - 如果配置了 `context_window_tokens`，基于 TokenCounter 结果计算 context usage percent；未配置时显示 unknown；
 - 基于 `compaction` 配置输出 compaction recommendation diagnostics。
@@ -319,8 +320,8 @@ References are relative to /workspace/skills/review.
 
 interactive mode 当前通过 `ContextManager` 展示 context 状态：
 
-- `/stats`：显示 step guard、compaction 简要状态、token usage、token estimate、context usage percent、count source、compaction recommendation、project context 数量和最近一次 context build 状态；
-- `/diagnostics`：显示 active messages、step guard、compaction metadata、token usage、token estimate、context usage percent、count source、compaction recommendation、project context 资源名称、路径、字符数和最近一次 build 状态。
+- `/stats`：显示 step guard、compaction 简要状态、token usage、token estimate、context usage percent、count source、compaction recommendation、project context 数量、skills 摘要和最近一次 context build 状态；
+- `/diagnostics`：显示 active messages、step guard、compaction metadata、token usage、token estimate、context usage percent、count source、compaction recommendation、project context 资源名称、路径、字符数、skills 资源名称/路径/visible 状态和最近一次 build 状态。
 
 ## LLM 层
 

@@ -66,6 +66,20 @@ function createContextManagerMock({
           resources: contextBuilder.projectContext,
           budgetChars: contextBuilder.projectContextMaxChars,
         },
+        skills: {
+          count: contextBuilder.skills.length,
+          visibleCount: contextBuilder.skills.filter((skill) => !skill.disableModelInvocation).length,
+          hiddenCount: contextBuilder.skills.filter((skill) => skill.disableModelInvocation).length,
+          resources: contextBuilder.skills,
+          names: contextBuilder.skills.map((skill) => skill.name),
+          visibleNames: contextBuilder.skills
+            .filter((skill) => !skill.disableModelInvocation)
+            .map((skill) => skill.name),
+          hiddenNames: contextBuilder.skills
+            .filter((skill) => skill.disableModelInvocation)
+            .map((skill) => skill.name),
+          latestInvokedNames: latestBuild?.invokedSkillNames ?? [],
+        },
         latestBuild: contextBuilder.latestBuild,
       };
     },
@@ -651,6 +665,26 @@ test('/stats prints session and runtime details', async () => {
       path: '/workspace/AGENTS.md',
       content: '# Project Instructions\n',
     }],
+    skills: [
+      {
+        type: 'skill',
+        name: 'review',
+        description: 'Review changes',
+        path: '/workspace/skills/review/SKILL.md',
+        baseDir: '/workspace/skills/review',
+        content: 'Review instructions.',
+        disableModelInvocation: false,
+      },
+      {
+        type: 'skill',
+        name: 'hidden',
+        description: 'Hidden skill',
+        path: '/workspace/skills/hidden/SKILL.md',
+        baseDir: '/workspace/skills/hidden',
+        content: 'Hidden instructions.',
+        disableModelInvocation: true,
+      },
+    ],
     projectContextMaxChars: 20000,
   });
   const session = {
@@ -723,6 +757,7 @@ test('/stats prints session and runtime details', async () => {
   assert.match(text, /Compaction recommendation:.*no, reason=auto_disabled, auto=disabled/);
   assert.match(text, /Estimated tokens:.*active=\d+, method=gpt-tokenizer/);
   assert.match(text, /Project context:.*1/);
+  assert.match(text, /Skills:.*loaded=2, visible=1, hidden=1/);
   assert.match(text, /Context build:.*not built yet/);
 });
 
@@ -959,8 +994,18 @@ test('/diagnostics prints full runtime diagnostics', async () => {
       path: '/workspace/AGENTS.md',
       content: '# Project Instructions\n',
     }],
+    skills: [{
+      type: 'skill',
+      name: 'review',
+      description: 'Review changes',
+      path: '/workspace/skills/review/SKILL.md',
+      baseDir: '/workspace/skills/review',
+      content: 'Review instructions.',
+      disableModelInvocation: false,
+    }],
     projectContextMaxChars: 20000,
   });
+  contextBuilder.queueSkillInvocation('review');
   contextBuilder.build({
     systemPrompt: 'system',
     llmMessages: [{ role: 'system', content: 'system' }],
@@ -1055,7 +1100,9 @@ test('/diagnostics prints full runtime diagnostics', async () => {
   assert.match(text, /Estimated tokens: active=\d+, provider_request=\d+, project_context=\d+, method=gpt-tokenizer/);
   assert.match(text, /AGENTS\.md path=\/workspace\/AGENTS\.md chars=23/);
   assert.match(text, /Budget: 20000 chars/);
-  assert.match(text, /Last build: injected 1 resource\(s\).*estimated provider request tokens=\d+.*chars=85\/20000/);
+  assert.match(text, /Skills: loaded=1, visible=1, hidden=0, last_invoked=review/);
+  assert.match(text, /review visible path=\/workspace\/skills\/review\/SKILL\.md/);
+  assert.match(text, /Last build: injected 1 resource\(s\).*estimated provider request tokens=\d+.*chars=85\/20000.*invoked_skills=review/);
 });
 
 test('/reload reloads runtime resources through RuntimeHost', async () => {
@@ -1071,6 +1118,11 @@ test('/reload reloads runtime resources through RuntimeHost', async () => {
               name: 'AGENTS.md',
               path: '/workspace/AGENTS.md',
               content: '# Project Instructions\n',
+            },
+          ],
+          skills: [
+            {
+              name: 'review',
             },
           ],
         },
@@ -1090,6 +1142,7 @@ test('/reload reloads runtime resources through RuntimeHost', async () => {
   assert.equal(reloadCalls, 1);
   assert.match(text, /Reloaded runtime resources/);
   assert.match(text, /Project context:.*1/);
+  assert.match(text, /Skills:.*1/);
   assert.match(text, /System prompt:.*system_prompt\.md/);
 });
 

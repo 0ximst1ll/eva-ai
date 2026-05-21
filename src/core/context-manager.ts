@@ -1,7 +1,7 @@
 import type { AgentMessage } from '../schema.js';
 import { defaultConvertToLlm } from './agent-messages.js';
 import type { ContextBuildSummary, ContextBuilder } from './context-builder.js';
-import type { ProjectContextResource } from './resource-loader.js';
+import type { ProjectContextResource, SkillResource } from './resource-loader.js';
 import type { SessionCompactionInfo, SessionInternalEntry, SessionManager, SessionUsageInfo } from './session-manager.js';
 import { type TokenCounter, type TokenCountMethod, type TokenCountSource, countMessagesLocally } from './token-counter.js';
 import { estimateMessagesTokens, type TokenEstimate } from './token-estimator.js';
@@ -22,6 +22,17 @@ export interface ProjectContextDiagnostics {
   count: number;
   resources: ProjectContextResource[];
   budgetChars: number;
+}
+
+export interface SkillsDiagnostics {
+  count: number;
+  visibleCount: number;
+  hiddenCount: number;
+  resources: SkillResource[];
+  names: string[];
+  visibleNames: string[];
+  hiddenNames: string[];
+  latestInvokedNames: string[];
 }
 
 export interface ContextUsageDiagnostics {
@@ -69,6 +80,7 @@ export interface ContextDiagnostics {
   usage: SessionUsageInfo;
   permissionPending: PermissionPendingDiagnostics;
   projectContext: ProjectContextDiagnostics;
+  skills: SkillsDiagnostics;
   latestBuild: ContextBuildSummary | null;
 }
 
@@ -144,9 +156,34 @@ export function createContextManager({
           resources: currentContextBuilder.projectContext,
           budgetChars: currentContextBuilder.projectContextMaxChars,
         },
+        skills: createSkillsDiagnostics({
+          skills: currentContextBuilder.skills,
+          latestBuild,
+        }),
         latestBuild,
       };
     },
+  };
+}
+
+function createSkillsDiagnostics({
+  skills,
+  latestBuild,
+}: {
+  skills: SkillResource[];
+  latestBuild: ContextBuildSummary | null;
+}): SkillsDiagnostics {
+  const visibleSkills = skills.filter((skill) => !skill.disableModelInvocation);
+  const hiddenSkills = skills.filter((skill) => skill.disableModelInvocation);
+  return {
+    count: skills.length,
+    visibleCount: visibleSkills.length,
+    hiddenCount: hiddenSkills.length,
+    resources: skills,
+    names: skills.map((skill) => skill.name),
+    visibleNames: visibleSkills.map((skill) => skill.name),
+    hiddenNames: hiddenSkills.map((skill) => skill.name),
+    latestInvokedNames: latestBuild?.invokedSkillNames ?? [],
   };
 }
 

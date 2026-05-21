@@ -26,6 +26,26 @@ test('ContextManager reports context diagnostics from builder and session metada
       path: '/workspace/AGENTS.md',
       content: '# Project Instructions\n',
     }],
+    skills: [
+      {
+        type: 'skill',
+        name: 'review',
+        description: 'Review changes',
+        path: '/workspace/skills/review/SKILL.md',
+        baseDir: '/workspace/skills/review',
+        content: 'Review instructions.',
+        disableModelInvocation: false,
+      },
+      {
+        type: 'skill',
+        name: 'hidden',
+        description: 'Hidden skill',
+        path: '/workspace/skills/hidden/SKILL.md',
+        baseDir: '/workspace/skills/hidden',
+        content: 'Hidden instructions.',
+        disableModelInvocation: true,
+      },
+    ],
     projectContextMaxChars: 20000,
   });
   const contextManager = createContextManager({
@@ -54,12 +74,19 @@ test('ContextManager reports context diagnostics from builder and session metada
   assert.deepEqual(beforeBuild.stepGuard, { enabled: false });
   assert.equal(beforeBuild.projectContext.count, 1);
   assert.equal(beforeBuild.projectContext.budgetChars, 20000);
+  assert.equal(beforeBuild.skills.count, 2);
+  assert.equal(beforeBuild.skills.visibleCount, 1);
+  assert.equal(beforeBuild.skills.hiddenCount, 1);
+  assert.deepEqual(beforeBuild.skills.visibleNames, ['review']);
+  assert.deepEqual(beforeBuild.skills.hiddenNames, ['hidden']);
+  assert.deepEqual(beforeBuild.skills.latestInvokedNames, []);
   assert.equal(beforeBuild.latestBuild, null);
   assert.equal(beforeBuild.usage.count, 1);
   assert.equal(beforeBuild.usage.total.total_tokens, 14);
   assert.equal(beforeBuild.compaction.compacted, false);
   assert.deepEqual(beforeBuild.permissionPending, { count: 0, latest: null });
 
+  contextBuilder.queueSkillInvocation('review');
   contextBuilder.build({
     systemPrompt: 'system',
     llmMessages: sessionManager.getMessages(sessionId),
@@ -72,6 +99,7 @@ test('ContextManager reports context diagnostics from builder and session metada
   assert.deepEqual(afterBuild.stepGuard, { enabled: true, maxSteps: 8 });
   assert.equal(afterBuild.latestBuild?.injected, true);
   assert.equal(afterBuild.latestBuild?.projectContextCount, 1);
+  assert.deepEqual(afterBuild.skills.latestInvokedNames, ['review']);
   assert.ok((afterBuild.latestBuild?.providerRequestTokenEstimate.tokens ?? 0) > 0);
   assert.ok((afterBuild.latestBuild?.projectContextTokenEstimate.tokens ?? 0) > 0);
   assert.equal(afterBuild.contextUsage.source, 'latest_provider_request_view');

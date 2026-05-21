@@ -143,6 +143,19 @@ function formatPermissionPendingStatus(diagnostics: ContextDiagnostics): string 
   return `count=${pending.count}, latest tool=${toolName}, reason=${reason}`;
 }
 
+function formatSkillsStatus(diagnostics: ContextDiagnostics): string {
+  const skills = diagnostics.skills;
+  const parts = [
+    `loaded=${skills.count}`,
+    `visible=${skills.visibleCount}`,
+    `hidden=${skills.hiddenCount}`,
+  ];
+  if (skills.latestInvokedNames.length > 0) {
+    parts.push(`last_invoked=${skills.latestInvokedNames.join(',')}`);
+  }
+  return parts.join(', ');
+}
+
 function writeContextDiagnostics(
   diagnostics: ContextDiagnostics,
   writeLine: (message?: string) => void,
@@ -168,6 +181,11 @@ function writeContextDiagnostics(
     writeLine(`  - ${resource.name} path=${resource.path} chars=${resource.content.length}`);
   }
   writeLine(`  Budget: ${diagnostics.projectContext.budgetChars} chars`);
+  writeLine(`  Skills: ${formatSkillsStatus(diagnostics)}`);
+  for (const skill of diagnostics.skills.resources) {
+    const visibility = skill.disableModelInvocation ? 'hidden' : 'visible';
+    writeLine(`  - ${skill.name} ${visibility} path=${skill.path}`);
+  }
   writeLine(`  Last build: ${formatContextBuildStatus(diagnostics.latestBuild)}`);
 }
 
@@ -544,6 +562,7 @@ export async function handleInteractiveCommand({
       writeLine(`${Colors.BRIGHT_CYAN}Compaction recommendation:${Colors.RESET} ${formatCompactionRecommendationStatus(contextDiagnostics)}`);
       writeLine(`${Colors.BRIGHT_CYAN}Estimated tokens:${Colors.RESET} ${formatTokenEstimateStatus(contextDiagnostics)}`);
       writeLine(`${Colors.BRIGHT_CYAN}Project context:${Colors.RESET} ${contextDiagnostics.projectContext.count}`);
+      writeLine(`${Colors.BRIGHT_CYAN}Skills:${Colors.RESET} ${formatSkillsStatus(contextDiagnostics)}`);
       writeLine(`${Colors.BRIGHT_CYAN}Context build:${Colors.RESET} ${formatContextBuildStatus(contextDiagnostics.latestBuild)}`);
     }
     writeLine();
@@ -579,6 +598,7 @@ export async function handleInteractiveCommand({
     const result = await host.reloadResources();
     writeLine(`${Colors.GREEN}✅ Reloaded runtime resources${Colors.RESET}`);
     writeLine(`${Colors.BRIGHT_CYAN}Project context:${Colors.RESET} ${result.resourceLoader.projectContext.length}`);
+    writeLine(`${Colors.BRIGHT_CYAN}Skills:${Colors.RESET} ${result.resourceLoader.skills.length}`);
     writeLine(`${Colors.BRIGHT_CYAN}System prompt:${Colors.RESET} ${result.systemPromptPath ?? 'default'}`);
     writeLine();
     return 'continue';
