@@ -5,7 +5,7 @@ import {
   createContextBuilder,
 } from '../src/core/context-builder.js';
 import { createCompactionSummaryMessage } from '../src/core/compaction.js';
-import type { ProjectContextResource } from '../src/core/resource-loader.js';
+import type { ProjectContextResource, SkillResource } from '../src/core/resource-loader.js';
 import type { Message } from '../src/schema.js';
 
 const agentsResource: ProjectContextResource = {
@@ -13,6 +13,16 @@ const agentsResource: ProjectContextResource = {
   name: 'AGENTS.md',
   path: '/workspace/AGENTS.md',
   content: '# Project Instructions\nUse rg before grep.\n',
+};
+
+const reviewSkill: SkillResource = {
+  type: 'skill',
+  name: 'code-review',
+  description: 'Review code changes for defects',
+  path: '/workspace/skills/review/SKILL.md',
+  baseDir: '/workspace/skills/review',
+  content: 'Full skill body should not be injected by default.',
+  disableModelInvocation: false,
 };
 
 test('ContextBuilder injects project context after the system message', () => {
@@ -42,6 +52,42 @@ test('ContextBuilder injects project context after the system message', () => {
   assert.ok(result.summary.projectContextTokenEstimate.tokens > 0);
   assert.deepEqual(builder.latestBuild, result.summary);
   assert.deepEqual(builder.latestProviderRequestView?.messages, result.messages);
+});
+
+test('ContextBuilder appends skills metadata to the system message without injecting full skill content', () => {
+  const builder = createContextBuilder({
+    skills: [
+      reviewSkill,
+      {
+        ...reviewSkill,
+        name: 'hidden-skill',
+        description: 'Hidden skill',
+        content: 'Hidden full body.',
+        disableModelInvocation: true,
+      },
+    ],
+  });
+
+  const result = builder.build({
+    systemPrompt: 'system',
+    llmMessages: [
+      { role: 'system', content: 'old system' },
+      { role: 'user', content: 'hello' },
+    ],
+  });
+
+  assert.equal(result.messages.length, 2);
+  assert.equal(result.messages[0]?.role, 'system');
+  assert.match(result.messages[0]?.content ?? '', /system/);
+  assert.match(result.messages[0]?.content ?? '', /<available_skills>/);
+  assert.match(result.messages[0]?.content ?? '', /name="code-review"/);
+  assert.match(result.messages[0]?.content ?? '', /location="\/workspace\/skills\/review\/SKILL\.md"/);
+  assert.match(result.messages[0]?.content ?? '', /Review code changes for defects/);
+  assert.doesNotMatch(result.messages[0]?.content ?? '', /Full skill body should not be injected/);
+  assert.doesNotMatch(result.messages[0]?.content ?? '', /hidden-skill/);
+  assert.equal(result.summary.skillsMetadataInjected, true);
+  assert.equal(result.summary.skillCount, 1);
+  assert.deepEqual(result.summary.skillNames, ['code-review']);
 });
 
 test('ContextBuilder returns a shallow message copy when project context is empty', () => {

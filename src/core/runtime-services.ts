@@ -128,6 +128,7 @@ function createRuntimeResourceSet(
   const resourceLoader = createResourceLoader({ workspaceDir, config });
   const contextBuilder = createContextBuilder({
     projectContext: resourceLoader.projectContext,
+    skills: resourceLoader.skills,
     projectContextMaxChars: config.agent.projectContextMaxChars,
   });
   const diagnostics = [

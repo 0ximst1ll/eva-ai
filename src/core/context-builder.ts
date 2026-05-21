@@ -1,7 +1,7 @@
 import { createDiagnostic, type RuntimeDiagnostic } from '../diagnostics.js';
 import type { LlmMessage } from '../schema.js';
 import { isCompactionSummaryMessage } from './compaction.js';
-import type { ProjectContextResource } from './resource-loader.js';
+import type { ProjectContextResource, SkillResource } from './resource-loader.js';
 import { estimateMessagesTokens, estimateTextTokens, type TokenEstimate } from './token-estimator.js';
 
 export const DEFAULT_PROJECT_CONTEXT_MAX_CHARS = 20000;
@@ -9,6 +9,7 @@ export const DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS = 4000;
 
 export interface ContextBuilder {
   readonly projectContext: ProjectContextResource[];
+  readonly skills: SkillResource[];
   readonly projectContextMaxChars: number;
   readonly latestBuild: ContextBuildSummary | null;
   readonly latestProviderRequestView: ProviderRequestView | null;
@@ -46,6 +47,9 @@ export interface ContextBuildSummary {
   projectContextConfiguredMaxChars: number;
   projectContextTruncated: boolean;
   projectContextSkippedReason?: string;
+  skillsMetadataInjected: boolean;
+  skillCount: number;
+  skillNames: string[];
   inputLlmMessageCount: number;
   providerRequestMessageCount: number;
   /** @deprecated Use inputLlmMessageCount. */
@@ -65,6 +69,7 @@ function isCompactedContext(messages: LlmMessage[]): boolean {
 
 export interface CreateContextBuilderOptions {
   projectContext?: ProjectContextResource[];
+  skills?: SkillResource[];
   projectContextMaxChars?: number;
 }
 
@@ -79,6 +84,42 @@ interface FormattedProjectContext {
 function normalizeBudget(maxChars: number | undefined): number {
   if (maxChars === undefined || !Number.isFinite(maxChars)) return DEFAULT_PROJECT_CONTEXT_MAX_CHARS;
   return Math.max(0, Math.floor(maxChars));
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function getModelVisibleSkills(skills: SkillResource[]): SkillResource[] {
+  return skills.filter((skill) => !skill.disableModelInvocation);
+}
+
+function formatSkillsForSystemPrompt(skills: SkillResource[]): string | null {
+  const visibleSkills = getModelVisibleSkills(skills);
+  if (visibleSkills.length === 0) return null;
+
+  const blocks = visibleSkills.map((skill) => [
+    `<skill name="${escapeXml(skill.name)}" location="${escapeXml(skill.path)}">`,
+    escapeXml(skill.description),
+    '</skill>',
+  ].join('\n'));
+
+  return [
+    '<available_skills>',
+    ...blocks,
+    '</available_skills>',
+  ].join('\n');
+}
+
+function appendSkillsMetadata(systemPrompt: string, skills: SkillResource[]): string {
+  const formattedSkills = formatSkillsForSystemPrompt(skills);
+  if (!formattedSkills) return systemPrompt;
+  return `${systemPrompt.trimEnd()}\n\n${formattedSkills}`;
 }
 
 function formatProjectContext(resources: ProjectContextResource[], maxChars: number): FormattedProjectContext {
@@ -152,9 +193,11 @@ function insertAfterSystemMessage(
 
 export function createContextBuilder({
   projectContext = [],
+  skills = [],
   projectContextMaxChars,
 }: CreateContextBuilderOptions = {}): ContextBuilder {
   const resources = projectContext.slice();
+  const skillResources = skills.slice();
   const maxChars = normalizeBudget(projectContextMaxChars);
   let latestBuild: ContextBuildSummary | null = null;
   let latestProviderRequestView: ProviderRequestView | null = null;
@@ -179,6 +222,7 @@ export function createContextBuilder({
     projectContextSkippedReason?: string;
   }): ContextBuildSummary {
     const providerRequestTokenEstimate = estimateMessagesTokens(providerRequestMessages);
+    const visibleSkills = getModelVisibleSkills(skillResources);
     return {
       injected,
       compactedContext,
@@ -193,6 +237,9 @@ export function createContextBuilder({
       projectContextConfiguredMaxChars: maxChars,
       projectContextTruncated: injected ? formattedProjectContext.truncated : false,
       projectContextSkippedReason,
+      skillsMetadataInjected: visibleSkills.length > 0,
+      skillCount: visibleSkills.length,
+      skillNames: visibleSkills.map((skill) => skill.name),
       inputLlmMessageCount: llmMessages.length,
       providerRequestMessageCount: providerRequestMessages.length,
       inputMessageCount: llmMessages.length,
@@ -221,8 +268,10 @@ export function createContextBuilder({
       return latestProviderRequestView?.messages.slice() ?? null;
     },
     projectContext: resources,
+    skills: skillResources,
     projectContextMaxChars: maxChars,
     build({ systemPrompt, llmMessages }: BuildProviderRequestViewInput): ProviderRequestView {
+      const systemPromptWithSkills = appendSkillsMetadata(systemPrompt, skillResources);
       const compactedContext = isCompactedContext(llmMessages);
       const effectiveMaxChars = compactedContext
         ? Math.min(maxChars, DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS)
@@ -232,7 +281,7 @@ export function createContextBuilder({
         : 'normal';
       const formattedProjectContext = formatProjectContext(resources, effectiveMaxChars);
       if (!formattedProjectContext.content) {
-        const providerRequestMessages = withSystemMessage(llmMessages, systemPrompt);
+        const providerRequestMessages = withSystemMessage(llmMessages, systemPromptWithSkills);
         latestBuild = createSummary({
           injected: false,
           compactedContext,
@@ -271,7 +320,7 @@ export function createContextBuilder({
       const providerRequestMessages = insertAfterSystemMessage(
         llmMessages,
         { role: 'user', content: formattedProjectContext.content },
-        systemPrompt,
+        systemPromptWithSkills,
       );
       latestBuild = createSummary({
         injected: true,

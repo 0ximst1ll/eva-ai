@@ -8,7 +8,7 @@
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、skills discovery + diagnostics 最小接入、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界、permission pending durable diagnostics、最小 Headless RPC mode、RPC permission pending approval 最小闭环，以及 M4 session lineage / fork / entry tree / entry path rebuild / entry-path fork / entry-level branch / durable leaf entry / durable branch summary / branch operation summary / entry path state derivation / active entry path application / active state read boundary / append path cache sync / create-reset-fork cache sync / parsed session application / session schema version / entry tree display / TUI entry selector / session tree display / parent navigation / direct child navigation 最小边界。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。完整跨 session parent/child graph、MCP loader、skills progressive disclosure、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、skills discovery + diagnostics 最小接入、skills metadata system prompt 注入、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界、permission pending durable diagnostics、最小 Headless RPC mode、RPC permission pending approval 最小闭环，以及 M4 session lineage / fork / entry tree / entry path rebuild / entry-path fork / entry-level branch / durable leaf entry / durable branch summary / branch operation summary / entry path state derivation / active entry path application / active state read boundary / append path cache sync / create-reset-fork cache sync / parsed session application / session schema version / entry tree display / TUI entry selector / session tree display / parent navigation / direct child navigation 最小边界。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。完整跨 session parent/child graph、MCP loader、skills explicit invocation、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -218,7 +218,7 @@ RPC permission 默认仍是 fail-closed。如果 `prompt.params.permission_mode`
 - 对 skills 目录缺失、非法 frontmatter、重名等情况返回非致命 diagnostics；
 - 对 MCP 已配置但需要未来 extension boundary 的情况返回 warning diagnostic。
 
-当前 skills discovery 是最小版，参考 `pi-mono` 的 resource-first 思路：skills 是 resource，不是 builtin tool。它支持配置目录内递归发现目录型 `SKILL.md`，也支持配置目录根级 `.md` skill；skill frontmatter 需要 `name` 和 `description`，可选 `disable-model-invocation`。重复 `name` 会保留首个并对后续重复项告警。当前只暴露 metadata/content 给 `runtime.services.resourceLoader.skills`，尚未把 skills metadata 注入 system prompt，也未实现 `/skill:name` 的全文按需展开。
+当前 skills discovery 是最小版，参考 `pi-mono` 的 resource-first 思路：skills 是 resource，不是 builtin tool。它支持配置目录内递归发现目录型 `SKILL.md`，也支持配置目录根级 `.md` skill；skill frontmatter 需要 `name` 和 `description`，可选 `disable-model-invocation`。重复 `name` 会保留首个并对后续重复项告警。当前 `runtime.services.resourceLoader.skills` 会保留 metadata/content；`ContextBuilder` 会把未设置 `disable-model-invocation` 的 skill metadata 追加到 system prompt，只包含 `name`、`description` 和 `location`，不会默认注入 skill 全文。`/skill:name` 的全文按需展开尚未实现。
 
 当前 `AGENTS.md` 作为 `runtime.services.resourceLoader.projectContext` 暴露，并由 `ContextBuilder` 在每次 provider call 前临时注入 provider request view。它不会写回 `SessionManager` 的 durable session history。
 
@@ -231,6 +231,7 @@ RPC permission 默认仍是 fail-closed。如果 `prompt.params.permission_mode`
 它负责：
 
 - 接收 system prompt、provider-facing `LlmMessage[]` 和 project context；
+- 将 skills metadata 追加到本次 provider request 的 system prompt；
 - 在第一条 system message 后插入 transient project context user message；
 - 在没有 system message 时使用当前 system prompt 补一条 system message；
 - 按 `project_context_max_chars` 控制 project context 注入字符数，默认 20000；
@@ -252,6 +253,16 @@ Contents of AGENTS.md:
 ...
 
 </project_context>
+```
+
+当前 skills metadata 注入格式：
+
+```text
+<available_skills>
+<skill name="code-review" location="/workspace/skills/review/SKILL.md">
+Review code changes for defects
+</skill>
+</available_skills>
 ```
 
 `ContextBuilder` 只负责 project context 字符预算和 compact 后的保守资源预算，不负责完整 token budget、compaction、summary 或 skills/resource reinjection 策略。这些仍属于后续 ContextManager 演进范围。
@@ -524,7 +535,7 @@ AgentSession 持久化已发射的 assistant/tool messages 和 usage metadata
 以下能力可能出现在配置字段或规划文档中，但当前 runtime 尚未实现：
 
 - MCP loader
-- skills progressive disclosure
+- skills explicit invocation
 - 跨 session parent/child entry graph
 - 完整 child branch navigation
 - 完整 permission pipeline
