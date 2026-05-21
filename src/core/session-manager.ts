@@ -90,13 +90,23 @@ export interface BranchSummaryEntry {
   reason?: string;
 }
 
+export interface LeafEntry {
+  type: 'leaf';
+  sessionId: string;
+  timestamp: number;
+  entryId?: string;
+  parentEntryId?: string | null;
+  targetEntryId: string | null;
+}
+
 export type SessionEntry =
   | SessionStartEntry
   | MessageEntry
   | CompactionEntry
   | UsageEntry
   | InternalEntry
-  | BranchSummaryEntry;
+  | BranchSummaryEntry
+  | LeafEntry;
 
 export type SessionEntryNodeType = Exclude<SessionEntry['type'], 'session_start'>;
 
@@ -155,7 +165,8 @@ export type SessionPathEntry =
   | (CompactionEntry & { entryId: string; parentEntryId: string | null })
   | (UsageEntry & { entryId: string; parentEntryId: string | null })
   | (InternalEntry & { entryId: string; parentEntryId: string | null })
-  | (BranchSummaryEntry & { entryId: string; parentEntryId: string | null });
+  | (BranchSummaryEntry & { entryId: string; parentEntryId: string | null })
+  | (LeafEntry & { entryId: string; parentEntryId: string | null });
 
 interface SessionMetadata {
   createdAt: number;
@@ -597,6 +608,20 @@ export class SessionManager {
     const fromEntryId = this.sessionActiveEntryIds.get(sessionId) ?? null;
     const { entryPath, state, targetEntry } = this.applyActiveEntryPath(sessionId, leafEntryId);
     const now = Date.now();
+    const leafEntryNode = createEntryTreeNode({
+      parentEntryId: fromEntryId,
+      type: 'leaf',
+      timestamp: now,
+    });
+    this.recordEntryTreeNode(sessionId, leafEntryNode, { setActive: false });
+    this.recordPathEntry(sessionId, {
+      type: 'leaf',
+      sessionId,
+      timestamp: now,
+      ...entryTreeFields(leafEntryNode),
+      targetEntryId: leafEntryId,
+    });
+    this.setActiveEntryId(sessionId, leafEntryId);
     const branchEntryNode = this.createNextEntryTreeNode(sessionId, 'branch_summary', now);
     this.recordEntryTreeNode(sessionId, branchEntryNode);
     this.recordPathEntry(sessionId, {
@@ -630,6 +655,13 @@ export class SessionManager {
     };
 
     if (this.mode === 'jsonl') {
+      await this.appendEntry({
+        type: 'leaf',
+        sessionId,
+        timestamp: now,
+        ...entryTreeFields(leafEntryNode),
+        targetEntryId: leafEntryId,
+      });
       await this.appendEntry({
         type: 'branch_summary',
         sessionId,
@@ -1085,12 +1117,18 @@ export class SessionManager {
     });
   }
 
-  private recordEntryTreeNode(sessionId: string, entryNode: SessionEntryTreeNode): void {
+  private recordEntryTreeNode(
+    sessionId: string,
+    entryNode: SessionEntryTreeNode,
+    options: { setActive?: boolean } = {},
+  ): void {
     this.sessionEntryTrees.set(sessionId, [
       ...(this.sessionEntryTrees.get(sessionId) ?? []),
       copyEntryTreeNode(entryNode),
     ]);
-    this.sessionActiveEntryIds.set(sessionId, entryNode.entryId);
+    if (options.setActive ?? true) {
+      this.sessionActiveEntryIds.set(sessionId, entryNode.entryId);
+    }
   }
 
   private recordPathEntry(sessionId: string, entry: SessionPathEntry): void {
@@ -1312,6 +1350,20 @@ export class SessionManager {
             activeEntryId = entryNode.entryId;
           }
           updatedAt = Math.max(updatedAt, entry.timestamp);
+          continue;
+        }
+        if (entry.type === 'leaf') {
+          const entryNode = readEntryTreeNode(entry);
+          if (entryNode) {
+            entryTree.push(entryNode);
+            pathEntries.push(copySessionPathEntry({
+              ...entry,
+              entryId: entryNode.entryId,
+              parentEntryId: entryNode.parentEntryId,
+            }));
+            activeEntryId = entry.targetEntryId ?? undefined;
+          }
+          updatedAt = Math.max(updatedAt, entry.timestamp);
         }
       } catch {
         continue;
@@ -1455,7 +1507,7 @@ function entryTreeFields(entryNode: SessionEntryTreeNode): {
 }
 
 function readEntryTreeNode(
-  entry: MessageEntry | CompactionEntry | UsageEntry | InternalEntry | BranchSummaryEntry,
+  entry: MessageEntry | CompactionEntry | UsageEntry | InternalEntry | BranchSummaryEntry | LeafEntry,
   options: {
     messageIndex?: number;
     kind?: string;
@@ -1517,6 +1569,8 @@ function createEntryTreeViewItem({
     item.preview = `total_tokens=${entry.usage.total_tokens}`;
   } else if (entry.type === 'branch_summary') {
     item.preview = `from=${entry.fromEntryId ?? 'root'} to=${entry.toEntryId} path_entries=${entry.pathEntryCount} messages=${entry.messageCount}`;
+  } else if (entry.type === 'leaf') {
+    item.preview = `target=${entry.targetEntryId ?? 'root'}`;
   } else {
     item.kind = entry.kind;
     item.preview = truncatePreview(entry.content ?? entry.kind);
@@ -1594,6 +1648,16 @@ function copySessionPathEntry(entry: SessionPathEntry): SessionPathEntry {
       messageCount: entry.messageCount,
       label: entry.label,
       reason: entry.reason,
+    };
+  }
+  if (entry.type === 'leaf') {
+    return {
+      type: 'leaf',
+      sessionId: entry.sessionId,
+      timestamp: entry.timestamp,
+      entryId: entry.entryId,
+      parentEntryId: entry.parentEntryId,
+      targetEntryId: entry.targetEntryId,
     };
   }
   return {

@@ -4,11 +4,11 @@
 
 ## 当前快照
 
-当前版本：2026-05-20
+当前版本：2026-05-21
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前实现围绕 workspace 绑定的 `RuntimeServices`、可复用 runtime、负责会话切换的 `RuntimeHost`、轻量 mode 层、有状态 `Agent` 包装器，以及更底层的 agent loop 组织。
 
-项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界、permission pending durable diagnostics、最小 Headless RPC mode、RPC permission pending approval 最小闭环，以及 M4 session lineage / fork / entry tree / entry path rebuild / entry-path fork / entry-level branch / durable branch summary / branch operation summary / entry path state derivation / active entry path application / active state read boundary / append path cache sync / create-reset-fork cache sync / parsed session application / session schema version / entry tree display / TUI entry selector / session tree display / parent navigation / direct child navigation 最小边界。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。完整跨 session parent/child graph、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
+项目目前已经有 `RuntimeServices`、轻量 `ResourceLoader`、最小 `ContextBuilder`、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context window usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、manual `/compact`、provider usage 持久化、provider 错误展示收敛、`AgentMessage` / `LlmMessage` 最小类型边界、internal `AgentMessage` 最小闭环、`resource_context` / `compaction_summary` internal marker、durable `internal` session entry 最小边界、permission pending durable diagnostics、最小 Headless RPC mode、RPC permission pending approval 最小闭环，以及 M4 session lineage / fork / entry tree / entry path rebuild / entry-path fork / entry-level branch / durable leaf entry / durable branch summary / branch operation summary / entry path state derivation / active entry path application / active state read boundary / append path cache sync / create-reset-fork cache sync / parsed session application / session schema version / entry tree display / TUI entry selector / session tree display / parent navigation / direct child navigation 最小边界。当前双层消息模型仍是最小骨架：internal message 默认会被 `convertToLlm()` 过滤，运行期 marker 默认不写入当前 flat JSONL message log；需要跨 resume 恢复的 harness metadata 可写入独立 `internal` session entry。完整跨 session parent/child graph、MCP loader、skills system、OpenAI provider countTokens 和完整 context budget engine 仍未实现。部分配置字段已经为这些方向预留，但它们目前还不是完整运行时能力。
 
 ## 分层结构
 
@@ -400,12 +400,12 @@ JSONL 模式下：
 - `session_start` 支持向后兼容的 lineage metadata：`parentSessionId`、`rootSessionId`、`forkedFromMessageIndex`；
 - 新写入的 `session_start` 会包含当前 `schemaVersion`；旧 JSONL 没有该字段时仍可读取，并通过 session format info 标记为 legacy。
 - 每条 message 都写成一个 `message` entry；
-- 新写入的 `message`、`compaction`、`usage`、`internal` 和 `branch_summary` entry 都带有可选 `entryId` / `parentEntryId`，形成当前 session 文件内的 append-only parent chain；
+- 新写入的 `message`、`compaction`、`usage`、`internal`、`leaf` 和 `branch_summary` entry 都带有可选 `entryId` / `parentEntryId`，形成当前 session 文件内的 append-only parent chain；
 - 旧 JSONL entry 没有 `entryId` / `parentEntryId` 时仍可兼容读取，但不会被强行迁移为 tree entry；
 - manual compact 会追加 `compaction` entry，包含 summary、`firstKeptEntryId`、`firstKeptMessageIndex`、压缩前后 message 数和可选 custom instructions；
 - provider 返回的 token usage 会追加 `usage` entry，包含 source、timestamp 和 prompt/completion/total token 数；
 - durable harness metadata 可以追加 `internal` entry，包含 kind、timestamp、可选 content 和 metadata；这些 entries 可 reload/resume，但不会进入 `getMessages()` 或 provider request view；
-- `/branch` 会追加 `branch_summary` entry，包含 from/to entry id、path entries 数和 message 数；branch summary 不进入 provider messages。
+- `/branch` 会先追加 `leaf` entry，持久化 active leaf 切换；随后追加 `branch_summary` entry，包含 from/to entry id、path entries 数和 message 数；二者都不进入 provider messages。
 - `manifest.json` 记录 `latestSessionId`。
 - `listSessions()` 可列出当前 workspace 下的 session id、message count、updatedAt、latest 标记和 lineage metadata。
 - `listSessionTree()` 基于 `parentSessionId` 把当前 workspace sessions 组织成 session-level lineage tree；缺失父节点的 session 会作为 root 展示。
@@ -418,14 +418,14 @@ JSONL 模式下：
 - `getSessionFormatInfo()` 返回当前 session 的 schema version 和 legacy 状态，为后续 migration 判断预留边界。
 - `getEntryTreeInfo()` 返回当前 session 已持久化 entry tree 的 entries 和 active entry id。
 - `listEntryTree()` 返回用于展示的 entry tree view，包含 entry id、parent、type、timestamp、active marker 和 payload preview。
-- `getEntryPath()` 从 active entry leaf 沿 `parentEntryId` 回溯，返回当前 branch path 上带 payload 的 entries。
+- `getEntryPath()` 从 active entry leaf 沿 `parentEntryId` 回溯，返回当前 branch path 上带 payload 的 entries；`leaf` control entry 只用于恢复 active leaf，不参与 provider context 派生。
 - `buildSessionStateFromEntryPath()` 是当前 entry path 派生边界，会从 path entries 得到 active messages、compaction、usage 和 internal entries。
 - `applyActiveEntryPath()` 是 `SessionManager` 内部 active leaf 应用边界，会统一取 entry path、派生 active state、写入 active state cache 并设置 active entry id。
 - `getActiveState()` 是 `SessionManager` 的 active state 读取边界，会返回 copy 后的 active messages、compaction、usage 和 internal entries。
 - append message/usage/internal/compaction 路径会先追加 entry/path entry，再通过 active entry path 派生并同步运行期 active state cache；这使 append-only entry tree 更接近主要事实源，并避免 abandoned branch state 泄漏。
 - create/reset/fork 会先建立 session path entries，再通过 `applyEntryPathState()` 初始化运行期 active state cache。
 - load/import 会通过统一 parsed session application 边界恢复 metadata、entry tree、path entries 和 active state；fork 旧 flat fallback 使用 active state view 生成线性 path entries。
-- `branchSession()` 会在同一个 session 文件内移动 active entry leaf，通过 `applyActiveEntryPath()` 重建当前 active state，然后追加 `branch_summary` entry；下一次 append 会以该 summary entry 作为 parent；返回值包含 path entries 数、message 数、目标 entry view 和 summary entry id。
+- `branchSession()` 会在同一个 session 文件内移动 active entry leaf，通过 `applyActiveEntryPath()` 重建当前 active state，追加 durable `leaf` entry 记录 active leaf 切换，然后追加 `branch_summary` entry；下一次 append 会以该 summary entry 作为 parent；返回值包含 path entries 数、message 数、目标 entry view 和 summary entry id。
 - `forkSession()` 会优先复制指定 leaf entry path 到新 session，并写入 lineage metadata；未指定 leaf 时使用当前 active entry path；旧 session 没有 entry metadata 时回退复制 active context messages；fork 后父子 session 的后续消息互不影响。
 - `cloneSession()` 当前按 `pi-mono` 的 clone 语义复用 leaf entry path fork：复制指定 leaf entry path 到新 session，并保留 parent/root lineage。
 - `exportSession()` 会将 session 导出为 JSONL 文件；jsonl 模式下复制原始 session 文件，memory 模式下生成最小 JSONL。

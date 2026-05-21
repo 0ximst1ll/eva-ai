@@ -33,6 +33,22 @@
 33. Entry Path State Derivation 最小边界
 34. Active Entry Path Application 最小边界
 35. Durable Branch Summary Entry 最小边界
+36. Durable Leaf Entry 最小边界
+
+
+# Durable Leaf Entry 最小边界
+
+对齐 `pi-mono` 最新 session tree 设计，把 active leaf 切换本身写入 append-only session log。
+
+核心变化：
+
+- 新增 `leaf` session entry，包含 `targetEntryId`，用于持久化 active leaf 切换。
+- `SessionManager.branchSession()` 会先追加 `leaf` entry，再追加 `branch_summary` entry。
+- reload/import 会重放 `leaf` entry；如果 session 停在只有 leaf control entry 的中间状态，也能恢复 active leaf。
+- `leaf` entry 不参与 provider context 派生，只作为 session control entry 使用。
+- planning 补充 repo/storage/session 分层方向，以及 session log、derived context、runtime state、sidecar store、diagnostics/event stream 的长期设计。
+
+当前仍未拆出独立 `SessionRepo` / `SessionStorage` / `Session` 类；该拆分放入后续结构收敛。
 
 
 # Durable Branch Summary Entry 最小边界

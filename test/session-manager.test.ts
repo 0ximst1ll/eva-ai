@@ -611,6 +611,26 @@ test('SessionManager branches the active session to a specified entry path', asy
     assert.equal(summary.targetEntry.isActivePath, true);
     assert.equal(manager.getUsageInfo(sessionId).count, 0);
     assert.deepEqual(manager.getInternalEntries(sessionId), []);
+    const workspaceKey = encodeURIComponent(path.resolve(workspaceDir));
+    const rawLog = await fs.readFile(
+      path.join(baseDir, workspaceKey, 'session-root.jsonl'),
+      'utf-8',
+    );
+    const persistedEntries = rawLog
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as {
+        type: string;
+        entryId?: string;
+        parentEntryId?: string | null;
+        targetEntryId?: string | null;
+      });
+    const leafEntry = persistedEntries.find((entry) => entry.type === 'leaf');
+    const branchSummaryEntry = persistedEntries.find((entry) => entry.type === 'branch_summary');
+    assert.ok(leafEntry?.entryId);
+    assert.equal(leafEntry.parentEntryId, fromEntryId);
+    assert.equal(leafEntry.targetEntryId, leafEntryId);
+    assert.equal(branchSummaryEntry?.parentEntryId, leafEntryId);
 
     await manager.appendMessage(sessionId, { role: 'assistant', content: 'branch answer' });
     assert.deepEqual(
@@ -645,6 +665,80 @@ test('SessionManager branches the active session to a specified entry path', asy
     await assert.rejects(
       () => manager.branchSession({ sessionId, leafEntryId: 'missing-entry' }),
       /Entry not found in session session-root: missing-entry/,
+    );
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('SessionManager restores active leaf from durable leaf entries', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-leaf-entry-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+  const workspaceKey = encodeURIComponent(path.resolve(workspaceDir));
+  const workspaceDataDir = path.join(baseDir, workspaceKey);
+
+  try {
+    await fs.mkdir(workspaceDataDir, { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDataDir, 'leaf-session.jsonl'),
+      [
+        JSON.stringify({
+          type: 'session_start',
+          sessionId: 'leaf-session',
+          workspaceDir: path.resolve(workspaceDir),
+          createdAt: 100,
+          schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'leaf-session',
+          timestamp: 101,
+          entryId: 'entry-system',
+          parentEntryId: null,
+          message: { role: 'system', content: 'system' },
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'leaf-session',
+          timestamp: 102,
+          entryId: 'entry-task',
+          parentEntryId: 'entry-system',
+          message: { role: 'user', content: 'task' },
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'leaf-session',
+          timestamp: 103,
+          entryId: 'entry-abandoned',
+          parentEntryId: 'entry-task',
+          message: { role: 'assistant', content: 'abandoned' },
+        }),
+        JSON.stringify({
+          type: 'leaf',
+          sessionId: 'leaf-session',
+          timestamp: 104,
+          entryId: 'entry-leaf',
+          parentEntryId: 'entry-abandoned',
+          targetEntryId: 'entry-task',
+        }),
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const manager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    assert.equal(await manager.loadSession('leaf-session'), true);
+    assert.equal(manager.getEntryTreeInfo('leaf-session').activeEntryId, 'entry-task');
+    assert.deepEqual(
+      manager.getMessages('leaf-session').map((message) => message.content),
+      ['system', 'task'],
+    );
+
+    await manager.appendMessage('leaf-session', { role: 'assistant', content: 'branch answer' });
+    assert.deepEqual(
+      manager.getEntryPath('leaf-session').map((entry) => entry.type === 'message' ? entry.message.content : entry.type),
+      ['system', 'task', 'branch answer'],
     );
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });

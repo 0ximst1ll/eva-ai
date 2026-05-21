@@ -60,11 +60,13 @@ Eva AI 不应该在 `pi-mono` 和 `claude-code` 之间二选一。
 - session tree、active leaf、fork、clone、import/export。
 - resume、session metadata、compaction entry、future sidecar metadata。
 - 可恢复运行现场，包括 transcript、agent metadata、file history、todo/memory/subagent metadata。
+- 长期分层：session log 保存 durable 主时间线与 metadata reference；derived context 从 active path 派生 provider request view；runtime state 保存短生命周期 run/abort/permission/queue；sidecar store 保存大对象、外部 runtime 状态和 artifact blob。
 
 参考策略：
 
-- 优先学习 `pi-mono` 的 append-only session tree 和 path-aware context rebuild。
+- 优先学习 `pi-mono` 的 append-only session tree、durable leaf entry 和 path-aware context rebuild。
 - 逐步从当前 message-snapshot-first 过渡到 entry-tree-first；避免只做 session-level lineage，而没有真正对齐 `pi-mono` 的 leaf/path 语义。
+- 后续在 `SessionManager` 继续膨胀时拆出 `SessionRepo` / `SessionStorage` / `Session` 边界：repo 管 session 文件生命周期，storage 管单 session append/read/path，session 管语义操作。
 - 选择性吸收 `claude-code` 的 transcript、compact boundary、file history 和恢复工程经验。
 
 ### 3. Context Management
@@ -710,6 +712,7 @@ user/assistant/tool: durable session history
 - create/reset/fork 路径已先建立 entry path state，再通过统一 state application 初始化运行期 active state cache。
 - load/import 已通过统一 parsed session application 边界恢复 metadata、entry tree、path entries 和 active state；fork fallback 已使用 active state view。
 - 新 session 已在 `session_start` 写入 schema version；旧 JSONL 无 version 时仍兼容读取，并可通过 session format info 识别 legacy 状态。
+- branch 已写入 durable `leaf` entry，用于记录 active leaf 切换；reload/import 可从 `leaf` entry 恢复 active leaf。
 
 目标语义：
 
@@ -717,7 +720,9 @@ user/assistant/tool: durable session history
 - 当前上下文由 active leaf 沿 `parentEntryId` 回溯得到 path，再通过 `buildSessionContext()` 派生 `AgentMessage[]` / `Message[]`。
 - fork/clone 支持指定 leaf entry，并复制该 leaf path 上的 entries。
 - 同一 session 文件内支持 entry-level branch / navigate；切换 leaf 不修改旧 entries。
+- active leaf 切换本身应是一等 durable control entry，而不是只存在于运行期 cache。
 - branch summary、model/thinking changes、label/session info 和 future custom metadata 可作为一等 entry 渐进引入。
+- `SessionManager` 后续应按 repo/storage/session 边界拆分：repo 负责 create/open/list/delete/fork，storage 负责 append/get/path/leaf，session 负责 branch/compact/context 语义。
 
 推荐落地顺序：
 
@@ -737,9 +742,19 @@ user/assistant/tool: durable session history
 14. 已完成 create/reset/fork cache sync：初始化类路径先建立 entry path state，再由 state application 初始化 cache。
 15. 已完成 parsed session application 边界，load/import 共享同一恢复路径。
 16. 已完成 session schema version / legacy 状态最小边界，为后续 migration 预留判断依据。
-17. 后续按需补更完整 entry navigation UI。
-18. 再逐步把 `SessionManager` 内部主状态从 active state cache 收敛为 entry tree + active leaf。
-19. 后续如需要再补完整旧 JSONL 到 entry-tree-first 的迁移器。
+17. 已完成 durable leaf entry 最小闭环：branch 写入 `leaf` control entry，reload/import 可重放 active leaf。
+18. 后续按需补更完整 entry navigation UI。
+19. 再逐步把 `SessionManager` 内部主状态从 active state cache 收敛为 entry tree + active leaf。
+20. 后续按需拆出 `SessionRepo` / `SessionStorage` / `Session`，避免 `SessionManager` 同时承担文件生命周期、单文件存储和 session 语义。
+21. 后续如需要再补完整旧 JSONL 到 entry-tree-first 的迁移器。
+
+长期更优设计：
+
+- `Session Log`：保存 durable conversation、branch、compact、leaf 和 metadata reference，是可恢复主时间线。
+- `Derived Context`：每次从 active path 派生 provider request view，不把 provider request 当成 session truth。
+- `Runtime State`：保存当前 run、abort、pending permission、queue 等短生命周期状态，默认不直接进入 session tree。
+- `Sidecar Store`：保存大工具输出、文件快照、MCP runtime state、subagent details 和 artifact blobs；session entry 只保存可追踪 reference。
+- `Diagnostics/Event Stream`：服务 CLI/TUI/RPC 展示，不等同于 durable session log。
 
 非目标：
 
