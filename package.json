@@ -1,12 +1,26 @@
 {
-  "name": "eve-agent",
+  "name": "eva-ai",
   "version": "0.0.1",
   "description": "a self evolve agent",
   "license": "MIT",
   "author": "0ximst1ll",
-  "type": "commonjs",
-  "main": "index.js",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "tsx src/cli.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.0",
+    "@google/genai": "^1.50.1",
+    "gpt-tokenizer": "^3.4.0",
+    "marked": "^18.0.3",
+    "openai": "^6.34.0",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
   }
 }
