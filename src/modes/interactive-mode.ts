@@ -40,7 +40,10 @@ function formatContextBuildStatus(latestBuild: ContextBuildSummary | null): stri
     const reason = latestBuild.projectContextSkippedReason
       ? `, reason=${latestBuild.projectContextSkippedReason}`
       : '';
-    return `not injected${reason}, provider request messages=${latestBuild.providerRequestMessageCount}, estimated provider request tokens=${latestBuild.providerRequestTokenEstimate.tokens}, ${budget}`;
+    const invokedSkills = latestBuild.skillInvocationInjected
+      ? `, invoked_skills=${latestBuild.invokedSkillNames.join(',')}`
+      : '';
+    return `not injected${reason}, provider request messages=${latestBuild.providerRequestMessageCount}, estimated provider request tokens=${latestBuild.providerRequestTokenEstimate.tokens}, ${budget}${invokedSkills}`;
   }
   const status = [
     `injected ${latestBuild.projectContextCount} resource(s)`,
@@ -50,6 +53,9 @@ function formatContextBuildStatus(latestBuild: ContextBuildSummary | null): stri
   ];
   if (latestBuild.projectContextBudgetMode === 'post_compact') {
     status.push(`budget=post_compact configured=${latestBuild.projectContextConfiguredMaxChars}`);
+  }
+  if (latestBuild.skillInvocationInjected) {
+    status.push(`invoked_skills=${latestBuild.invokedSkillNames.join(',')}`);
   }
   if (latestBuild.projectContextTruncated) status.push('truncated');
   return status.join(', ');
@@ -263,6 +269,31 @@ function formatBranchError(error: unknown, leafEntryId: string): string {
   return `Branch failed: ${message}`;
 }
 
+function parseSkillCommand(command: string, args: string[]): string | null {
+  if (command.toLowerCase().startsWith('/skill:')) {
+    return command.slice('/skill:'.length).trim() || null;
+  }
+  if (command.toLowerCase() === '/skill') {
+    return args[0]?.trim() || null;
+  }
+  return null;
+}
+
+function writeAvailableSkills(host: RuntimeHost, writeLine: (message?: string) => void): void {
+  const skills = host.runtime.services.resourceLoader.skills;
+  if (!skills.length) {
+    writeLine(`${Colors.YELLOW}No skills loaded.${Colors.RESET}\n`);
+    return;
+  }
+
+  writeLine(`\n${Colors.BRIGHT_CYAN}Available skills:${Colors.RESET}`);
+  for (const skill of skills) {
+    const hidden = skill.disableModelInvocation ? ' hidden' : '';
+    writeLine(`  ${skill.name}${hidden} - ${skill.description}`);
+  }
+  writeLine();
+}
+
 function parseSessionForkArgs(args: string[]): { sessionId?: string; leafEntryId?: string } {
   let sessionId: string | undefined;
   let leafEntryId: string | undefined;
@@ -464,6 +495,29 @@ export async function handleInteractiveCommand({
     } catch (e) {
       writeLine(`${Colors.RED}❌ Compact failed: ${(e as Error).message}${Colors.RESET}\n`);
     }
+    return 'continue';
+  }
+
+  if (cmd === '/skill' || cmd.startsWith('/skill:')) {
+    const skillName = parseSkillCommand(command, args);
+    if (!skillName) {
+      writeAvailableSkills(host, writeLine);
+      return 'continue';
+    }
+
+    const result = host.runtime.services.contextBuilder.queueSkillInvocation(skillName);
+    if (!result.ok) {
+      writeLine(`${Colors.RED}❌ Skill not found: ${result.skillName}${Colors.RESET}`);
+      if (result.availableSkills.length > 0) {
+        writeLine(`${Colors.DIM}Available skills: ${result.availableSkills.join(', ')}${Colors.RESET}\n`);
+      } else {
+        writeLine(`${Colors.DIM}No skills loaded.${Colors.RESET}\n`);
+      }
+      return 'continue';
+    }
+
+    writeLine(`${Colors.GREEN}✅ Queued skill for next request: ${result.skill.name}${Colors.RESET}`);
+    writeLine(`${Colors.DIM}${result.skill.path}${Colors.RESET}\n`);
     return 'continue';
   }
 

@@ -90,6 +90,40 @@ test('ContextBuilder appends skills metadata to the system message without injec
   assert.deepEqual(result.summary.skillNames, ['code-review']);
 });
 
+test('ContextBuilder injects queued skill invocation once without persisting it in input messages', () => {
+  const builder = createContextBuilder({ skills: [reviewSkill] });
+  const queued = builder.queueSkillInvocation('code-review');
+  assert.equal(queued.ok, true);
+
+  const durableMessages: Message[] = [
+    { role: 'system', content: 'system' },
+    { role: 'user', content: 'review this change' },
+  ];
+  const result = builder.build({
+    systemPrompt: 'system',
+    llmMessages: durableMessages,
+  });
+
+  assert.equal(result.messages.length, 3);
+  assert.equal(result.messages[1]?.role, 'user');
+  assert.match(result.messages[1]?.content ?? '', /<invoked_skills>/);
+  assert.match(result.messages[1]?.content ?? '', /name="code-review"/);
+  assert.match(result.messages[1]?.content ?? '', /Full skill body should not be injected by default/);
+  assert.equal(result.summary.skillInvocationInjected, true);
+  assert.equal(result.summary.skillInvocationCount, 1);
+  assert.deepEqual(result.summary.invokedSkillNames, ['code-review']);
+  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === 'skills_invoked'), true);
+  assert.deepEqual(durableMessages.map((message) => message.content), ['system', 'review this change']);
+
+  const nextResult = builder.build({
+    systemPrompt: 'system',
+    llmMessages: durableMessages,
+  });
+  assert.equal(nextResult.summary.skillInvocationInjected, false);
+  assert.equal(nextResult.messages.length, 2);
+  assert.doesNotMatch(nextResult.messages.map((message) => message.content).join('\n'), /<invoked_skills>/);
+});
+
 test('ContextBuilder returns a shallow message copy when project context is empty', () => {
   const builder = createContextBuilder();
   const durableMessages: Message[] = [

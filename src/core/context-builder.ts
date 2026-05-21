@@ -15,8 +15,13 @@ export interface ContextBuilder {
   readonly latestProviderRequestView: ProviderRequestView | null;
   /** @deprecated Use latestProviderRequestView.messages. */
   readonly latestRequestMessages: LlmMessage[] | null;
+  queueSkillInvocation(skillName: string): SkillInvocationResult;
   build(input: BuildProviderRequestViewInput): ProviderRequestView;
 }
+
+export type SkillInvocationResult =
+  | { ok: true; skill: SkillResource; pendingCount: number }
+  | { ok: false; reason: 'not_found'; skillName: string; availableSkills: string[] };
 
 export interface BuildProviderRequestViewInput {
   systemPrompt: string;
@@ -50,6 +55,9 @@ export interface ContextBuildSummary {
   skillsMetadataInjected: boolean;
   skillCount: number;
   skillNames: string[];
+  skillInvocationInjected: boolean;
+  skillInvocationCount: number;
+  invokedSkillNames: string[];
   inputLlmMessageCount: number;
   providerRequestMessageCount: number;
   /** @deprecated Use inputLlmMessageCount. */
@@ -120,6 +128,24 @@ function appendSkillsMetadata(systemPrompt: string, skills: SkillResource[]): st
   const formattedSkills = formatSkillsForSystemPrompt(skills);
   if (!formattedSkills) return systemPrompt;
   return `${systemPrompt.trimEnd()}\n\n${formattedSkills}`;
+}
+
+function formatSkillInvocations(skills: SkillResource[]): string | null {
+  if (skills.length === 0) return null;
+
+  const blocks = skills.map((skill) => [
+    `<skill name="${escapeXml(skill.name)}" location="${escapeXml(skill.path)}">`,
+    `References are relative to ${escapeXml(skill.baseDir)}.`,
+    '',
+    skill.content.trim(),
+    '</skill>',
+  ].join('\n'));
+
+  return [
+    '<invoked_skills>',
+    ...blocks,
+    '</invoked_skills>',
+  ].join('\n');
 }
 
 function formatProjectContext(resources: ProjectContextResource[], maxChars: number): FormattedProjectContext {
@@ -198,6 +224,7 @@ export function createContextBuilder({
 }: CreateContextBuilderOptions = {}): ContextBuilder {
   const resources = projectContext.slice();
   const skillResources = skills.slice();
+  let pendingSkillInvocations: SkillResource[] = [];
   const maxChars = normalizeBudget(projectContextMaxChars);
   let latestBuild: ContextBuildSummary | null = null;
   let latestProviderRequestView: ProviderRequestView | null = null;
@@ -211,6 +238,7 @@ export function createContextBuilder({
     providerRequestMessages,
     projectContextNames,
     projectContextSkippedReason,
+    invokedSkills,
   }: {
     injected: boolean;
     compactedContext: boolean;
@@ -220,6 +248,7 @@ export function createContextBuilder({
     providerRequestMessages: LlmMessage[];
     projectContextNames: string[];
     projectContextSkippedReason?: string;
+    invokedSkills: SkillResource[];
   }): ContextBuildSummary {
     const providerRequestTokenEstimate = estimateMessagesTokens(providerRequestMessages);
     const visibleSkills = getModelVisibleSkills(skillResources);
@@ -240,6 +269,9 @@ export function createContextBuilder({
       skillsMetadataInjected: visibleSkills.length > 0,
       skillCount: visibleSkills.length,
       skillNames: visibleSkills.map((skill) => skill.name),
+      skillInvocationInjected: invokedSkills.length > 0,
+      skillInvocationCount: invokedSkills.length,
+      invokedSkillNames: invokedSkills.map((skill) => skill.name),
       inputLlmMessageCount: llmMessages.length,
       providerRequestMessageCount: providerRequestMessages.length,
       inputMessageCount: llmMessages.length,
@@ -270,7 +302,24 @@ export function createContextBuilder({
     projectContext: resources,
     skills: skillResources,
     projectContextMaxChars: maxChars,
+    queueSkillInvocation(skillName: string): SkillInvocationResult {
+      const normalizedName = skillName.trim();
+      const skill = skillResources.find((candidate) => candidate.name === normalizedName);
+      if (!skill) {
+        return {
+          ok: false,
+          reason: 'not_found',
+          skillName: normalizedName,
+          availableSkills: skillResources.map((candidate) => candidate.name),
+        };
+      }
+
+      pendingSkillInvocations.push(skill);
+      return { ok: true, skill, pendingCount: pendingSkillInvocations.length };
+    },
     build({ systemPrompt, llmMessages }: BuildProviderRequestViewInput): ProviderRequestView {
+      const invokedSkills = pendingSkillInvocations;
+      pendingSkillInvocations = [];
       const systemPromptWithSkills = appendSkillsMetadata(systemPrompt, skillResources);
       const compactedContext = isCompactedContext(llmMessages);
       const effectiveMaxChars = compactedContext
@@ -280,8 +329,14 @@ export function createContextBuilder({
         ? 'post_compact'
         : 'normal';
       const formattedProjectContext = formatProjectContext(resources, effectiveMaxChars);
+      const formattedSkillInvocations = formatSkillInvocations(invokedSkills);
+      const skillInvocationMessage = formattedSkillInvocations
+        ? { role: 'user', content: formattedSkillInvocations } satisfies LlmMessage
+        : null;
       if (!formattedProjectContext.content) {
-        const providerRequestMessages = withSystemMessage(llmMessages, systemPromptWithSkills);
+        const providerRequestMessages = skillInvocationMessage
+          ? insertAfterSystemMessage(llmMessages, skillInvocationMessage, systemPromptWithSkills)
+          : withSystemMessage(llmMessages, systemPromptWithSkills);
         latestBuild = createSummary({
           injected: false,
           compactedContext,
@@ -291,37 +346,54 @@ export function createContextBuilder({
           providerRequestMessages,
           projectContextNames: [],
           projectContextSkippedReason: formattedProjectContext.skippedReason,
+          invokedSkills,
         });
-        latestProviderRequestView = {
-          messages: providerRequestMessages,
-          diagnostics: [createDiagnostic({
+        const diagnostics = [createDiagnostic({
+          source: 'context',
+          level: 'info',
+          code: formattedProjectContext.skippedReason === 'budget_exhausted'
+            ? 'project_context_skipped_budget'
+            : 'project_context_empty',
+          message: formattedProjectContext.skippedReason === 'budget_exhausted'
+            ? `Project context skipped because budget is too small (${maxChars} chars)`
+            : 'No project context injected',
+          details: {
+            budgetChars: effectiveMaxChars,
+            configuredBudgetChars: maxChars,
+            budgetMode,
+            compactedContext,
+            originalContentLength: formattedProjectContext.originalContentLength,
+            skippedReason: formattedProjectContext.skippedReason,
+          },
+        })];
+        if (invokedSkills.length > 0) {
+          diagnostics.push(createDiagnostic({
             source: 'context',
             level: 'info',
-            code: formattedProjectContext.skippedReason === 'budget_exhausted'
-              ? 'project_context_skipped_budget'
-              : 'project_context_empty',
-            message: formattedProjectContext.skippedReason === 'budget_exhausted'
-              ? `Project context skipped because budget is too small (${maxChars} chars)`
-              : 'No project context injected',
+            code: 'skills_invoked',
+            message: `Injected ${invokedSkills.length} invoked skill(s)`,
             details: {
-              budgetChars: effectiveMaxChars,
-              configuredBudgetChars: maxChars,
-              budgetMode,
-              compactedContext,
-              originalContentLength: formattedProjectContext.originalContentLength,
-              skippedReason: formattedProjectContext.skippedReason,
+              skills: invokedSkills.map((skill) => ({ name: skill.name, path: skill.path })),
             },
-          })],
+          }));
+        }
+        latestProviderRequestView = {
+          messages: providerRequestMessages,
+          diagnostics,
           summary: latestBuild,
         };
         return latestProviderRequestView;
       }
 
-      const providerRequestMessages = insertAfterSystemMessage(
+      let providerRequestMessages = insertAfterSystemMessage(
         llmMessages,
         { role: 'user', content: formattedProjectContext.content },
         systemPromptWithSkills,
       );
+      if (skillInvocationMessage) {
+        const [systemMessage, projectContextMessage, ...rest] = providerRequestMessages;
+        providerRequestMessages = [systemMessage, projectContextMessage, skillInvocationMessage, ...rest];
+      }
       latestBuild = createSummary({
         injected: true,
         compactedContext,
@@ -330,29 +402,42 @@ export function createContextBuilder({
         llmMessages,
         providerRequestMessages,
         projectContextNames: resources.map((resource) => resource.name),
+        invokedSkills,
       });
+      const diagnostics = [createDiagnostic({
+        source: 'context',
+        level: 'info',
+        code: formattedProjectContext.truncated ? 'project_context_truncated' : 'project_context_injected',
+        message: formattedProjectContext.truncated
+          ? `Injected ${resources.length} project context resource(s), truncated to ${formattedProjectContext.contentLength} chars`
+          : `Injected ${resources.length} project context resource(s)`,
+        details: {
+          count: resources.length,
+          names: resources.map((resource) => resource.name),
+          budgetChars: effectiveMaxChars,
+          configuredBudgetChars: maxChars,
+          budgetMode,
+          compactedContext,
+          contentLength: formattedProjectContext.contentLength,
+          originalContentLength: formattedProjectContext.originalContentLength,
+          truncated: formattedProjectContext.truncated,
+        },
+      })];
+      if (invokedSkills.length > 0) {
+        diagnostics.push(createDiagnostic({
+          source: 'context',
+          level: 'info',
+          code: 'skills_invoked',
+          message: `Injected ${invokedSkills.length} invoked skill(s)`,
+          details: {
+            skills: invokedSkills.map((skill) => ({ name: skill.name, path: skill.path })),
+          },
+        }));
+      }
 
       latestProviderRequestView = {
         messages: providerRequestMessages,
-        diagnostics: [createDiagnostic({
-          source: 'context',
-          level: 'info',
-          code: formattedProjectContext.truncated ? 'project_context_truncated' : 'project_context_injected',
-          message: formattedProjectContext.truncated
-            ? `Injected ${resources.length} project context resource(s), truncated to ${formattedProjectContext.contentLength} chars`
-            : `Injected ${resources.length} project context resource(s)`,
-          details: {
-            count: resources.length,
-            names: resources.map((resource) => resource.name),
-            budgetChars: effectiveMaxChars,
-            configuredBudgetChars: maxChars,
-            budgetMode,
-            compactedContext,
-            contentLength: formattedProjectContext.contentLength,
-            originalContentLength: formattedProjectContext.originalContentLength,
-            truncated: formattedProjectContext.truncated,
-          },
-        })],
+        diagnostics,
         summary: latestBuild,
       };
       return latestProviderRequestView;

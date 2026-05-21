@@ -152,6 +152,88 @@ test('/resume <id> switches to the requested runtime session through RuntimeHost
   assert.match(output.join('\n'), /Resumed session: .*Session-ABC/);
 });
 
+test('/skill:name queues a skill invocation for the next provider request', async () => {
+  const contextBuilder = createContextBuilder({
+    skills: [{
+      type: 'skill',
+      name: 'code-review',
+      description: 'Review code changes',
+      path: '/workspace/skills/review/SKILL.md',
+      baseDir: '/workspace/skills/review',
+      content: 'Review full instructions.',
+      disableModelInvocation: false,
+    }],
+  });
+  const output: string[] = [];
+  const host = {
+    runtime: {
+      services: {
+        contextBuilder,
+        resourceLoader: {
+          skills: contextBuilder.skills,
+        },
+      },
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/skill:code-review',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.match(output.join('\n'), /Queued skill for next request: code-review/);
+
+  const requestView = contextBuilder.build({
+    systemPrompt: 'system',
+    llmMessages: [{ role: 'system', content: 'system' }],
+  });
+  assert.equal(requestView.summary.skillInvocationInjected, true);
+  assert.match(requestView.messages.map((message) => message.content).join('\n'), /Review full instructions/);
+});
+
+test('/skill reports missing skills without queueing an invocation', async () => {
+  const contextBuilder = createContextBuilder({
+    skills: [{
+      type: 'skill',
+      name: 'code-review',
+      description: 'Review code changes',
+      path: '/workspace/skills/review/SKILL.md',
+      baseDir: '/workspace/skills/review',
+      content: 'Review full instructions.',
+      disableModelInvocation: false,
+    }],
+  });
+  const output: string[] = [];
+  const host = {
+    runtime: {
+      services: {
+        contextBuilder,
+        resourceLoader: {
+          skills: contextBuilder.skills,
+        },
+      },
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/skill missing',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.match(output.join('\n'), /Skill not found: missing/);
+  assert.match(output.join('\n'), /Available skills: code-review/);
+
+  const requestView = contextBuilder.build({
+    systemPrompt: 'system',
+    llmMessages: [{ role: 'system', content: 'system' }],
+  });
+  assert.equal(requestView.summary.skillInvocationInjected, false);
+});
+
 test('/resume <id> reports missing sessions without throwing', async () => {
   const output: string[] = [];
   const host = {

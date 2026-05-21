@@ -280,6 +280,10 @@ function createResourceContextMarker(providerRequestView: ProviderRequestView): 
       projectContextBudgetMode: summary.projectContextBudgetMode,
       projectContextTruncated: summary.projectContextTruncated,
       projectContextSkippedReason: summary.projectContextSkippedReason,
+      skillsMetadataInjected: summary.skillsMetadataInjected,
+      skillNames: summary.skillNames,
+      skillInvocationInjected: summary.skillInvocationInjected,
+      invokedSkillNames: summary.invokedSkillNames,
     },
   });
 }
