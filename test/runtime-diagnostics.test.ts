@@ -77,7 +77,7 @@ test('createRuntime returns unified diagnostics for config, provider, tools, ses
   }
 });
 
-test('createRuntime reports configured extension resources that are not loaded yet', async () => {
+test('createRuntime reports configured extension resources through resource diagnostics', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-diagnostics-'));
 
   try {
@@ -93,8 +93,8 @@ test('createRuntime reports configured extension resources that are not loaded y
       tools: [],
     });
 
-    assert.equal(findDiagnostic(runtime.diagnostics, 'skills_resource_not_loaded').level, 'warning');
-    assert.equal(findDiagnostic(runtime.diagnostics, 'mcp_resource_not_loaded').type, 'warning');
+    assert.equal(findDiagnostic(runtime.diagnostics, 'skills_dir_missing').level, 'warning');
+    assert.equal(findDiagnostic(runtime.diagnostics, 'mcp_requires_extension').type, 'warning');
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

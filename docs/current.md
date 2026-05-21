@@ -2,7 +2,7 @@
 
 ## 当前状态（2026-05-21）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork/clone schema、entry tree schema、entry-path rebuild、entry path state derivation、active entry path application、active state 读取边界、append path cache sync、create/reset/fork cache sync、parsed session application、session schema version / legacy 状态、durable leaf entry、指定 leaf entry fork/clone、entry-level branch、durable branch summary、branch operation summary、resume 主路径接入、JSONL import/export、session tree 展示、entry tree active path 展示、TUI entry selector、parent navigation 和 child navigation。
+Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、skills discovery + diagnostics 最小接入、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork/clone schema、entry tree schema、entry-path rebuild、entry path state derivation、active entry path application、active state 读取边界、append path cache sync、create/reset/fork cache sync、parsed session application、session schema version / legacy 状态、durable leaf entry、指定 leaf entry fork/clone、entry-level branch、durable branch summary、branch operation summary、resume 主路径接入、JSONL import/export、session tree 展示、entry tree active path 展示、TUI entry selector、parent navigation 和 child navigation。
 
 当前 M3 Headless RPC 已完成最小实现：`--rpc` 启动 JSONL stdin/stdout 协议，RPC mode 共享 `RuntimeHost` / `AgentSession` 路径，不新增第二套 agent 实现。RPC 真实 CLI 子进程 smoke test 已补齐，用于验证 stdout 协议纯净性。M3.1 RPC permission pending approval 最小闭环已实现：默认 fail-closed，`permission_mode=request` 时可通过 RPC event 和审批命令完成 tool permission 决策。
 
@@ -17,7 +17,8 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 - interactive mode 已实现 `/new`、`/resume`、`/resume <id>`、`/clear`、`/history`、`/stats`、`/diagnostics`、`/reload`、`/sessions`、`/entries`、`/parent`、`/children`、`/child` 和 `/branch`。
 - runtime diagnostics 已统一为 `source`、`level`、`code`、`message`、`details` 结构。
 - `RuntimeServices` 已承载 workspace 绑定的 config、provider、tools、session manager、resource loader、context builder 和 diagnostics。
-- `ResourceLoader` 已支持 system prompt 与 `AGENTS.md` project context 加载，并对尚未接入的 skills、MCP 返回 diagnostics。
+- `ResourceLoader` 已支持 system prompt、`AGENTS.md` project context 和配置目录 skills 加载，并对 skills discovery、MCP extension boundary 返回 diagnostics。
+- skills 当前作为 resource 暴露在 `runtime.services.resourceLoader.skills`，支持 `SKILL.md` 递归发现、配置目录根级 `.md` skill、`name` / `description` frontmatter 校验、`disable-model-invocation` metadata 和重复 name 告警。
 - `ContextBuilder` 已收敛为 provider request view builder，并支持 project context 字符预算、截断、跳过原因、post-compact 保守资源预算和 token estimate。
 - `TokenCounter` 已支持 provider/local 计数边界，Anthropic 和 Gemini provider 优先使用 countTokens API，失败或不支持时回退本地估算。
 - `ContextManager` 已作为最小状态聚合器，汇总 active messages、step guard、compaction、usage、project context metadata、token count source、可选 context usage percent、compaction recommendation 和 permission pending 概要。
@@ -79,11 +80,13 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 
 ## 进行中
 
-- M4.x Entry Tree First 后续：durable leaf entry 最小闭环已完成；repo/storage/session 分层和 session log + derived context + runtime state + sidecar 的长期设计已补入 planning。
+- MCP/Skills/Extensions 前置骨架：skills discovery + diagnostics 最小接入已完成；下一步是决定 skills metadata 如何以 pi-mono 风格进入 system prompt，以及 `/skill:name` 全文按需展开边界。
 
 ## 下一步
 
-- 后续可以进入 MCP/Skills/Extensions 前置骨架；SessionManager repo/storage/session 实体拆分保留为后续结构收敛任务。
+- 接入 skills metadata 的 system prompt 展示，但只注入 `name` / `description` / `location`，不把 skill 全文默认塞进上下文。
+- 后续实现 `/skill:name` 或同等显式 invocation，把 skill 全文按需注入 transient context。
+- MCP 继续保持 extension boundary，不进入核心 runtime 生命周期。
 
 ## 后续重点计划
 
@@ -99,11 +102,12 @@ Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主
 ## 已知问题
 
 - `logger.ts` 仍是占位文件。
-- `ResourceLoader` 仍是最小骨架，尚未支持自动监听或更细粒度 reload。
+- `ResourceLoader` 仍是最小骨架，尚未支持自动监听、package/extension source metadata、prompt/theme resources 或更细粒度 reload。
 - 运行期 `resource_context` / `compaction_summary` internal marker 仍默认不持久化；只有明确需要跨 resume 恢复的 harness metadata 才应写入 durable `internal` entry。
 - `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。
 - manual `/compact` 仍是最小版：没有工具结果 micro-compaction。
-- skills、MCP 相关配置字段已解析，但还没有接入 tool/resource loader。
+- skills 已有 resource discovery 最小接入，但尚未注入 system prompt，也没有 `/skill:name` 全文按需展开。
+- MCP 相关配置字段已解析，但当前只报告 extension boundary diagnostic，尚未接入 MCP server lifecycle。
 - 当前 `max_steps` 字段名仍偏模糊，后续应迁移为 `max_steps_per_run` 或同类命名。
 - RPC mode 仍是最小闭环，尚未支持完整 ACP 兼容层。
 - 当前只支持当前 session 文件内的指定 leaf entry path fork/clone、最小 entry-level branch、durable leaf entry、durable branch summary、branch operation summary、entry path state derivation/application、active state 读取边界、entry tree active path 展示、TUI entry selector、session-level parent navigation 和 direct child navigation；`SessionManager` 仍维护 active state cache，entry-tree-first 内部主状态完全收敛、跨 session parent/child entry graph 与完整 child branch navigation 还未实现。
