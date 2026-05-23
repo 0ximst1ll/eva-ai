@@ -24,7 +24,7 @@ export interface SessionStartEntry {
   sessionId: string;
   workspaceDir: string;
   createdAt: number;
-  schemaVersion?: number;
+  schemaVersion: number;
   parentSessionId?: string;
   rootSessionId?: string;
   forkedFromMessageIndex?: number;
@@ -34,8 +34,8 @@ export interface MessageEntry {
   type: 'message';
   sessionId: string;
   timestamp: number;
-  entryId?: string;
-  parentEntryId?: string | null;
+  entryId: string;
+  parentEntryId: string | null;
   message: Message;
 }
 
@@ -43,8 +43,8 @@ export interface CompactionEntry {
   type: 'compaction';
   sessionId: string;
   timestamp: number;
-  entryId?: string;
-  parentEntryId?: string | null;
+  entryId: string;
+  parentEntryId: string | null;
   summary: string;
   firstKeptEntryId?: string;
   firstKeptMessageIndex: number;
@@ -59,8 +59,8 @@ export interface UsageEntry {
   type: 'usage';
   sessionId: string;
   timestamp: number;
-  entryId?: string;
-  parentEntryId?: string | null;
+  entryId: string;
+  parentEntryId: string | null;
   source: SessionUsageSource;
   usage: TokenUsage;
 }
@@ -69,8 +69,8 @@ export interface InternalEntry {
   type: 'internal';
   sessionId: string;
   timestamp: number;
-  entryId?: string;
-  parentEntryId?: string | null;
+  entryId: string;
+  parentEntryId: string | null;
   kind: string;
   content?: string;
   metadata?: Record<string, unknown>;
@@ -80,8 +80,8 @@ export interface BranchSummaryEntry {
   type: 'branch_summary';
   sessionId: string;
   timestamp: number;
-  entryId?: string;
-  parentEntryId?: string | null;
+  entryId: string;
+  parentEntryId: string | null;
   fromEntryId: string | null;
   toEntryId: string;
   pathEntryCount: number;
@@ -94,8 +94,8 @@ export interface LeafEntry {
   type: 'leaf';
   sessionId: string;
   timestamp: number;
-  entryId?: string;
-  parentEntryId?: string | null;
+  entryId: string;
+  parentEntryId: string | null;
   targetEntryId: string | null;
 }
 
@@ -218,8 +218,7 @@ export interface SessionLineageInfo {
 }
 
 export interface SessionFormatInfo {
-  schemaVersion?: number;
-  isLegacy: boolean;
+  schemaVersion: number;
 }
 
 export interface SessionExportResult {
@@ -338,24 +337,16 @@ export class SessionManager {
       throw new Error(`Session not found: ${sourceSessionId}`);
     }
 
-    const sourceState = this.buildActiveState(sourceSessionId);
-    if (!sourceState.messages.length) {
-      throw new Error(`Session not found: ${sourceSessionId}`);
-    }
-
     const id = sessionId ?? randomUUID();
     const now = Date.now();
     const sourceEntryPath = this.getEntryPath(sourceSessionId, leafEntryId);
-    if (leafEntryId && !sourceEntryPath.length) {
-      throw new Error(`Entry not found in session ${sourceSessionId}: ${leafEntryId}`);
+    if (!sourceEntryPath.length) {
+      if (leafEntryId) {
+        throw new Error(`Entry not found in session ${sourceSessionId}: ${leafEntryId}`);
+      }
+      throw new Error(`Session has no active entry path: ${sourceSessionId}`);
     }
-    const forkedPathEntries = sourceEntryPath.length
-      ? sourceEntryPath.map((entry) => copySessionPathEntryForSession(entry, id))
-      : createLinearMessagePathEntries({
-        sessionId: id,
-        messages: sourceState.messages,
-        timestamp: now,
-      });
+    const forkedPathEntries = sourceEntryPath.map((entry) => copySessionPathEntryForSession(entry, id));
     const forkedState = buildSessionStateFromEntryPath(forkedPathEntries);
     if (!forkedState.messages.length) {
       throw new Error(`Session has no messages to fork: ${sourceSessionId}`);
@@ -520,7 +511,7 @@ export class SessionManager {
   }
 
   getSessionFormatInfo(sessionId: string): SessionFormatInfo {
-    return copySessionFormatInfo(this.sessionFormats.get(sessionId) ?? createLegacySessionFormatInfo());
+    return copySessionFormatInfo(this.sessionFormats.get(sessionId) ?? createCurrentSessionFormatInfo());
   }
 
   getEntryTreeInfo(sessionId: string): SessionEntryTreeInfo {
@@ -774,6 +765,7 @@ export class SessionManager {
     });
     const entry: SessionInternalEntry = {
       timestamp: now,
+      ...entryTreeFields(entryNode),
       kind: normalizedKind,
       content,
       metadata: metadata ? { ...metadata } : undefined,
@@ -1074,19 +1066,7 @@ export class SessionManager {
     ];
 
     const pathEntries = this.sessionPathEntries.get(sessionId) ?? [];
-    if (pathEntries.length) {
-      lines.push(...pathEntries.map((entry) => JSON.stringify(entry)));
-    } else {
-      const timestamp = metadata?.updatedAt ?? createdAt;
-      for (const message of this.sessions.get(sessionId) ?? []) {
-        lines.push(JSON.stringify({
-          type: 'message',
-          sessionId,
-          timestamp,
-          message,
-        } satisfies MessageEntry));
-      }
-    }
+    lines.push(...pathEntries.map((entry) => JSON.stringify(entry)));
 
     return `${lines.join('\n')}\n`;
   }
@@ -1204,17 +1184,7 @@ export class SessionManager {
   }
 
   private buildActiveState(sessionId: string): SessionEntryPathState {
-    const entryPath = this.getEntryPath(sessionId);
-    if (entryPath.length) {
-      return buildSessionStateFromEntryPath(entryPath);
-    }
-
-    return {
-      messages: (this.sessions.get(sessionId) ?? []).map(copyMessage),
-      compaction: copyCompactionInfo(this.sessionCompactions.get(sessionId) ?? { compacted: false }),
-      usage: copyUsageInfo(this.sessionUsage.get(sessionId) ?? createEmptyUsageInfo()),
-      internalEntries: (this.sessionInternalEntries.get(sessionId) ?? []).map(copyInternalEntry),
-    };
+    return buildSessionStateFromEntryPath(this.getEntryPath(sessionId));
   }
 
   private async markLatestSession(sessionId: string): Promise<void> {
@@ -1229,17 +1199,15 @@ export class SessionManager {
     content: string,
     sessionId: string,
   ): ParsedSessionLog {
-    const messages: Message[] = [];
     let createdAt: number | undefined;
     let updatedAt = 0;
-    let compaction: SessionCompactionInfo = { compacted: false };
-    let usage = createEmptyUsageInfo();
-    const internalEntries: SessionInternalEntry[] = [];
     let lineage = createLineageInfo(sessionId);
     const entryTree: SessionEntryTreeNode[] = [];
     const pathEntries: SessionPathEntry[] = [];
     let activeEntryId: string | undefined;
-    let format = createLegacySessionFormatInfo();
+    let format = createCurrentSessionFormatInfo();
+    let hasCurrentSessionStart = false;
+    let messageIndex = 0;
 
     for (const line of content.split('\n')) {
       const trimmed = line.trim();
@@ -1248,6 +1216,8 @@ export class SessionManager {
         const entry = JSON.parse(trimmed) as SessionEntry;
         if (entry.sessionId !== sessionId) continue;
         if (entry.type === 'session_start') {
+          if (entry.schemaVersion !== CURRENT_SESSION_SCHEMA_VERSION) continue;
+          hasCurrentSessionStart = true;
           createdAt = entry.createdAt;
           updatedAt = Math.max(updatedAt, entry.createdAt);
           format = readSessionFormatInfo(entry);
@@ -1258,111 +1228,85 @@ export class SessionManager {
           });
           continue;
         }
+        if (!hasCurrentSessionStart) continue;
         if (entry.type === 'message') {
           const entryNode = readEntryTreeNode(entry, {
-            messageIndex: messages.length,
+            messageIndex,
           });
-          if (entryNode) {
-            entryTree.push(entryNode);
-            pathEntries.push(copySessionPathEntry({
-              ...entry,
-              entryId: entryNode.entryId,
-              parentEntryId: entryNode.parentEntryId,
-            }));
-            activeEntryId = entryNode.entryId;
-          }
-          messages.push(entry.message);
+          if (!entryNode) continue;
+          messageIndex += 1;
+          entryTree.push(entryNode);
+          pathEntries.push(copySessionPathEntry({
+            ...entry,
+            entryId: entryNode.entryId,
+            parentEntryId: entryNode.parentEntryId,
+          }));
+          activeEntryId = entryNode.entryId;
           updatedAt = Math.max(updatedAt, entry.timestamp);
           continue;
         }
         if (entry.type === 'compaction') {
           const entryNode = readEntryTreeNode(entry);
-          if (entryNode) {
-            entryTree.push(entryNode);
-            pathEntries.push(copySessionPathEntry({
-              ...entry,
-              entryId: entryNode.entryId,
-              parentEntryId: entryNode.parentEntryId,
-            }));
-            activeEntryId = entryNode.entryId;
-          }
-          messages.splice(
-            0,
-            messages.length,
-            ...rebuildCompactedMessages({
-              messages,
-              summary: entry.summary,
-              firstKeptMessageIndex: entry.firstKeptMessageIndex,
-            }),
-          );
+          if (!entryNode) continue;
+          entryTree.push(entryNode);
+          pathEntries.push(copySessionPathEntry({
+            ...entry,
+            entryId: entryNode.entryId,
+            parentEntryId: entryNode.parentEntryId,
+          }));
+          activeEntryId = entryNode.entryId;
           updatedAt = Math.max(updatedAt, entry.timestamp);
-          compaction = {
-            compacted: true,
-            timestamp: entry.timestamp,
-            summaryLength: entry.summary.length,
-            firstKeptEntryId: entry.firstKeptEntryId,
-            firstKeptMessageIndex: entry.firstKeptMessageIndex,
-            messagesBefore: entry.messagesBefore,
-            messagesAfter: entry.messagesAfter,
-            customInstructions: entry.customInstructions,
-          };
           continue;
         }
         if (entry.type === 'usage') {
           const entryNode = readEntryTreeNode(entry);
-          if (entryNode) {
-            entryTree.push(entryNode);
-            pathEntries.push(copySessionPathEntry({
-              ...entry,
-              entryId: entryNode.entryId,
-              parentEntryId: entryNode.parentEntryId,
-            }));
-            activeEntryId = entryNode.entryId;
-          }
+          if (!entryNode) continue;
+          entryTree.push(entryNode);
+          pathEntries.push(copySessionPathEntry({
+            ...entry,
+            entryId: entryNode.entryId,
+            parentEntryId: entryNode.parentEntryId,
+          }));
+          activeEntryId = entryNode.entryId;
           updatedAt = Math.max(updatedAt, entry.timestamp);
-          usage = addUsage(usage, entry.usage, entry.timestamp, entry.source);
           continue;
         }
         if (entry.type === 'internal') {
           const entryNode = readEntryTreeNode(entry, { kind: entry.kind });
-          if (entryNode) {
-            entryTree.push(entryNode);
-            pathEntries.push(copySessionPathEntry({
-              ...entry,
-              entryId: entryNode.entryId,
-              parentEntryId: entryNode.parentEntryId,
-            }));
-            activeEntryId = entryNode.entryId;
-          }
+          if (!entryNode) continue;
+          entryTree.push(entryNode);
+          pathEntries.push(copySessionPathEntry({
+            ...entry,
+            entryId: entryNode.entryId,
+            parentEntryId: entryNode.parentEntryId,
+          }));
+          activeEntryId = entryNode.entryId;
           updatedAt = Math.max(updatedAt, entry.timestamp);
-          internalEntries.push(copyInternalEntry(entry));
           continue;
         }
         if (entry.type === 'branch_summary') {
           const entryNode = readEntryTreeNode(entry);
-          if (entryNode) {
-            entryTree.push(entryNode);
-            pathEntries.push(copySessionPathEntry({
-              ...entry,
-              entryId: entryNode.entryId,
-              parentEntryId: entryNode.parentEntryId,
-            }));
-            activeEntryId = entryNode.entryId;
-          }
+          if (!entryNode) continue;
+          entryTree.push(entryNode);
+          pathEntries.push(copySessionPathEntry({
+            ...entry,
+            entryId: entryNode.entryId,
+            parentEntryId: entryNode.parentEntryId,
+          }));
+          activeEntryId = entryNode.entryId;
           updatedAt = Math.max(updatedAt, entry.timestamp);
           continue;
         }
         if (entry.type === 'leaf') {
           const entryNode = readEntryTreeNode(entry);
-          if (entryNode) {
-            entryTree.push(entryNode);
-            pathEntries.push(copySessionPathEntry({
-              ...entry,
-              entryId: entryNode.entryId,
-              parentEntryId: entryNode.parentEntryId,
-            }));
-            activeEntryId = entry.targetEntryId ?? undefined;
-          }
+          if (!entryNode) continue;
+          entryTree.push(entryNode);
+          pathEntries.push(copySessionPathEntry({
+            ...entry,
+            entryId: entryNode.entryId,
+            parentEntryId: entryNode.parentEntryId,
+          }));
+          activeEntryId = entry.targetEntryId ?? undefined;
           updatedAt = Math.max(updatedAt, entry.timestamp);
         }
       } catch {
@@ -1374,14 +1318,7 @@ export class SessionManager {
     const activeState = buildSessionStateFromEntryPath(activePathEntries);
 
     return {
-      state: activeState.messages.length
-        ? activeState
-        : {
-          messages,
-          compaction,
-          usage,
-          internalEntries,
-        },
+      state: activeState,
       createdAt,
       updatedAt,
       lineage,
@@ -1419,40 +1356,6 @@ function createEntryTreeNode({
   if (typeof messageIndex === 'number') entryNode.messageIndex = messageIndex;
   if (kind) entryNode.kind = kind;
   return entryNode;
-}
-
-function createLinearMessageEntryTree(messageCount: number, timestamp: number): SessionEntryTreeNode[] {
-  const entries: SessionEntryTreeNode[] = [];
-  let parentEntryId: string | null = null;
-  for (let index = 0; index < messageCount; index += 1) {
-    const entryNode = createEntryTreeNode({
-      parentEntryId,
-      type: 'message',
-      timestamp,
-      messageIndex: index,
-    });
-    entries.push(entryNode);
-    parentEntryId = entryNode.entryId;
-  }
-  return entries;
-}
-
-function createLinearMessagePathEntries({
-  sessionId,
-  messages,
-  timestamp,
-}: {
-  sessionId: string;
-  messages: Message[];
-  timestamp: number;
-}): SessionPathEntry[] {
-  const entryNodes = createLinearMessageEntryTree(messages.length, timestamp);
-  return entryNodes.map((entryNode, index) => createMessagePathEntry({
-    sessionId,
-    timestamp,
-    entryNode,
-    message: messages[index],
-  }));
 }
 
 function createMessagePathEntry({
@@ -1513,10 +1416,11 @@ function readEntryTreeNode(
     kind?: string;
   } = {},
 ): SessionEntryTreeNode | null {
-  if (!entry.entryId) return null;
+  if (typeof entry.entryId !== 'string' || !entry.entryId) return null;
+  if (entry.parentEntryId !== null && typeof entry.parentEntryId !== 'string') return null;
   const entryNode: SessionEntryTreeNode = {
     entryId: entry.entryId,
-    parentEntryId: entry.parentEntryId ?? null,
+    parentEntryId: entry.parentEntryId,
     type: entry.type,
     timestamp: entry.timestamp,
   };
@@ -1793,6 +1697,8 @@ function rebuildMessagesFromEntryPath(entryPath: SessionPathEntry[]): Message[] 
 function copyInternalEntry(entry: SessionInternalEntry): SessionInternalEntry {
   return {
     timestamp: entry.timestamp,
+    entryId: entry.entryId,
+    parentEntryId: entry.parentEntryId,
     kind: entry.kind,
     content: entry.content,
     metadata: entry.metadata ? { ...entry.metadata } : undefined,
@@ -1811,32 +1717,19 @@ function copySessionEntryPathState(state: SessionEntryPathState): SessionEntryPa
 function createCurrentSessionFormatInfo(): SessionFormatInfo {
   return {
     schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
-    isLegacy: false,
-  };
-}
-
-function createLegacySessionFormatInfo(): SessionFormatInfo {
-  return {
-    isLegacy: true,
   };
 }
 
 function readSessionFormatInfo(entry: SessionStartEntry): SessionFormatInfo {
-  if (typeof entry.schemaVersion !== 'number') {
-    return createLegacySessionFormatInfo();
-  }
   return {
     schemaVersion: entry.schemaVersion,
-    isLegacy: entry.schemaVersion < CURRENT_SESSION_SCHEMA_VERSION,
   };
 }
 
 function copySessionFormatInfo(info: SessionFormatInfo): SessionFormatInfo {
-  const copy: SessionFormatInfo = {
-    isLegacy: info.isLegacy,
+  return {
+    schemaVersion: info.schemaVersion,
   };
-  if (typeof info.schemaVersion === 'number') copy.schemaVersion = info.schemaVersion;
-  return copy;
 }
 
 function copyCompactionInfo(info: SessionCompactionInfo): SessionCompactionInfo {

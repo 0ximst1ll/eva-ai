@@ -2,115 +2,43 @@
 
 ## 当前状态（2026-05-23）
 
-Eva AI 当前已完成 M0 基线稳定、M2 RuntimeServices / ResourceLoader 主要骨架、skills discovery + diagnostics 最小接入、skills source metadata 最小边界、skills source candidate merge/dedupe 骨架、skills metadata system prompt 注入、`/skill:name` explicit invocation 最小闭环、skills/resource diagnostics 展示补齐、manual `/compact` 最小闭环、Context diagnostics 最小展示、assistant usage 持久化最小闭环、最小 `ContextManager` diagnostics 聚合、TokenCounter provider/local 计数边界、Anthropic/Gemini countTokens 最小接入、可选 context usage percent、auto compaction 最小执行闭环、prompt-too-long recovery 最小闭环、post-compact resource budget 最小闭环、Provider / Observability 最小闭环、M2.x Agent Core Alignment 最小闭环、durable `internal` session entry、permission pending durable diagnostics、自建最小 TUI 框架与 `tui-mode.ts`、TUI 稳定化第一轮、M3 Headless RPC 最小闭环，以及 M4 Session Tree 最小 lineage/fork/clone schema、entry tree schema、entry-path rebuild、entry path state derivation、active entry path application、active state 读取边界、append path cache sync、create/reset/fork cache sync、parsed session application、session schema version / legacy 状态、durable leaf entry、指定 leaf entry fork/clone、entry-level branch、durable branch summary、branch operation summary、resume 主路径接入、JSONL import/export、session tree 展示、entry tree active path 展示、TUI entry selector、parent navigation 和 child navigation。
-
-当前 M3 Headless RPC 已完成最小实现：`--rpc` 启动 JSONL stdin/stdout 协议，RPC mode 共享 `RuntimeHost` / `AgentSession` 路径，不新增第二套 agent 实现。RPC 真实 CLI 子进程 smoke test 已补齐，用于验证 stdout 协议纯净性。M3.1 RPC permission pending approval 最小闭环已实现：默认 fail-closed，`permission_mode=request` 时可通过 RPC event 和审批命令完成 tool permission 决策。
-
-当前 M4 已完成最小闭环：`SessionManager` 支持向后兼容的 lineage metadata、`forkSession()`、`cloneSession()`、`branchSession()`、`exportSession()`、`importSession()`、`listSessionTree()`、`listChildSessions()`、`listEntryTree()` 和旧 JSONL root fallback；RuntimeHost 暴露 `forkSession()`、`cloneSession()`、`branchSession()`、`exportSession()`、`importSession()`、`switchToParentSession()`、`listChildSessions()` 和 `switchToChildSession()`；interactive/TUI 可通过 `/fork [id] [--entry <entryId>]` 创建当前 session 分支，也可通过 `/clone [id] [--entry <entryId>]` 按 `pi-mono` current-leaf fork 语义克隆当前 session；interactive `/branch <entryId>` 可在同 session 文件内移动 active leaf、写入 durable `leaf` entry 和 `branch_summary` entry 并显示 branch operation summary，常见 entry 错误会提示使用 `/entries`；RPC 已支持 `fork_session` / `clone_session` / `branch_session`，其中 `branch_session` response 会包含 branch summary；interactive/TUI 可通过 `/export [path]`、`/import <path>` 做 JSONL import/export；interactive `/sessions` 已展示 session tree，`/parent` 可切换到当前 session 的 parent session，`/children` 可列出 direct child sessions，`/child [id]` 可切换到 direct child session；interactive `/entries` 已展示当前 session 文件内的 entry tree，包含 entry id、parent、type、role、preview、active leaf marker 和 active path marker；TUI `/entries` 已提供 entry selector，选择 entry 后复用 `/branch <entryId>` 路径切换 active leaf 并写入 durable `leaf` / `branch_summary`；新写入的 session entries 已带有 `entryId` / `parentEntryId`；`SessionManager.getEntryPath()` 可从 active entry leaf 回溯 path entries；`buildSessionStateFromEntryPath()` 已作为 entry path 派生边界；`applyActiveEntryPath()` 已作为 `SessionManager` 内部 active leaf 应用边界；`SessionManager.getActiveState()` 已作为 active state 读取边界，`getMessages()`、`getCompactionInfo()`、`getUsageInfo()` 和 `getInternalEntries()` 会优先从 active entry path 派生并对旧 flat session 回退；append message/usage/internal/compaction 路径已先写 entry/path entry，再通过 active entry path 派生同步运行期 cache；`SessionManager.forkSession()` / `cloneSession()` 已优先复制指定 leaf entry path 到新 session；`SessionManager.branchSession()` 已从指定 leaf path 派生当前 active state，并返回 path/message/target/summary entry 摘要；`SessionContextRebuilder` 已通过 `getActiveState()` 使用同一 active state view；`SessionManager.loadSession()` / `importSession()` 已在主加载路径中使用 active entry path 重建 active messages、compaction、usage 和 internal entries，并可重放 `leaf` entry 恢复 active leaf。
-
 ## 已完成
 
 - interactive、print、TUI 和 RPC modes 已共享 `RuntimeHost` 与同一套 runtime/session 路径。
-- 已实现 `RuntimeHost` 的 `newSession()`、`resumeLatestSession()`、`switchSession()` 和 `reloadResources()`。
-- 当前已有 JSONL session persistence、builtin file/search/bash tools、tool registry、高风险工具 confirmation hook、最小 permission pending 语义、abort 和 queue 基础能力。
-- 已建立 `test` 和 `typecheck` script，并覆盖 retry、SessionManager、agent-loop、RuntimeHost、abort、queue 等核心路径。
-- interactive mode 已实现 `/new`、`/resume`、`/resume <id>`、`/clear`、`/history`、`/stats`、`/diagnostics`、`/reload`、`/sessions`、`/entries`、`/parent`、`/children`、`/child` 和 `/branch`。
-- runtime diagnostics 已统一为 `source`、`level`、`code`、`message`、`details` 结构。
-- `RuntimeServices` 已承载 workspace 绑定的 config、provider、tools、session manager、resource loader、context builder 和 diagnostics。
-- `ResourceLoader` 已支持 system prompt、`AGENTS.md` project context 和配置目录 skills 加载，并对 skills discovery、source metadata、MCP extension boundary 返回 diagnostics。
-- skills 当前作为 resource 暴露在 `runtime.services.resourceLoader.skills`，支持 `SKILL.md` 递归发现、配置目录根级 `.md` skill、`name` / `description` frontmatter 校验、`disable-model-invocation` metadata、`sourceInfo` 和 source priority merge/dedupe。
-- `ContextBuilder` 已收敛为 provider request view builder，并支持 skills metadata system prompt 注入、queued skill invocation 一次性全文注入、project context 字符预算、截断、跳过原因、post-compact 保守资源预算和 token estimate。
-- `TokenCounter` 已支持 provider/local 计数边界，Anthropic 和 Gemini provider 优先使用 countTokens API，失败或不支持时回退本地估算。
-- `ContextManager` 已作为最小状态聚合器，汇总 active messages、step guard、compaction、usage、project context metadata、skills visible/hidden/latest invoked metadata、token count source、可选 context usage percent、compaction recommendation 和 permission pending 概要。
-- `AgentSession.run()` 已支持基于 `reserve_reached` recommendation 的 auto compaction 最小执行闭环。
-- `AgentSession.run()` 已支持 prompt-too-long recovery 最小闭环：识别 context/prompt overflow 错误，执行一次 compact-and-retry。
-- interactive mode 的 `/stats` 和 `/diagnostics` 已通过 `ContextManager` 展示 project context、token estimate、context usage percent、count source、compaction recommendation 和最近一次 build 状态。
-- interactive/TUI 共享 command handler 的 `/stats`、`/diagnostics` 和 `/reload` 已展示 skills/resource 摘要，包括 loaded/visible/hidden 数量和最近一次 invoked skills。
-- interactive/TUI slash command 已通过共享 command handler 支持 `/skill:name` 和 `/skill name`，会把 skill 全文排入下一次 provider request 的 transient context，不写入 durable session history；`/skill` 无参数会列出当前加载的 skills。
-- interactive mode 已实现 `/reload` 和 `/compact [custom instructions]`。
-- `SessionManager` 已支持 flat JSONL 兼容的 `message`、`compaction`、`usage` 和 durable `internal` entry。
+- `RuntimeServices` 已承载 workspace 绑定的 config、provider、tools、session manager、resource loader、context builder、context manager、token counter 和 diagnostics。
+- `ResourceLoader` 已支持 system prompt、`AGENTS.md` project context、配置目录 skills discovery、skills source metadata、source candidate merge/dedupe、skills metadata system prompt 注入、explicit skill invocation 和 skills/resource diagnostics 展示。
+- `ContextBuilder` 已收敛为 provider request view builder；`ContextManager` 已提供 token estimate、usage percent、compaction recommendation、skills/resource 和 permission pending diagnostics 的最小聚合。
+- `TokenCounter` 已支持 provider/local 计数边界，Anthropic 和 Gemini provider 优先使用 countTokens API。
+- manual `/compact`、auto compaction 最小执行闭环、prompt-too-long compact-and-retry、post-compact resource budget 最小闭环已实现。
 - `AgentMessage` / `LlmMessage` 最小类型边界已引入，agent-loop 会在 provider call 前执行 `transformContext()` 和 `convertToLlm()`。
-- internal `AgentMessage` 最小类型已可存在于 agent-loop working history，默认不会发送给 provider，也不会写入当前 flat JSONL message log。
-- 每次 `ContextBuilder` 构造 provider request view 后，agent-loop 会追加 `resource_context` internal marker。
-- `AgentSession.compact()` 成功后会向 Agent working history 追加 `compaction_summary` internal marker。
-- tool governance 在 permission pending 时会写入 `permission_pending` durable internal entry，`ContextManager` 会聚合 pending 数量和最近一条记录，interactive `/diagnostics` 会显示 pending 概要。
-- 自建最小 TUI 框架 `src/tui/`：差量渲染引擎、`Component` / `Container`、terminal 输入解析、文本/markdown/input/footer/spinner/select-list 等基础组件。
-- 新增 `tui-mode.ts`，布局为 header、chat、status、input、footer，复用 slash command 处理和 session lifecycle。
-- TUI mode 支持 tool confirmation、Ctrl-C abort/exit、`/sessions` 选择器、`/entries` entry selector 和 streaming event 渲染。
-- CLI 在无 task 且 stdin/stdout 都是 TTY 时默认启动 TUI；`--no-tui` 或非 TTY 环境会回退 readline interactive mode。
-- TUI mode 已改为通过 promise resolve 结束，不再直接 `process.exit()`。
-- `ProcessTerminal.destroy()` 会移除 stdin/stdout process listeners，避免重复创建 TUI 时泄漏监听器。
-- TUI 默认事件展示已收敛：忽略 thinking delta，只显示 assistant content、tool call 摘要、tool result 摘要和 error message。
-- `test/tui.test.ts` 已覆盖 `StdinBuffer`、text utils、`Input`、`MultilineInput` 和 `TUI` renderer 基础行为。
-- `src/modes/rpc-mode.ts` 已实现 JSONL RPC envelope：`response`、`event` 和 `error`。
-- CLI 已支持 `--rpc`，并在 RPC 模式下保持 stdout 只输出 JSONL 协议内容。
-- RPC 已支持 `prompt`、`get_state`、`abort`、`new_session`、`resume_session`、`fork_session`、`clone_session` 和 `branch_session`；`branch_session` response 会返回 branch operation summary。
-- RPC `prompt` 会输出包裹后的 `AgentSessionEvent`，结束后返回 final response 和 state。
-- RPC 允许 active prompt 期间处理 `abort` 和 `get_state`；其他 session 变更命令会返回 `run_in_progress`。
-- RPC CLI smoke test 已覆盖真实 `src/cli.ts --rpc` 子进程、非法 JSON、`get_state` 和 stdout JSONL envelope 纯净性。
-- M3.1 RPC permission pending 设计已明确：默认 fail-closed，可通过 request 模式输出 `permission_pending` event，并通过 `approve_permission` / `deny_permission` 命令解析审批结果。
-- RPC `permission_mode=request` 已支持 `permission_pending` event、`approve_permission` / `deny_permission` 命令、pending timeout、abort cancel 和 durable `permission_pending` internal entry。
-- RPC `get_state` 已包含 pending permission 摘要。
-- RPC permission tests 已覆盖 approve、deny、timeout 和 pending state summary。
-- `SessionManager` 的 `session_start` 已支持 `parentSessionId`、`rootSessionId` 和 `forkedFromMessageIndex`。
-- `SessionManager` 的新 `session_start` 已写入当前 `schemaVersion`；旧 JSONL 无 version 时仍可读取，并通过 `getSessionFormatInfo()` 标记 legacy 状态。
-- 旧 JSONL session 没有 lineage metadata 时会被视为 root session。
-- `SessionManager.forkSession()` 会优先复制指定 leaf entry path 到新 session，并写入 lineage metadata；未指定 leaf 时使用当前 active entry path；旧 JSONL 没有 entry metadata 时回退复制 active context messages；父子 session 后续消息互不影响。
-- `SessionManager.cloneSession()` 当前复用 leaf entry-path fork 语义，保持与 `pi-mono` 的 clone 设计一致。
-- `SessionManager.branchSession()` 已支持在同一个 session 文件内移动 active leaf，并通过 `applyActiveEntryPath()` 把当前 active messages、compaction、usage 和 internal entries 重建为该 leaf path；随后会追加 `branch_summary` entry，下一次 append 会从该 summary entry 继续；返回值包含 path entries 数、message 数、目标 entry view 和 summary entry id。
-- `SessionManager.branchSession()` 已写入 durable `leaf` entry 记录 active leaf 切换；reload/import 可在只有 leaf control entry 的中间状态下恢复 active leaf。
-- `SessionManager.exportSession()` / `importSession()` 已支持 JSONL 文件级别导出导入；导入时会重写 workspaceDir 到当前 workspace 并切换 latest session。
-- `SessionManager.listSessionTree()` 已支持 workspace session-level lineage tree。
-- 新写入的 `message`、`compaction`、`usage`、`internal`、`leaf` 和 `branch_summary` session entries 已带有 `entryId` / `parentEntryId`，可形成当前 session 文件内的 append-only parent chain。
-- `SessionManager.getEntryTreeInfo()` 已可返回当前 session 的 entries 和 active entry id；`listEntryTree()` 可返回用于展示的 entry tree view，并标记 active path 与 active leaf；`getEntryPath()` 可返回 active leaf 对应的带 payload path entries；旧 JSONL entries 没有 entry metadata 时仍兼容读取。
-- `SessionManager.loadSession()` 已用 active entry path 重建 `getMessages()` 的 active messages；`RuntimeHost` resume/switch 后的 `AgentSession` 会使用 path-aware context。
-- `RuntimeHost.forkSession()` 已作为 mode 层统一 fork 边界。
-- `RuntimeHost.cloneSession()` 已作为 mode 层统一 clone 边界。
-- `RuntimeHost.branchSession()` 已作为 mode 层统一 entry-level branch 边界。
-- `RuntimeHost.exportSession()` / `importSession()` 已作为 mode 层统一 import/export 边界。
-- `RuntimeHost.switchToParentSession()` 已作为 mode 层统一 parent navigation 边界。
-- `RuntimeHost.listChildSessions()` / `switchToChildSession()` 已作为 mode 层统一 child navigation 边界。
-- interactive/TUI slash command 已支持 `/fork [id] [--entry <entryId>]`、`/clone [id] [--entry <entryId>]`、`/branch <entryId>`、`/export [path]` 和 `/import <path>`。
-- interactive slash command 已支持 `/parent`、`/children`、`/child [id]` 和 `/entries`，并且 `/sessions` 会以 tree 形式展示 workspace sessions。
-- TUI `/entries` 已支持 entry selector，选择 entry 后复用 `/branch <entryId>` 切换当前 session active leaf。
-- `buildSessionStateFromEntryPath()` 已成为 branch、fork、load 和 `SessionContextRebuilder` 共享的 entry path state derivation 边界。
-- `applyActiveEntryPath()` 已成为 branch、load 和 import path 共享的 active leaf 应用边界。
-- `SessionManager.getActiveState()` 已成为 active state 读取边界；`getMessages()`、`getCompactionInfo()`、`getUsageInfo()`、`getInternalEntries()` 和 `SessionContextRebuilder` 会优先从 active entry path 派生状态，旧 flat session 仍回退缓存快照。
-- append message/usage/internal/compaction 路径已收敛为写入 entry/path entry 后通过 active entry path 同步运行期 cache，避免手工拼接 `sessions`、usage、internal 或 compaction cache。
-- `SessionContextRebuilder` 已支持旧 flat JSONL、forked session、手工分支 entry path 和 compacted fork session 的 rebuild。
-- `SessionContextRebuilder` 当前返回 active messages、lineage、branch path、compaction、usage、internal entries、entry tree metadata 和 rebuild strategy。
+- durable `internal` session entry 和 permission pending durable diagnostics 已实现。
+- 自建最小 TUI 框架与 `tui-mode.ts` 已落地，TUI 支持 tool confirmation、Ctrl-C abort/exit、`/sessions` 选择器、`/entries` entry selector 和低噪音 streaming event 渲染。
+- M3 Headless RPC 最小闭环已实现，RPC 支持 `prompt`、`get_state`、`abort`、`new_session`、`resume_session`、`fork_session`、`clone_session`、`branch_session`、permission approve/deny。
+- M4 session tree 最小闭环已实现：`SessionManager` 支持 lineage metadata、entry tree schema、entry-path rebuild、entry path state derivation、active entry path application、active state 读取边界、append path cache sync、durable leaf entry、指定 leaf entry fork/clone、entry-level branch、durable branch summary、branch operation summary、JSONL import/export、session tree 展示、entry tree active path 展示、parent navigation 和 direct child navigation。
+- session 读取路径已进一步收敛为 entry-tree-first：可加载的 session entries 必须带有 `entryId` / `parentEntryId`，`SessionContextRebuilder` 固定使用 `entry_path`，`loadSession()` / `importSession()` / `forkSession()` 不再回退旧 flat JSONL snapshot。
+- interactive/TUI slash command 已支持 `/fork [id] [--entry <entryId>]`、`/clone [id] [--entry <entryId>]`、`/branch <entryId>`、`/entries`、`/sessions`、`/parent`、`/children`、`/child [id]`、`/export [path]`、`/import <path>`。
 
 ## 进行中
 
-- MCP/Skills/Extensions 前置骨架：skills discovery + diagnostics、skills source metadata、source candidate merge/dedupe、skills metadata system prompt 注入、`/skill:name` explicit invocation 和 skills/resource diagnostics 展示补齐已完成。
+- session 管理继续完善：下一步关注 repo/storage/session 分层设计，减少 `SessionManager` 单体职责。
 
 ## 下一步
 
-- 后续补齐 package/extension source discovery 和 resource reload 更细粒度 diagnostics。
-- MCP 继续保持 extension boundary，不进入核心 runtime 生命周期。
-
-## 后续重点计划
-
-- RPC/TUI/MCP/Extensions 应基于当前 M2.x 消息边界继续演进，避免重新绑定 provider-facing `LlmMessage[]`。
-- ContextManager 后续再承接完整 token budget 和 skills/resource reinjection 策略。
-- 当前 `max_steps` 后续应进一步迁移为 print/headless/RPC 场景下的命名更明确的可选 runaway guard。
-- 长任务能力应通过 token accounting、context rebuild、compaction entry 和手动 `/compact` 逐步建立。
-- entry-tree-first 对齐 pi-mono 应作为 M4 后续主线：append-only `SessionEntry` tree 成为主要事实源，`Message[]` 已开始退化为从 active leaf path 派生出的 context view；append 与 create/reset/fork 路径已通过 active path 派生 cache，branch 已写入 durable leaf entry，后续再继续减少剩余兼容层 cache 写入职责。
-- 长期 session 设计按 session log、derived context、runtime state、sidecar store、diagnostics/event stream 分层推进，避免把大工具输出和外部 runtime 状态全部塞入 session tree。
-- 跨 session parent/child entry graph、sidecar metadata 和更完整 child branch navigation 放入后续 session model 阶段。
-- 完整 permission pipeline 后续继续补 permission modes、rules、diagnostics 和 RPC/ACP pending event。
+- 参考 pi-mono harness 的 `SessionStorage` / `SessionRepo` / `Session` 分层，拆出单 session JSONL storage 和 workspace session repo。
+- 在不改变外部 CLI/RPC/TUI 行为的前提下，把 `SessionManager` 的文件 IO、entry path traversal、session lifecycle 和语义操作分离。
+- 后续补完整 tree navigation 交互和 branch summarization pipeline。
 
 ## 已知问题
 
-- `logger.ts` 仍是占位文件。
-- `ResourceLoader` 仍是最小骨架，尚未支持自动监听、package/extension source discovery、prompt/theme resources 或更细粒度 reload。
-- 运行期 `resource_context` / `compaction_summary` internal marker 仍默认不持久化；只有明确需要跨 resume 恢复的 harness metadata 才应写入 durable `internal` entry。
+- `SessionManager` 仍是单体类，同时负责文件 IO、entry path 状态、session lifecycle、fork/clone、import/export 和 lineage，尚未拆成 repo/storage/session 三层。
+- 当前仍保留 active state cache 作为运行期派生缓存，尚未完全收敛为只保存 entry tree + active leaf。
+- 当前只支持当前 session 文件内的指定 leaf entry path fork/clone、最小 entry-level branch、durable leaf entry、durable branch summary、branch operation summary、entry tree active path 展示、TUI entry selector、session-level parent navigation 和 direct child navigation；跨 session parent/child entry graph、完整 child branch navigation、完整 tree navigation 交互和 branch summarization pipeline 仍未实现。
+- 运行期 `resource_context` / `compaction_summary` internal marker 仍默认不持久化；只有明确需要跨 resume 恢复的 harness metadata 才写入 durable `internal` entry。
 - `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。
 - manual `/compact` 仍是最小版：没有工具结果 micro-compaction。
 - skills 已有 resource discovery、source metadata、metadata system prompt 注入和 `/skill:name` 全文按需展开；尚未支持 package/extension source discovery。
 - MCP 相关配置字段已解析，但当前只报告 extension boundary diagnostic，尚未接入 MCP server lifecycle。
 - 当前 `max_steps` 字段名仍偏模糊，后续应迁移为 `max_steps_per_run` 或同类命名。
 - RPC mode 仍是最小闭环，尚未支持完整 ACP 兼容层。
-- 当前只支持当前 session 文件内的指定 leaf entry path fork/clone、最小 entry-level branch、durable leaf entry、durable branch summary、branch operation summary、entry path state derivation/application、active state 读取边界、entry tree active path 展示、TUI entry selector、session-level parent navigation 和 direct child navigation；`SessionManager` 仍维护 active state cache，entry-tree-first 内部主状态完全收敛、跨 session parent/child entry graph 与完整 child branch navigation 还未实现。
 - tool result budget、超大输出持久化、完整 permission pipeline 尚未实现。
 - TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。

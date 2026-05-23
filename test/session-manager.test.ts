@@ -180,9 +180,9 @@ test('SessionManager writes and reloads entry tree parent links', async () => {
       .split('\n')
       .map((line) => JSON.parse(line) as {
         type: string;
-        entryId?: string;
-        parentEntryId?: string | null;
-        schemaVersion?: number;
+        entryId: string;
+        parentEntryId: string | null;
+        schemaVersion: number;
       });
     const startEntry = entries.find((entry) => entry.type === 'session_start');
     const messageEntries = entries.filter((entry) => entry.type === 'message');
@@ -192,7 +192,6 @@ test('SessionManager writes and reloads entry tree parent links', async () => {
     assert.equal(startEntry?.schemaVersion, CURRENT_SESSION_SCHEMA_VERSION);
     assert.deepEqual(first.getSessionFormatInfo(sessionId), {
       schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
-      isLegacy: false,
     });
     assert.equal(messageEntries.length, 2);
     assert.ok(messageEntries[0].entryId);
@@ -225,8 +224,8 @@ test('SessionManager writes and reloads entry tree parent links', async () => {
       .split('\n')
       .map((line) => JSON.parse(line) as {
         type: string;
-        entryId?: string;
-        parentEntryId?: string | null;
+        entryId: string;
+        parentEntryId: string | null;
       });
     const lastEntry = reloadedEntries[reloadedEntries.length - 1];
     assert.equal(lastEntry?.type, 'message');
@@ -253,6 +252,7 @@ test('SessionManager loadSession uses the active entry path when entries branch'
           sessionId: 'branch-session',
           workspaceDir: path.resolve(workspaceDir),
           createdAt: 100,
+          schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
         }),
         JSON.stringify({
           type: 'message',
@@ -394,6 +394,8 @@ test('SessionManager persists internal entries without adding provider messages'
     assert.equal(entry.kind, 'permission_pending');
     assert.deepEqual(first.getInternalEntries(sessionId), [{
       timestamp: entry.timestamp,
+      entryId: entry.entryId,
+      parentEntryId: entry.parentEntryId,
       kind: 'permission_pending',
       content: 'Tool approval required',
       metadata: {
@@ -621,8 +623,8 @@ test('SessionManager branches the active session to a specified entry path', asy
       .split('\n')
       .map((line) => JSON.parse(line) as {
         type: string;
-        entryId?: string;
-        parentEntryId?: string | null;
+        entryId: string;
+        parentEntryId: string | null;
         targetEntryId?: string | null;
       });
     const leafEntry = persistedEntries.find((entry) => entry.type === 'leaf');
@@ -844,6 +846,8 @@ test('SessionManager derives active state and compaction anchors from the active
     activeState.usage.total.total_tokens = 999;
     activeState.internalEntries.push({
       timestamp: 1,
+      entryId: 'mutated-entry',
+      parentEntryId: null,
       kind: 'mutated',
       content: 'copy only',
     });
@@ -993,7 +997,6 @@ test('SessionManager exports and imports JSONL sessions', async () => {
     );
     assert.deepEqual(target.getSessionFormatInfo(sessionId), {
       schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
-      isLegacy: false,
     });
     assert.equal(await target.loadLatestSession(), sessionId);
 
@@ -1009,7 +1012,7 @@ test('SessionManager exports and imports JSONL sessions', async () => {
   }
 });
 
-test('SessionManager treats old session_start entries as root sessions', async () => {
+test('SessionManager rejects sessions without entry metadata', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-old-lineage-'));
   const workspaceDir = path.join(tempDir, 'workspace');
   const baseDir = path.join(tempDir, 'sessions');
@@ -1026,6 +1029,7 @@ test('SessionManager treats old session_start entries as root sessions', async (
           sessionId: 'old-session',
           workspaceDir: path.resolve(workspaceDir),
           createdAt: 123,
+          schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
         }),
         JSON.stringify({
           type: 'message',
@@ -1039,13 +1043,9 @@ test('SessionManager treats old session_start entries as root sessions', async (
     );
 
     const manager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
-    assert.equal(await manager.loadSession('old-session'), true);
-    assert.deepEqual(manager.getLineageInfo('old-session'), {
-      sessionId: 'old-session',
-      rootSessionId: 'old-session',
-      createdAt: 123,
-    });
-    assert.deepEqual(manager.getSessionFormatInfo('old-session'), { isLegacy: true });
+    assert.equal(await manager.loadSession('old-session'), false);
+    assert.deepEqual(manager.getMessages('old-session'), []);
+    assert.deepEqual(manager.getEntryPath('old-session'), []);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

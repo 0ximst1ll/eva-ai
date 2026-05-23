@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 import { RuntimeHost } from '../src/core/runtime-host.js';
+import { CURRENT_SESSION_SCHEMA_VERSION } from '../src/core/session-manager.js';
 
 async function writeConfig(dir: string): Promise<string> {
   const configPath = path.join(dir, 'config.yaml');
@@ -330,6 +331,7 @@ test('RuntimeHost resumes sessions using the active entry path', async () => {
           sessionId: 'branch-session',
           workspaceDir: path.resolve(tempDir),
           createdAt: 100,
+          schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
         }),
         JSON.stringify({
           type: 'message',

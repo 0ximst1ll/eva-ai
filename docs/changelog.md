@@ -34,6 +34,23 @@
 34. Active Entry Path Application 最小边界
 35. Durable Branch Summary Entry 最小边界
 36. Durable Leaf Entry 最小边界
+37. Session Entry-Tree-First 读取收敛
+
+
+# Session Entry-Tree-First 读取收敛
+
+进一步收敛 M4.x session model，移除旧 flat JSONL snapshot 兼容路径，让当前 session context 只从 active entry path 派生。
+
+核心变化：
+
+- `message`、`compaction`、`usage`、`internal`、`leaf` 和 `branch_summary` entries 在类型上要求 `entryId` / `parentEntryId`。
+- `SessionManager.loadSession()` / `importSession()` 不再把缺少 entry metadata 的旧 flat JSONL 当作有效 active context。
+- `SessionManager.forkSession()` 不再从 `Message[]` 快照生成线性 fallback path；没有 active entry path 时直接失败。
+- `SessionContextRebuilder` 的 strategy 收敛为 `entry_path`，删除 `flat_snapshot` 分支。
+- `getSessionFormatInfo()` 只保留当前 schema version，不再暴露 legacy 状态。
+- session tests 改为验证旧 flat JSONL 不会被 rebuild，同时覆盖 fork、branch、durable leaf、import/export 和 compaction path 不回归。
+
+当前仍保留 `SessionManager` 内部 active state cache 作为运行期派生缓存；下一步应参考 `pi-mono` harness 拆分 `SessionStorage` / `SessionRepo` / `Session`。
 
 
 # Durable Leaf Entry 最小边界

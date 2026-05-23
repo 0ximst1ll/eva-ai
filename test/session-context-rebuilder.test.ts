@@ -4,9 +4,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 import { rebuildSessionContext } from '../src/core/session-context-rebuilder.js';
-import { SessionManager } from '../src/core/session-manager.js';
+import { CURRENT_SESSION_SCHEMA_VERSION, SessionManager } from '../src/core/session-manager.js';
 
-test('SessionContextRebuilder rebuilds old flat JSONL sessions as root snapshots', async () => {
+test('SessionContextRebuilder ignores sessions without entry metadata', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-context-rebuild-old-'));
   const workspaceDir = path.join(tempDir, 'workspace');
   const baseDir = path.join(tempDir, 'sessions');
@@ -23,6 +23,7 @@ test('SessionContextRebuilder rebuilds old flat JSONL sessions as root snapshots
           sessionId: 'old-session',
           workspaceDir: path.resolve(workspaceDir),
           createdAt: 100,
+          schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
         }),
         JSON.stringify({
           type: 'message',
@@ -44,23 +45,7 @@ test('SessionContextRebuilder rebuilds old flat JSONL sessions as root snapshots
     const sessionManager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
     const snapshot = await rebuildSessionContext({ sessionManager, sessionId: 'old-session' });
 
-    assert.ok(snapshot);
-    assert.equal(snapshot.strategy, 'flat_snapshot');
-    assert.deepEqual(snapshot.messages.map((message) => message.content), ['system', 'hello']);
-    assert.deepEqual(snapshot.lineage, {
-      sessionId: 'old-session',
-      rootSessionId: 'old-session',
-      createdAt: 100,
-    });
-    assert.deepEqual(snapshot.branchPath, [{
-      sessionId: 'old-session',
-      rootSessionId: 'old-session',
-    }]);
-    assert.deepEqual(snapshot.entryTree, {
-      sessionId: 'old-session',
-      activeEntryId: undefined,
-      entries: [],
-    });
+    assert.equal(snapshot, null);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -83,6 +68,7 @@ test('SessionContextRebuilder rebuilds messages from the active entry path', asy
           sessionId: 'branch-session',
           workspaceDir: path.resolve(workspaceDir),
           createdAt: 100,
+          schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
         }),
         JSON.stringify({
           type: 'message',

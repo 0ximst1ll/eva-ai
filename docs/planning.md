@@ -654,8 +654,7 @@ user/assistant/tool: durable session history
 当前最小落地：
 
 - `SessionManager` 已支持 `parentSessionId`、`rootSessionId` 和 `forkedFromMessageIndex`。
-- 旧 JSONL session 没有 lineage metadata 时会被视为 root session。
-- `SessionManager.forkSession()` 优先复制当前 active entry path 到新 session，并写入 lineage metadata；旧 JSONL 没有 entry metadata 时回退复制 active context messages。
+- `SessionManager.forkSession()` 复制当前 active entry path 到新 session，并写入 lineage metadata；没有 active entry path 的 session 不再 fork。
 - `RuntimeHost.forkSession()` 暴露 fork 边界，mode 层不需要直接访问 `SessionManager`。
 - interactive/TUI slash command 可通过 `/fork [id] [--entry <entryId>]` 创建当前 session 分支。
 - `SessionManager.cloneSession()` / `RuntimeHost.cloneSession()` 已按 `pi-mono` 的 current-leaf fork 语义实现 clone，并复用 entry-path fork。
@@ -663,9 +662,9 @@ user/assistant/tool: durable session history
 - `SessionManager.exportSession()` / `RuntimeHost.exportSession()` 已支持 JSONL session 导出。
 - `SessionManager.importSession()` / `RuntimeHost.importSession()` 已支持 JSONL session 导入并切换到导入后的 session。
 - interactive/TUI slash command 可通过 `/export [path]` 和 `/import <path>` 做最小 JSONL import/export。
-- 新写入的 `message`、`compaction`、`usage` 和 `internal` entry 已带有 `entryId` / `parentEntryId`，`SessionManager.getEntryTreeInfo()` 可返回当前 session 文件内的 entry tree metadata。
+- 新写入和可加载的 `message`、`compaction`、`usage` 和 `internal` entry 必须带有 `entryId` / `parentEntryId`，`SessionManager.getEntryTreeInfo()` 可返回当前 session 文件内的 entry tree metadata。
 - `SessionManager.getEntryPath()` 已可从 active entry leaf 回溯当前 session 文件内的 path entries。
-- `SessionContextRebuilder` 已提供最小 rebuild 边界：新 session 使用 `entry_path` 策略从 active leaf 构造 messages，旧 JSONL 无 entry metadata 时回退 `flat_snapshot`。
+- `SessionContextRebuilder` 已提供最小 rebuild 边界：使用 `entry_path` 策略从 active leaf 构造 messages；旧 flat JSONL 无 entry metadata 时不再作为有效 context 读取。
 - `SessionManager.loadSession()` 已在主加载路径中使用 active entry path 重建 active messages，`RuntimeHost` resume/switch 后的 `AgentSession` 会使用 path-aware context。
 - `SessionManager.listSessionTree()` 已支持基于 `parentSessionId` 的 workspace session-level lineage tree。
 - interactive `/sessions` 已改为展示 session tree，并标记 current/latest session。
@@ -693,7 +692,7 @@ user/assistant/tool: durable session history
 
 - branch/fork 保留历史。
 - context rebuild 可测试且确定。
-- 旧 JSONL session 可兼容处理。
+- 旧 flat JSONL 不再进入 active context；后续如需历史数据保留，应通过显式 migration 完成。
 
 #### M4.x：Entry Tree First 对齐
 
@@ -710,8 +709,8 @@ user/assistant/tool: durable session history
 - session-level direct child navigation 已有最小边界：`/children` 列出 direct children，`/child [id]` 切换 direct child session。
 - append message/usage/internal/compaction 路径已先写入 entry/path entry，再从 active entry path 派生并同步运行期 active state cache。
 - create/reset/fork 路径已先建立 entry path state，再通过统一 state application 初始化运行期 active state cache。
-- load/import 已通过统一 parsed session application 边界恢复 metadata、entry tree、path entries 和 active state；fork fallback 已使用 active state view。
-- 新 session 已在 `session_start` 写入 schema version；旧 JSONL 无 version 时仍兼容读取，并可通过 session format info 识别 legacy 状态。
+- load/import 已通过统一 parsed session application 边界恢复 metadata、entry tree、path entries 和 active state；旧 flat JSONL fallback 已移除。
+- 新 session 已在 `session_start` 写入 schema version；session format info 仅记录当前 schema version。
 - branch 已写入 durable `leaf` entry，用于记录 active leaf 切换；reload/import 可从 `leaf` entry 恢复 active leaf。
 
 目标语义：
@@ -741,7 +740,7 @@ user/assistant/tool: durable session history
 13. 已完成 append path cache sync：message/usage/internal/compaction append 先写 entry/path entry，再由 active path 派生 cache。
 14. 已完成 create/reset/fork cache sync：初始化类路径先建立 entry path state，再由 state application 初始化 cache。
 15. 已完成 parsed session application 边界，load/import 共享同一恢复路径。
-16. 已完成 session schema version / legacy 状态最小边界，为后续 migration 预留判断依据。
+16. 已完成 session schema version 最小边界；legacy flat fallback 已移除，后续如需历史数据保留应走显式 migration。
 17. 已完成 durable leaf entry 最小闭环：branch 写入 `leaf` control entry，reload/import 可重放 active leaf。
 18. 后续按需补更完整 entry navigation UI。
 19. 再逐步把 `SessionManager` 内部主状态从 active state cache 收敛为 entry tree + active leaf。
