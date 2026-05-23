@@ -37,6 +37,20 @@
 37. Session Entry-Tree-First 读取收敛
 38. Workspace Session Store 边界
 39. Session Entry Store 边界
+40. SessionModel 状态容器边界
+
+
+# SessionModel 状态容器边界
+
+继续按 `pi-mono` harness 的 storage/session 分层方向收敛，把单个 session 的语义状态从 `SessionManager` 的多组 Map 中拆出。
+
+核心变化：
+
+- 新增 `src/core/session-model.ts`，提供最小 `SessionModel`。
+- `SessionModel` 负责 metadata、lineage、schema format、entry store 和 active state cache。
+- entry path state derivation helper 移入 `session-model.ts`，`buildSessionStateFromEntryPath()` 仍从 `session-manager.ts` 兼容导出。
+- `SessionManager` public API 保持不变，内部从多组 per-session Map 收敛为 `Map<sessionId, SessionModel>`。
+- 当前 `SessionManager` 仍负责 create/load/fork/branch/compact/import/export 编排；后续再继续拆 session semantic operation 或 repo 层。
 
 
 # Session Entry Store 边界

@@ -5,7 +5,6 @@ import { randomUUID } from 'node:crypto';
 import type { Message, TokenUsage } from '../schema.js';
 import {
   chooseFirstKeptMessageIndex,
-  createCompactionSummaryMessage,
   rebuildCompactedMessages,
   type CompactionResult,
 } from './compaction.js';
@@ -19,11 +18,24 @@ import {
   readEntryTreeNode,
   SessionEntryStore,
 } from './session-entry-store.js';
+import {
+  buildSessionStateFromEntryPath,
+  copyInternalEntry,
+  copyMessage,
+  copySessionEntryPathState,
+  copySessionPathEntryForSession,
+  createCurrentSessionFormatInfo,
+  createLineageInfo,
+  CURRENT_SESSION_SCHEMA_VERSION,
+  readSessionFormatInfo,
+  SessionModel,
+  type SessionLineageOptions,
+} from './session-model.js';
 import { WorkspaceSessionStore } from './session-store.js';
 
 type PersistenceMode = 'memory' | 'jsonl';
 
-export const CURRENT_SESSION_SCHEMA_VERSION = 1;
+export { buildSessionStateFromEntryPath, CURRENT_SESSION_SCHEMA_VERSION } from './session-model.js';
 
 export interface SessionStartEntry {
   type: 'session_start';
@@ -174,11 +186,6 @@ export type SessionPathEntry =
   | (BranchSummaryEntry & { entryId: string; parentEntryId: string | null })
   | (LeafEntry & { entryId: string; parentEntryId: string | null });
 
-interface SessionMetadata {
-  createdAt: number;
-  updatedAt: number;
-}
-
 export interface SessionCompactionInfo {
   compacted: boolean;
   timestamp?: number;
@@ -238,12 +245,6 @@ export interface SessionImportResult {
   destinationPath?: string;
 }
 
-interface SessionLineageOptions {
-  parentSessionId?: string;
-  rootSessionId?: string;
-  forkedFromMessageIndex?: number;
-}
-
 interface ParsedSessionLog {
   state: SessionEntryPathState;
   createdAt?: number;
@@ -259,15 +260,7 @@ export class SessionManager {
   private readonly mode: PersistenceMode;
   private readonly workspaceDir: string;
   private readonly store: WorkspaceSessionStore;
-  // Runtime cache for the current active leaf path, not the canonical session history.
-  private readonly sessions = new Map<string, Message[]>();
-  private readonly sessionMetadata = new Map<string, SessionMetadata>();
-  private readonly sessionCompactions = new Map<string, SessionCompactionInfo>();
-  private readonly sessionUsage = new Map<string, SessionUsageInfo>();
-  private readonly sessionInternalEntries = new Map<string, SessionInternalEntry[]>();
-  private readonly sessionLineage = new Map<string, SessionLineageInfo>();
-  private readonly sessionFormats = new Map<string, SessionFormatInfo>();
-  private readonly sessionEntries = new Map<string, SessionEntryStore>();
+  private readonly sessionModels = new Map<string, SessionModel>();
   private latestSessionId?: string;
 
   constructor({
@@ -305,15 +298,18 @@ export class SessionManager {
       message: initialMessages[0],
     })];
     const initialState = buildSessionStateFromEntryPath(initialPathEntries);
-    this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
-    this.sessionLineage.set(id, lineageInfo);
-    this.sessionFormats.set(id, createCurrentSessionFormatInfo());
-    this.sessionEntries.set(id, new SessionEntryStore({
-      entryTree: [systemEntryNode],
-      pathEntries: initialPathEntries,
-      activeEntryId: systemEntryNode.entryId,
+    this.sessionModels.set(id, new SessionModel({
+      sessionId: id,
+      metadata: { createdAt: now, updatedAt: now },
+      lineage: lineageInfo,
+      format: createCurrentSessionFormatInfo(),
+      entryStore: new SessionEntryStore({
+        entryTree: [systemEntryNode],
+        pathEntries: initialPathEntries,
+        activeEntryId: systemEntryNode.entryId,
+      }),
+      activeState: initialState,
     }));
-    this.applyEntryPathState(id, initialState);
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
@@ -339,7 +335,7 @@ export class SessionManager {
     sessionId?: string;
     leafEntryId?: string;
   }): Promise<string> {
-    if (!this.sessions.has(sourceSessionId) && !await this.loadSession(sourceSessionId)) {
+    if (!this.sessionModels.has(sourceSessionId) && !await this.loadSession(sourceSessionId)) {
       throw new Error(`Session not found: ${sourceSessionId}`);
     }
 
@@ -365,15 +361,18 @@ export class SessionManager {
       forkedFromMessageIndex: forkedState.messages.length - 1,
     });
 
-    this.sessionMetadata.set(id, { createdAt: now, updatedAt: now });
-    this.sessionLineage.set(id, lineageInfo);
-    this.sessionFormats.set(id, createCurrentSessionFormatInfo());
-    this.sessionEntries.set(id, new SessionEntryStore({
-      entryTree: forkedEntryNodes,
-      pathEntries: forkedPathEntries,
-      activeEntryId: forkedEntryNodes[forkedEntryNodes.length - 1]?.entryId,
+    this.sessionModels.set(id, new SessionModel({
+      sessionId: id,
+      metadata: { createdAt: now, updatedAt: now },
+      lineage: lineageInfo,
+      format: createCurrentSessionFormatInfo(),
+      entryStore: new SessionEntryStore({
+        entryTree: forkedEntryNodes,
+        pathEntries: forkedPathEntries,
+        activeEntryId: forkedEntryNodes[forkedEntryNodes.length - 1]?.entryId,
+      }),
+      activeState: forkedState,
     }));
-    this.applyEntryPathState(id, forkedState);
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
@@ -406,7 +405,7 @@ export class SessionManager {
     sessionId: string;
     outputPath?: string;
   }): Promise<SessionExportResult> {
-    if (!this.sessions.has(sessionId) && !await this.loadSession(sessionId)) {
+    if (!this.sessionModels.has(sessionId) && !await this.loadSession(sessionId)) {
       throw new Error(`Session not found: ${sessionId}`);
     }
 
@@ -475,7 +474,7 @@ export class SessionManager {
   }
 
   async loadSession(sessionId: string): Promise<boolean> {
-    if (this.sessions.has(sessionId)) {
+    if (this.sessionModels.has(sessionId)) {
       await this.markLatestSession(sessionId);
       return true;
     }
@@ -513,15 +512,15 @@ export class SessionManager {
   }
 
   getLineageInfo(sessionId: string): SessionLineageInfo {
-    return copyLineageInfo(this.sessionLineage.get(sessionId) ?? createLineageInfo(sessionId));
+    return this.sessionModels.get(sessionId)?.getLineageInfo() ?? createLineageInfo(sessionId);
   }
 
   getSessionFormatInfo(sessionId: string): SessionFormatInfo {
-    return copySessionFormatInfo(this.sessionFormats.get(sessionId) ?? createCurrentSessionFormatInfo());
+    return this.sessionModels.get(sessionId)?.getFormatInfo() ?? createCurrentSessionFormatInfo();
   }
 
   getEntryTreeInfo(sessionId: string): SessionEntryTreeInfo {
-    return this.sessionEntries.get(sessionId)?.getEntryTreeInfo(sessionId) ?? { sessionId, entries: [] };
+    return this.sessionModels.get(sessionId)?.entryStore.getEntryTreeInfo(sessionId) ?? { sessionId, entries: [] };
   }
 
   getActiveState(sessionId: string): SessionEntryPathState {
@@ -529,11 +528,11 @@ export class SessionManager {
   }
 
   listEntryTree(sessionId: string): SessionEntryTreeViewNode[] {
-    return this.sessionEntries.get(sessionId)?.listEntryTree() ?? [];
+    return this.sessionModels.get(sessionId)?.entryStore.listEntryTree() ?? [];
   }
 
   getEntryPath(sessionId: string, leafEntryId?: string): SessionPathEntry[] {
-    return this.sessionEntries.get(sessionId)?.getEntryPath(leafEntryId) ?? [];
+    return this.sessionModels.get(sessionId)?.entryStore.getEntryPath(leafEntryId) ?? [];
   }
 
   async branchSession({
@@ -543,7 +542,7 @@ export class SessionManager {
     sessionId: string;
     leafEntryId: string;
   }): Promise<SessionBranchSummary> {
-    if (!this.sessions.has(sessionId)) {
+    if (!this.sessionModels.has(sessionId)) {
       throw new Error(`Session not found: ${sessionId}`);
     }
     const entryStore = this.requireSessionEntryStore(sessionId);
@@ -621,7 +620,7 @@ export class SessionManager {
   }
 
   async appendMessage(sessionId: string, message: Message): Promise<void> {
-    if (!this.sessions.has(sessionId)) {
+    if (!this.sessionModels.has(sessionId)) {
       throw new Error(`Session not found: ${sessionId}`);
     }
     const existing = this.buildActiveState(sessionId).messages;
@@ -661,7 +660,7 @@ export class SessionManager {
     usage: TokenUsage;
     source?: SessionUsageSource;
   }): Promise<void> {
-    if (!this.sessions.has(sessionId)) {
+    if (!this.sessionModels.has(sessionId)) {
       throw new Error(`Session not found: ${sessionId}`);
     }
 
@@ -704,7 +703,7 @@ export class SessionManager {
     content?: string;
     metadata?: Record<string, unknown>;
   }): Promise<SessionInternalEntry> {
-    if (!this.sessions.has(sessionId)) {
+    if (!this.sessionModels.has(sessionId)) {
       throw new Error(`Session not found: ${sessionId}`);
     }
     if (!kind.trim()) {
@@ -758,7 +757,7 @@ export class SessionManager {
     customInstructions?: string;
     keepRecentMessages?: number;
   }): Promise<CompactionResult> {
-    if (!this.sessions.has(sessionId)) {
+    if (!this.sessionModels.has(sessionId)) {
       throw new Error(`Session not found: ${sessionId}`);
     }
     const existing = this.buildActiveState(sessionId).messages;
@@ -837,15 +836,24 @@ export class SessionManager {
       message: resetMessages[0],
     })];
     const resetState = buildSessionStateFromEntryPath(resetPathEntries);
-    const lineageInfo = this.sessionLineage.get(sessionId) ?? createLineageInfo(sessionId, now);
-    this.sessionLineage.set(sessionId, lineageInfo);
-    this.sessionFormats.set(sessionId, createCurrentSessionFormatInfo());
-    this.sessionEntries.set(sessionId, new SessionEntryStore({
-      entryTree: [systemEntryNode],
-      pathEntries: resetPathEntries,
-      activeEntryId: systemEntryNode.entryId,
+    const existingModel = this.sessionModels.get(sessionId);
+    const existingMetadata = existingModel?.getMetadata();
+    const lineageInfo = existingModel?.getLineageInfo() ?? createLineageInfo(sessionId, now);
+    this.sessionModels.set(sessionId, new SessionModel({
+      sessionId,
+      metadata: {
+        createdAt: existingMetadata?.createdAt ?? now,
+        updatedAt: now,
+      },
+      lineage: lineageInfo,
+      format: createCurrentSessionFormatInfo(),
+      entryStore: new SessionEntryStore({
+        entryTree: [systemEntryNode],
+        pathEntries: resetPathEntries,
+        activeEntryId: systemEntryNode.entryId,
+      }),
+      activeState: resetState,
     }));
-    this.applyEntryPathState(sessionId, resetState);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
@@ -864,12 +872,13 @@ export class SessionManager {
   async listSessions(): Promise<SessionListItem[]> {
     if (this.mode === 'memory') {
       return this.sortSessionList(
-        [...this.sessions.keys()].map((sessionId) => {
+        [...this.sessionModels.keys()].map((sessionId) => {
           const lineage = this.getLineageInfo(sessionId);
+          const metadata = this.requireSessionModel(sessionId).getMetadata();
           return {
             sessionId,
             messageCount: this.buildActiveState(sessionId).messages.length,
-            updatedAt: this.sessionMetadata.get(sessionId)?.updatedAt ?? 0,
+            updatedAt: metadata.updatedAt,
             isLatest: this.latestSessionId === sessionId,
             parentSessionId: lineage.parentSessionId,
             rootSessionId: lineage.rootSessionId,
@@ -959,15 +968,15 @@ export class SessionManager {
   }
 
   private serializeMemorySessionLog(sessionId: string): string {
-    const metadata = this.sessionMetadata.get(sessionId);
+    const model = this.requireSessionModel(sessionId);
+    const metadata = model.getMetadata();
     const lineage = this.getLineageInfo(sessionId);
-    const createdAt = metadata?.createdAt ?? Date.now();
     const lines = [
       JSON.stringify({
         type: 'session_start',
         sessionId,
         workspaceDir: this.workspaceDir,
-        createdAt,
+        createdAt: metadata.createdAt,
         schemaVersion: this.getSessionFormatInfo(sessionId).schemaVersion ?? CURRENT_SESSION_SCHEMA_VERSION,
         parentSessionId: lineage.parentSessionId,
         rootSessionId: lineage.rootSessionId,
@@ -975,18 +984,14 @@ export class SessionManager {
       } satisfies SessionStartEntry),
     ];
 
-    const pathEntries = this.sessionEntries.get(sessionId)?.getPathEntries() ?? [];
+    const pathEntries = model.entryStore.getPathEntries();
     lines.push(...pathEntries.map((entry) => JSON.stringify(entry)));
 
     return `${lines.join('\n')}\n`;
   }
 
   private touchSession(sessionId: string, updatedAt: number): void {
-    const existing = this.sessionMetadata.get(sessionId);
-    this.sessionMetadata.set(sessionId, {
-      createdAt: existing?.createdAt ?? updatedAt,
-      updatedAt,
-    });
+    this.requireSessionModel(sessionId).touch(updatedAt);
     this.latestSessionId = sessionId;
   }
 
@@ -995,71 +1000,55 @@ export class SessionManager {
     state: SessionEntryPathState;
     targetEntry: SessionPathEntry;
   } {
-    const entryPath = this.getEntryPath(sessionId, leafEntryId);
-    if (!entryPath.length) {
-      throw new Error(`Entry not found in session ${sessionId}: ${leafEntryId}`);
-    }
-
-    const state = buildSessionStateFromEntryPath(entryPath);
-    if (!state.messages.length) {
-      throw new Error(`Entry path has no messages in session ${sessionId}: ${leafEntryId}`);
-    }
-
-    const targetEntry = entryPath[entryPath.length - 1];
-    if (!targetEntry) {
-      throw new Error(`Entry path has no target in session ${sessionId}: ${leafEntryId}`);
-    }
-
-    this.applyEntryPathState(sessionId, state);
-    this.requireSessionEntryStore(sessionId).setActiveEntryId(leafEntryId);
-
-    return { entryPath, state, targetEntry };
+    return this.requireSessionModel(sessionId).applyActiveEntryPath(leafEntryId);
   }
 
   private applyEntryPathState(sessionId: string, state: SessionEntryPathState): void {
-    const copiedState = copySessionEntryPathState(state);
-    this.sessions.set(sessionId, copiedState.messages);
-    this.sessionCompactions.set(sessionId, copiedState.compaction);
-    this.sessionUsage.set(sessionId, copiedState.usage);
-    this.sessionInternalEntries.set(sessionId, copiedState.internalEntries);
+    this.requireSessionModel(sessionId).applyEntryPathState(state);
   }
 
   private syncActiveStateCache(sessionId: string): SessionEntryPathState {
-    const state = this.buildActiveState(sessionId);
-    this.applyEntryPathState(sessionId, state);
-    return state;
+    return this.requireSessionModel(sessionId).syncActiveState();
   }
 
   private applyParsedSessionLog(sessionId: string, parsed: ParsedSessionLog): void {
-    this.sessionMetadata.set(sessionId, {
-      createdAt: parsed.createdAt ?? parsed.updatedAt,
-      updatedAt: parsed.updatedAt,
-    });
-    this.sessionLineage.set(sessionId, parsed.lineage);
-    this.sessionFormats.set(sessionId, parsed.format);
-    this.sessionEntries.set(sessionId, new SessionEntryStore({
-      entryTree: parsed.entryTree,
-      pathEntries: parsed.pathEntries,
-      activeEntryId: parsed.activeEntryId,
+    this.sessionModels.set(sessionId, new SessionModel({
+      sessionId,
+      metadata: {
+        createdAt: parsed.createdAt ?? parsed.updatedAt,
+        updatedAt: parsed.updatedAt,
+      },
+      lineage: parsed.lineage,
+      format: parsed.format,
+      entryStore: new SessionEntryStore({
+        entryTree: parsed.entryTree,
+        pathEntries: parsed.pathEntries,
+        activeEntryId: parsed.activeEntryId,
+      }),
+      activeState: parsed.state,
     }));
     if (parsed.activeEntryId && parsed.pathEntries.length) {
       this.applyActiveEntryPath(sessionId, parsed.activeEntryId);
     } else {
       this.applyEntryPathState(sessionId, parsed.state);
-      this.sessionEntries.get(sessionId)?.setActiveEntryId(parsed.activeEntryId);
+      this.requireSessionEntryStore(sessionId).setActiveEntryId(parsed.activeEntryId);
     }
+  }
+
+  private requireSessionModel(sessionId: string): SessionModel {
+    const model = this.sessionModels.get(sessionId);
+    if (!model) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    return model;
   }
 
   private requireSessionEntryStore(sessionId: string): SessionEntryStore {
-    const entryStore = this.sessionEntries.get(sessionId);
-    if (!entryStore) {
-      throw new Error(`Session not found: ${sessionId}`);
-    }
-    return entryStore;
+    return this.requireSessionModel(sessionId).entryStore;
   }
 
   private buildActiveState(sessionId: string): SessionEntryPathState {
-    return buildSessionStateFromEntryPath(this.getEntryPath(sessionId));
+    return this.sessionModels.get(sessionId)?.getActiveState() ?? buildSessionStateFromEntryPath([]);
   }
 
   private async markLatestSession(sessionId: string): Promise<void> {
@@ -1240,229 +1229,6 @@ function findFirstKeptEntryIdFromPath(
     messageIndex += 1;
   }
   return undefined;
-}
-
-function copySessionPathEntryForSession(entry: SessionPathEntry, sessionId: string): SessionPathEntry {
-  const copy = copySessionPathEntry(entry);
-  copy.sessionId = sessionId;
-  return copy;
-}
-
-export function buildSessionStateFromEntryPath(entryPath: SessionPathEntry[]): SessionEntryPathState {
-  return {
-    messages: rebuildMessagesFromEntryPath(entryPath),
-    compaction: getLatestCompactionFromPath(entryPath),
-    usage: getUsageFromPath(entryPath),
-    internalEntries: getInternalEntriesFromPath(entryPath),
-  };
-}
-
-function getLatestCompactionFromPath(entries: SessionPathEntry[]): SessionCompactionInfo {
-  let compaction: SessionCompactionInfo = { compacted: false };
-  for (const entry of entries) {
-    if (entry.type !== 'compaction') continue;
-    compaction = {
-      compacted: true,
-      timestamp: entry.timestamp,
-      summaryLength: entry.summary.length,
-      firstKeptEntryId: entry.firstKeptEntryId,
-      firstKeptMessageIndex: entry.firstKeptMessageIndex,
-      messagesBefore: entry.messagesBefore,
-      messagesAfter: entry.messagesAfter,
-      customInstructions: entry.customInstructions,
-    };
-  }
-  return compaction;
-}
-
-function getUsageFromPath(entries: SessionPathEntry[]): SessionUsageInfo {
-  let usage = createEmptyUsageInfo();
-  for (const entry of entries) {
-    if (entry.type === 'usage') {
-      usage = addUsage(usage, entry.usage, entry.timestamp, entry.source);
-    }
-  }
-  return usage;
-}
-
-function getInternalEntriesFromPath(entries: SessionPathEntry[]): SessionInternalEntry[] {
-  return entries
-    .filter((entry): entry is SessionPathEntry & { type: 'internal' } => entry.type === 'internal')
-    .map(copyInternalEntry);
-}
-
-function rebuildMessagesFromEntryPath(entryPath: SessionPathEntry[]): Message[] {
-  if (!entryPath.length) return [];
-
-  let compactionIndex = -1;
-  for (let index = entryPath.length - 1; index >= 0; index -= 1) {
-    if (entryPath[index].type === 'compaction') {
-      compactionIndex = index;
-      break;
-    }
-  }
-
-  if (compactionIndex < 0) {
-    return entryPath
-      .filter((entry): entry is SessionPathEntry & { type: 'message' } => entry.type === 'message')
-      .map((entry) => copyMessage(entry.message));
-  }
-
-  const compactionEntry = entryPath[compactionIndex];
-  if (compactionEntry.type !== 'compaction') return [];
-
-  const messages: Message[] = [];
-  const beforeCompaction = entryPath.slice(0, compactionIndex);
-  const systemMessage = beforeCompaction.find((entry) => (
-    entry.type === 'message' && entry.message.role === 'system'
-  ));
-  if (systemMessage?.type === 'message') {
-    messages.push(copyMessage(systemMessage.message));
-  }
-
-  messages.push(createCompactionSummaryMessage(compactionEntry.summary));
-
-  let keepMessages = false;
-  let messageIndex = 0;
-  for (const entry of beforeCompaction) {
-    if (entry.type !== 'message') continue;
-    if (compactionEntry.firstKeptEntryId) {
-      if (entry.entryId === compactionEntry.firstKeptEntryId) {
-        keepMessages = true;
-      }
-    } else if (messageIndex >= compactionEntry.firstKeptMessageIndex) {
-      keepMessages = true;
-    }
-    messageIndex += 1;
-    if (!keepMessages) continue;
-    if (systemMessage?.entryId === entry.entryId) continue;
-    messages.push(copyMessage(entry.message));
-  }
-
-  for (const entry of entryPath.slice(compactionIndex + 1)) {
-    if (entry.type === 'message') {
-      messages.push(copyMessage(entry.message));
-    }
-  }
-
-  return messages;
-}
-
-function copyInternalEntry(entry: SessionInternalEntry): SessionInternalEntry {
-  return {
-    timestamp: entry.timestamp,
-    entryId: entry.entryId,
-    parentEntryId: entry.parentEntryId,
-    kind: entry.kind,
-    content: entry.content,
-    metadata: entry.metadata ? { ...entry.metadata } : undefined,
-  };
-}
-
-function copySessionEntryPathState(state: SessionEntryPathState): SessionEntryPathState {
-  return {
-    messages: state.messages.map(copyMessage),
-    compaction: copyCompactionInfo(state.compaction),
-    usage: copyUsageInfo(state.usage),
-    internalEntries: state.internalEntries.map(copyInternalEntry),
-  };
-}
-
-function createCurrentSessionFormatInfo(): SessionFormatInfo {
-  return {
-    schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
-  };
-}
-
-function readSessionFormatInfo(entry: SessionStartEntry): SessionFormatInfo {
-  return {
-    schemaVersion: entry.schemaVersion,
-  };
-}
-
-function copySessionFormatInfo(info: SessionFormatInfo): SessionFormatInfo {
-  return {
-    schemaVersion: info.schemaVersion,
-  };
-}
-
-function copyCompactionInfo(info: SessionCompactionInfo): SessionCompactionInfo {
-  return { ...info };
-}
-
-function copyUsageInfo(info: SessionUsageInfo): SessionUsageInfo {
-  const copy: SessionUsageInfo = {
-    count: info.count,
-    total: { ...info.total },
-  };
-  if (info.latest) copy.latest = { ...info.latest };
-  if (typeof info.latestTimestamp === 'number') copy.latestTimestamp = info.latestTimestamp;
-  if (info.latestSource) copy.latestSource = info.latestSource;
-  return copy;
-}
-
-function createLineageInfo(
-  sessionId: string,
-  createdAt?: number,
-  lineage?: SessionLineageOptions,
-): SessionLineageInfo {
-  const info: SessionLineageInfo = {
-    sessionId,
-    rootSessionId: lineage?.rootSessionId ?? lineage?.parentSessionId ?? sessionId,
-  };
-  if (lineage?.parentSessionId) info.parentSessionId = lineage.parentSessionId;
-  if (typeof lineage?.forkedFromMessageIndex === 'number') {
-    info.forkedFromMessageIndex = lineage.forkedFromMessageIndex;
-  }
-  if (typeof createdAt === 'number') info.createdAt = createdAt;
-  return info;
-}
-
-function copyLineageInfo(info: SessionLineageInfo): SessionLineageInfo {
-  const copy: SessionLineageInfo = {
-    sessionId: info.sessionId,
-    rootSessionId: info.rootSessionId,
-  };
-  if (info.parentSessionId) copy.parentSessionId = info.parentSessionId;
-  if (typeof info.forkedFromMessageIndex === 'number') {
-    copy.forkedFromMessageIndex = info.forkedFromMessageIndex;
-  }
-  if (typeof info.createdAt === 'number') copy.createdAt = info.createdAt;
-  return copy;
-}
-
-function copyMessage(message: Message): Message {
-  return JSON.parse(JSON.stringify(message)) as Message;
-}
-
-function createEmptyUsageInfo(): SessionUsageInfo {
-  return {
-    count: 0,
-    total: {
-      prompt_tokens: 0,
-      completion_tokens: 0,
-      total_tokens: 0,
-    },
-  };
-}
-
-function addUsage(
-  current: SessionUsageInfo,
-  usage: TokenUsage,
-  timestamp: number,
-  source: SessionUsageSource,
-): SessionUsageInfo {
-  return {
-    count: current.count + 1,
-    total: {
-      prompt_tokens: current.total.prompt_tokens + usage.prompt_tokens,
-      completion_tokens: current.total.completion_tokens + usage.completion_tokens,
-      total_tokens: current.total.total_tokens + usage.total_tokens,
-    },
-    latest: { ...usage },
-    latestTimestamp: timestamp,
-    latestSource: source,
-  };
 }
 
 function getSessionIdFromLog(content: string): string | null {

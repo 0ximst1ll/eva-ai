@@ -713,6 +713,7 @@ user/assistant/tool: durable session history
 - 新 session 已在 `session_start` 写入 schema version；session format info 仅记录当前 schema version。
 - workspace JSONL store 已从 `SessionManager` 抽出，负责 session 文件路径、manifest、session log 读写、append 和文件枚举。
 - 单 session entry store 已从 `SessionManager` 抽出，负责 entry tree、path entries、active entry id、entry path traversal 和 entry tree view。
+- 最小 `SessionModel` 状态容器已从 `SessionManager` 抽出，负责 metadata、lineage、schema format、entry store 和 active state cache；`SessionManager` 不再维护多组 per-session Map。
 - branch 已写入 durable `leaf` entry，用于记录 active leaf 切换；reload/import 可从 `leaf` entry 恢复 active leaf。
 
 目标语义：
@@ -723,7 +724,7 @@ user/assistant/tool: durable session history
 - 同一 session 文件内支持 entry-level branch / navigate；切换 leaf 不修改旧 entries。
 - active leaf 切换本身应是一等 durable control entry，而不是只存在于运行期 cache。
 - branch summary、model/thinking changes、label/session info 和 future custom metadata 可作为一等 entry 渐进引入。
-- `SessionManager` 后续应按 repo/storage/session 边界拆分：repo 负责 create/open/list/delete/fork，storage 负责 append/get/path/leaf，session 负责 branch/compact/context 语义。
+- `SessionManager` 后续应按 repo/storage/session 边界继续拆分：repo 负责 create/open/list/delete/fork，storage 负责 append/get/path/leaf，`SessionModel` / session 语义层负责 branch/compact/context 派生与状态应用。
 
 推荐落地顺序：
 
