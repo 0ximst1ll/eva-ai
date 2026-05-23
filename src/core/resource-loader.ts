@@ -32,6 +32,12 @@ export interface SkillResource {
   sourceInfo: ResourceSourceInfo;
 }
 
+export interface SkillSourceCandidate {
+  path: string;
+  sourceInfo: ResourceSourceInfo;
+  priority: number;
+}
+
 export interface ResourceLoader {
   workspaceDir: string;
   systemPrompt: string;
@@ -44,9 +50,11 @@ export interface ResourceLoader {
 export interface CreateResourceLoaderOptions {
   workspaceDir: string;
   config: ConfigData;
+  additionalSkillSources?: SkillSourceCandidate[];
 }
 
 const DEFAULT_SYSTEM_PROMPT = 'You are Eva AI, an intelligent assistant that can help users complete various tasks.';
+const CONFIG_SKILLS_SOURCE_PRIORITY = 0;
 
 interface ParsedSkillFrontmatter {
   name?: string;
@@ -78,6 +86,19 @@ function createConfiguredResourceSourceInfo({
     scope: isPathInside(workspaceDir, resolvedPath) ? 'project' : 'user',
     configuredPath,
     baseDir: resolvedPath,
+  };
+}
+
+function normalizeSkillSourceCandidate(workspaceDir: string, candidate: SkillSourceCandidate): SkillSourceCandidate {
+  const resolvedPath = resolveResourcePath(workspaceDir, candidate.path);
+  const resolvedBaseDir = resolveResourcePath(workspaceDir, candidate.sourceInfo.baseDir);
+  return {
+    path: resolvedPath,
+    priority: candidate.priority,
+    sourceInfo: {
+      ...candidate.sourceInfo,
+      baseDir: resolvedBaseDir,
+    },
   };
 }
 
@@ -270,7 +291,151 @@ function collectSkillFiles(dir: string, isRoot = true): string[] {
   return files;
 }
 
-function loadSkills(workspaceDir: string, config: ConfigData): {
+function collectSkillSources(
+  workspaceDir: string,
+  config: ConfigData,
+  additionalSources: SkillSourceCandidate[],
+): SkillSourceCandidate[] {
+  const skillsDir = resolveResourcePath(workspaceDir, config.tools.skillsDir);
+  const sourceInfo = createConfiguredResourceSourceInfo({
+    workspaceDir,
+    configuredPath: config.tools.skillsDir,
+    resolvedPath: skillsDir,
+  });
+  return [
+    {
+      path: skillsDir,
+      sourceInfo,
+      priority: CONFIG_SKILLS_SOURCE_PRIORITY,
+    },
+    ...additionalSources.map((source) => normalizeSkillSourceCandidate(workspaceDir, source)),
+  ];
+}
+
+function loadSkillsFromSources(sources: SkillSourceCandidate[]): {
+  skills: SkillResource[];
+  diagnostics: RuntimeDiagnostic[];
+} {
+  const diagnostics: RuntimeDiagnostic[] = [];
+  const selected = new Map<string, { skill: SkillResource; priority: number; order: number; sourcePath: string }>();
+  let order = 0;
+
+  for (const source of sources) {
+    if (!fs.existsSync(source.path)) {
+      diagnostics.push(createDiagnostic({
+        source: 'resource',
+        level: 'warning',
+        code: 'skills_dir_missing',
+        message: `Skills directory not found: ${source.path}`,
+        details: { skillsDir: source.path, priority: source.priority, sourceInfo: source.sourceInfo },
+      }));
+      continue;
+    }
+
+    const stat = fs.statSync(source.path);
+    if (!stat.isDirectory()) {
+      diagnostics.push(createDiagnostic({
+        source: 'resource',
+        level: 'warning',
+        code: 'skills_dir_not_directory',
+        message: `Configured skills path is not a directory: ${source.path}`,
+        details: { skillsDir: source.path, priority: source.priority, sourceInfo: source.sourceInfo },
+      }));
+      continue;
+    }
+
+    for (const filePath of collectSkillFiles(source.path)) {
+      const result = loadSkillFile(filePath, path.dirname(filePath), source.sourceInfo);
+      diagnostics.push(...result.diagnostics);
+      if (!result.skill) continue;
+
+      const current = { skill: result.skill, priority: source.priority, order, sourcePath: source.path };
+      order += 1;
+      const existing = selected.get(result.skill.name);
+      if (!existing) {
+        selected.set(result.skill.name, current);
+        continue;
+      }
+
+      if (source.priority > existing.priority) {
+        selected.set(result.skill.name, current);
+        diagnostics.push(createDiagnostic({
+          source: 'resource',
+          level: 'warning',
+          code: 'skill_duplicate_name',
+          message: `Duplicate skill replaced by higher-priority source: ${result.skill.name}`,
+          details: {
+            name: result.skill.name,
+            kept: {
+              path: current.skill.path,
+              priority: current.priority,
+              sourcePath: current.sourcePath,
+              sourceInfo: current.skill.sourceInfo,
+            },
+            ignored: {
+              path: existing.skill.path,
+              priority: existing.priority,
+              sourcePath: existing.sourcePath,
+              sourceInfo: existing.skill.sourceInfo,
+            },
+          },
+        }));
+        continue;
+      }
+
+      diagnostics.push(createDiagnostic({
+        source: 'resource',
+        level: 'warning',
+        code: 'skill_duplicate_name',
+        message: `Duplicate skill ignored: ${result.skill.name}`,
+        details: {
+          name: result.skill.name,
+          kept: {
+            path: existing.skill.path,
+            priority: existing.priority,
+            sourcePath: existing.sourcePath,
+            sourceInfo: existing.skill.sourceInfo,
+          },
+          ignored: {
+            path: current.skill.path,
+            priority: current.priority,
+            sourcePath: current.sourcePath,
+            sourceInfo: current.skill.sourceInfo,
+          },
+        },
+      }));
+    }
+  }
+
+  const skills = Array.from(selected.values())
+    .sort((left, right) => left.order - right.order)
+    .map((entry) => entry.skill);
+
+  diagnostics.push(createDiagnostic({
+    source: 'resource',
+    level: 'info',
+    code: 'skills_loaded',
+    message: `Loaded ${skills.length} skill resource(s)`,
+    details: {
+      count: skills.length,
+      sources: sources.map((source) => ({
+        path: source.path,
+        priority: source.priority,
+        sourceInfo: source.sourceInfo,
+      })),
+      skills: skills.map((skill) => ({
+        name: skill.name,
+        path: skill.path,
+        disableModelInvocation: skill.disableModelInvocation,
+        sourceInfo: skill.sourceInfo,
+      })),
+    },
+  }));
+
+  return { skills, diagnostics };
+}
+
+function loadSkills(workspaceDir: string, config: ConfigData, additionalSources: SkillSourceCandidate[]): {
   skills: SkillResource[];
   diagnostics: RuntimeDiagnostic[];
 } {
@@ -288,74 +453,7 @@ function loadSkills(workspaceDir: string, config: ConfigData): {
     return { skills, diagnostics };
   }
 
-  const skillsDir = resolveResourcePath(workspaceDir, config.tools.skillsDir);
-  const sourceInfo = createConfiguredResourceSourceInfo({
-    workspaceDir,
-    configuredPath: config.tools.skillsDir,
-    resolvedPath: skillsDir,
-  });
-  if (!fs.existsSync(skillsDir)) {
-    diagnostics.push(createDiagnostic({
-      source: 'resource',
-      level: 'warning',
-      code: 'skills_dir_missing',
-      message: `Skills directory not found: ${skillsDir}`,
-      details: { skillsDir, sourceInfo },
-    }));
-    return { skills, diagnostics };
-  }
-
-  const stat = fs.statSync(skillsDir);
-  if (!stat.isDirectory()) {
-    diagnostics.push(createDiagnostic({
-      source: 'resource',
-      level: 'warning',
-      code: 'skills_dir_not_directory',
-      message: `Configured skills path is not a directory: ${skillsDir}`,
-      details: { skillsDir, sourceInfo },
-    }));
-    return { skills, diagnostics };
-  }
-
-  const seenNames = new Set<string>();
-  for (const filePath of collectSkillFiles(skillsDir)) {
-    const result = loadSkillFile(filePath, path.dirname(filePath), sourceInfo);
-    diagnostics.push(...result.diagnostics);
-    if (!result.skill) continue;
-
-    if (seenNames.has(result.skill.name)) {
-      diagnostics.push(createDiagnostic({
-        source: 'resource',
-        level: 'warning',
-        code: 'skill_duplicate_name',
-        message: `Duplicate skill ignored: ${result.skill.name}`,
-        details: { name: result.skill.name, path: result.skill.path, sourceInfo: result.skill.sourceInfo },
-      }));
-      continue;
-    }
-
-    seenNames.add(result.skill.name);
-    skills.push(result.skill);
-  }
-
-  diagnostics.push(createDiagnostic({
-    source: 'resource',
-    level: 'info',
-    code: 'skills_loaded',
-    message: `Loaded ${skills.length} skill resource(s)`,
-    details: {
-      skillsDir,
-      count: skills.length,
-      skills: skills.map((skill) => ({
-        name: skill.name,
-        path: skill.path,
-        disableModelInvocation: skill.disableModelInvocation,
-        sourceInfo: skill.sourceInfo,
-      })),
-    },
-  }));
-
-  return { skills, diagnostics };
+  return loadSkillsFromSources(collectSkillSources(workspaceDir, config, additionalSources));
 }
 
 function collectUnimplementedResourceDiagnostics(config: ConfigData): RuntimeDiagnostic[] {
@@ -374,7 +472,11 @@ function collectUnimplementedResourceDiagnostics(config: ConfigData): RuntimeDia
   return diagnostics;
 }
 
-export function createResourceLoader({ workspaceDir, config }: CreateResourceLoaderOptions): ResourceLoader {
+export function createResourceLoader({
+  workspaceDir,
+  config,
+  additionalSkillSources = [],
+}: CreateResourceLoaderOptions): ResourceLoader {
   const resolvedWorkspaceDir = path.resolve(workspaceDir);
   const diagnostics: RuntimeDiagnostic[] = [];
   const systemPromptResult = loadSystemPrompt(config);
@@ -382,7 +484,7 @@ export function createResourceLoader({ workspaceDir, config }: CreateResourceLoa
 
   const projectContextResult = loadProjectContext(resolvedWorkspaceDir);
   diagnostics.push(...projectContextResult.diagnostics);
-  const skillsResult = loadSkills(resolvedWorkspaceDir, config);
+  const skillsResult = loadSkills(resolvedWorkspaceDir, config, additionalSkillSources);
   diagnostics.push(...skillsResult.diagnostics);
   diagnostics.push(...collectUnimplementedResourceDiagnostics(config));
 
