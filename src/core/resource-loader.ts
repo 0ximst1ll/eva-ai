@@ -11,6 +11,16 @@ export interface ProjectContextResource {
   content: string;
 }
 
+export type ResourceSourceKind = 'config' | 'project' | 'user' | 'package' | 'extension';
+export type ResourceScope = 'project' | 'user' | 'temporary' | 'package' | 'extension';
+
+export interface ResourceSourceInfo {
+  source: ResourceSourceKind;
+  scope: ResourceScope;
+  configuredPath?: string;
+  baseDir: string;
+}
+
 export interface SkillResource {
   type: 'skill';
   name: string;
@@ -19,6 +29,7 @@ export interface SkillResource {
   baseDir: string;
   content: string;
   disableModelInvocation: boolean;
+  sourceInfo: ResourceSourceInfo;
 }
 
 export interface ResourceLoader {
@@ -46,6 +57,28 @@ interface ParsedSkillFrontmatter {
 function resolveResourcePath(workspaceDir: string, configuredPath: string): string {
   if (path.isAbsolute(configuredPath)) return configuredPath;
   return path.resolve(workspaceDir, configuredPath);
+}
+
+function isPathInside(parentDir: string, childPath: string): boolean {
+  const relative = path.relative(parentDir, childPath);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function createConfiguredResourceSourceInfo({
+  workspaceDir,
+  configuredPath,
+  resolvedPath,
+}: {
+  workspaceDir: string;
+  configuredPath: string;
+  resolvedPath: string;
+}): ResourceSourceInfo {
+  return {
+    source: 'config',
+    scope: isPathInside(workspaceDir, resolvedPath) ? 'project' : 'user',
+    configuredPath,
+    baseDir: resolvedPath,
+  };
 }
 
 function loadSystemPrompt(config: ConfigData): {
@@ -149,7 +182,7 @@ function parseSkillFile(filePath: string): {
   return { frontmatter, content };
 }
 
-function loadSkillFile(filePath: string, baseDir: string): {
+function loadSkillFile(filePath: string, baseDir: string, sourceInfo: ResourceSourceInfo): {
   skill: SkillResource | null;
   diagnostics: RuntimeDiagnostic[];
 } {
@@ -191,6 +224,7 @@ function loadSkillFile(filePath: string, baseDir: string): {
         baseDir,
         content: parsed.content,
         disableModelInvocation: parsed.frontmatter.disableModelInvocation ?? false,
+        sourceInfo,
       },
       diagnostics,
     };
@@ -255,13 +289,18 @@ function loadSkills(workspaceDir: string, config: ConfigData): {
   }
 
   const skillsDir = resolveResourcePath(workspaceDir, config.tools.skillsDir);
+  const sourceInfo = createConfiguredResourceSourceInfo({
+    workspaceDir,
+    configuredPath: config.tools.skillsDir,
+    resolvedPath: skillsDir,
+  });
   if (!fs.existsSync(skillsDir)) {
     diagnostics.push(createDiagnostic({
       source: 'resource',
       level: 'warning',
       code: 'skills_dir_missing',
       message: `Skills directory not found: ${skillsDir}`,
-      details: { skillsDir, configuredPath: config.tools.skillsDir },
+      details: { skillsDir, sourceInfo },
     }));
     return { skills, diagnostics };
   }
@@ -273,14 +312,14 @@ function loadSkills(workspaceDir: string, config: ConfigData): {
       level: 'warning',
       code: 'skills_dir_not_directory',
       message: `Configured skills path is not a directory: ${skillsDir}`,
-      details: { skillsDir, configuredPath: config.tools.skillsDir },
+      details: { skillsDir, sourceInfo },
     }));
     return { skills, diagnostics };
   }
 
   const seenNames = new Set<string>();
   for (const filePath of collectSkillFiles(skillsDir)) {
-    const result = loadSkillFile(filePath, path.dirname(filePath));
+    const result = loadSkillFile(filePath, path.dirname(filePath), sourceInfo);
     diagnostics.push(...result.diagnostics);
     if (!result.skill) continue;
 
@@ -290,7 +329,7 @@ function loadSkills(workspaceDir: string, config: ConfigData): {
         level: 'warning',
         code: 'skill_duplicate_name',
         message: `Duplicate skill ignored: ${result.skill.name}`,
-        details: { name: result.skill.name, path: result.skill.path },
+        details: { name: result.skill.name, path: result.skill.path, sourceInfo: result.skill.sourceInfo },
       }));
       continue;
     }
@@ -311,6 +350,7 @@ function loadSkills(workspaceDir: string, config: ConfigData): {
         name: skill.name,
         path: skill.path,
         disableModelInvocation: skill.disableModelInvocation,
+        sourceInfo: skill.sourceInfo,
       })),
     },
   }));

@@ -131,8 +131,16 @@ test('createResourceLoader loads skill resources from configured skills director
     assert.equal(loader.skills[0]?.name, 'code-review');
     assert.equal(loader.skills[0]?.description, 'Review code changes for defects');
     assert.equal(loader.skills[0]?.disableModelInvocation, true);
+    assert.deepEqual(loader.skills[0]?.sourceInfo, {
+      source: 'config',
+      scope: 'project',
+      configuredPath: './skills',
+      baseDir: skillsDir,
+    });
     assert.ok(loader.skills[0]?.content.includes('Use a code-review stance.'));
-    assert.ok(loader.diagnostics.some((diagnostic) => diagnostic.code === 'skills_loaded'));
+    const skillsLoaded = loader.diagnostics.find((diagnostic) => diagnostic.code === 'skills_loaded');
+    assert.ok(skillsLoaded);
+    assert.equal((skillsLoaded.details?.['skills'] as Array<{ sourceInfo?: { source?: string } }>)[0]?.sourceInfo?.source, 'config');
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -175,5 +183,35 @@ test('createResourceLoader reports invalid and duplicate skills without failing 
     assert.ok(loader.diagnostics.some((diagnostic) => diagnostic.code === 'skill_missing_description'));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('createResourceLoader marks configured skills outside workspace as user scoped', async () => {
+  const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-resource-loader-workspace-'));
+  const skillsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-resource-loader-user-skills-'));
+
+  try {
+    await fs.writeFile(
+      path.join(skillsDir, 'review.md'),
+      ['---', 'name: review', 'description: Review changes', '---', '', 'Review body.'].join('\n'),
+      'utf-8',
+    );
+
+    const loader = createResourceLoader({
+      workspaceDir,
+      config: createConfig({
+        systemPromptPath: 'missing-system-prompt.md',
+        enableSkills: true,
+        skillsDir,
+      }),
+    });
+
+    assert.equal(loader.skills[0]?.sourceInfo.source, 'config');
+    assert.equal(loader.skills[0]?.sourceInfo.scope, 'user');
+    assert.equal(loader.skills[0]?.sourceInfo.configuredPath, skillsDir);
+    assert.equal(loader.skills[0]?.sourceInfo.baseDir, skillsDir);
+  } finally {
+    await fs.rm(workspaceDir, { recursive: true, force: true });
+    await fs.rm(skillsDir, { recursive: true, force: true });
   }
 });

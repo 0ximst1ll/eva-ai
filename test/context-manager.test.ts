@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createContextBuilder } from '../src/core/context-builder.js';
 import { createContextManager } from '../src/core/context-manager.js';
+import type { ResourceSourceInfo } from '../src/core/resource-loader.js';
 import { SessionManager } from '../src/core/session-manager.js';
+
+const skillSourceInfo: ResourceSourceInfo = {
+  source: 'config',
+  scope: 'project',
+  configuredPath: './skills',
+  baseDir: '/workspace/skills',
+};
 
 test('ContextManager reports context diagnostics from builder and session metadata', async () => {
   const sessionManager = new SessionManager({
@@ -35,6 +43,7 @@ test('ContextManager reports context diagnostics from builder and session metada
         baseDir: '/workspace/skills/review',
         content: 'Review instructions.',
         disableModelInvocation: false,
+        sourceInfo: skillSourceInfo,
       },
       {
         type: 'skill',
@@ -44,6 +53,7 @@ test('ContextManager reports context diagnostics from builder and session metada
         baseDir: '/workspace/skills/hidden',
         content: 'Hidden instructions.',
         disableModelInvocation: true,
+        sourceInfo: skillSourceInfo,
       },
     ],
     projectContextMaxChars: 20000,

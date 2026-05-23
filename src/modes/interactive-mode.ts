@@ -184,7 +184,9 @@ function writeContextDiagnostics(
   writeLine(`  Skills: ${formatSkillsStatus(diagnostics)}`);
   for (const skill of diagnostics.skills.resources) {
     const visibility = skill.disableModelInvocation ? 'hidden' : 'visible';
-    writeLine(`  - ${skill.name} ${visibility} path=${skill.path}`);
+    writeLine(
+      `  - ${skill.name} ${visibility} source=${skill.sourceInfo.source} scope=${skill.sourceInfo.scope} path=${skill.path}`,
+    );
   }
   writeLine(`  Last build: ${formatContextBuildStatus(diagnostics.latestBuild)}`);
 }

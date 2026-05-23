@@ -8,8 +8,16 @@ import {
   type RuntimeHost,
 } from '../src/core/runtime-host.js';
 import { defaultConvertToLlm } from '../src/core/agent-messages.js';
+import type { ResourceSourceInfo } from '../src/core/resource-loader.js';
 import { estimateMessagesTokens } from '../src/core/token-estimator.js';
 import { handleInteractiveCommand } from '../src/modes/interactive-mode.js';
+
+const skillSourceInfo: ResourceSourceInfo = {
+  source: 'config',
+  scope: 'project',
+  configuredPath: './skills',
+  baseDir: '/workspace/skills',
+};
 
 function createContextManagerMock({
   contextBuilder = createContextBuilder(),
@@ -176,6 +184,7 @@ test('/skill:name queues a skill invocation for the next provider request', asyn
       baseDir: '/workspace/skills/review',
       content: 'Review full instructions.',
       disableModelInvocation: false,
+      sourceInfo: skillSourceInfo,
     }],
   });
   const output: string[] = [];
@@ -217,6 +226,7 @@ test('/skill reports missing skills without queueing an invocation', async () =>
       baseDir: '/workspace/skills/review',
       content: 'Review full instructions.',
       disableModelInvocation: false,
+      sourceInfo: skillSourceInfo,
     }],
   });
   const output: string[] = [];
@@ -674,6 +684,7 @@ test('/stats prints session and runtime details', async () => {
         baseDir: '/workspace/skills/review',
         content: 'Review instructions.',
         disableModelInvocation: false,
+        sourceInfo: skillSourceInfo,
       },
       {
         type: 'skill',
@@ -683,6 +694,7 @@ test('/stats prints session and runtime details', async () => {
         baseDir: '/workspace/skills/hidden',
         content: 'Hidden instructions.',
         disableModelInvocation: true,
+        sourceInfo: skillSourceInfo,
       },
     ],
     projectContextMaxChars: 20000,
@@ -1002,6 +1014,7 @@ test('/diagnostics prints full runtime diagnostics', async () => {
       baseDir: '/workspace/skills/review',
       content: 'Review instructions.',
       disableModelInvocation: false,
+      sourceInfo: skillSourceInfo,
     }],
     projectContextMaxChars: 20000,
   });
@@ -1101,7 +1114,7 @@ test('/diagnostics prints full runtime diagnostics', async () => {
   assert.match(text, /AGENTS\.md path=\/workspace\/AGENTS\.md chars=23/);
   assert.match(text, /Budget: 20000 chars/);
   assert.match(text, /Skills: loaded=1, visible=1, hidden=0, last_invoked=review/);
-  assert.match(text, /review visible path=\/workspace\/skills\/review\/SKILL\.md/);
+  assert.match(text, /review visible source=config scope=project path=\/workspace\/skills\/review\/SKILL\.md/);
   assert.match(text, /Last build: injected 1 resource\(s\).*estimated provider request tokens=\d+.*chars=85\/20000.*invoked_skills=review/);
 });
 
