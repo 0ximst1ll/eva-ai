@@ -711,6 +711,7 @@ user/assistant/tool: durable session history
 - create/reset/fork 路径已先建立 entry path state，再通过统一 state application 初始化运行期 active state cache。
 - load/import 已通过统一 parsed session application 边界恢复 metadata、entry tree、path entries 和 active state；旧 flat JSONL fallback 已移除。
 - 新 session 已在 `session_start` 写入 schema version；session format info 仅记录当前 schema version。
+- workspace JSONL store 已从 `SessionManager` 抽出，负责 session 文件路径、manifest、session log 读写、append 和文件枚举。
 - branch 已写入 durable `leaf` entry，用于记录 active leaf 切换；reload/import 可从 `leaf` entry 恢复 active leaf。
 
 目标语义：
@@ -744,8 +745,9 @@ user/assistant/tool: durable session history
 17. 已完成 durable leaf entry 最小闭环：branch 写入 `leaf` control entry，reload/import 可重放 active leaf。
 18. 后续按需补更完整 entry navigation UI。
 19. 再逐步把 `SessionManager` 内部主状态从 active state cache 收敛为 entry tree + active leaf。
-20. 后续按需拆出 `SessionRepo` / `SessionStorage` / `Session`，避免 `SessionManager` 同时承担文件生命周期、单文件存储和 session 语义。
-21. 后续如需要再补完整旧 JSONL 到 entry-tree-first 的迁移器。
+20. 已完成 workspace JSONL store 第一层拆分，`SessionManager` 不再直接持有 workspace session 文件路径、manifest 和 append/read/write 细节。
+21. 后续按需拆出单 session `SessionStorage` 和语义层 `Session`，避免 `SessionManager` 同时承担 entry path traversal、active leaf 和 session 语义。
+22. 后续如需要再补完整旧 JSONL 到 entry-tree-first 的迁移器。
 
 长期更优设计：
 

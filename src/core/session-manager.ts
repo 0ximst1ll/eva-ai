@@ -9,15 +9,11 @@ import {
   rebuildCompactedMessages,
   type CompactionResult,
 } from './compaction.js';
+import { WorkspaceSessionStore } from './session-store.js';
 
 type PersistenceMode = 'memory' | 'jsonl';
 
 export const CURRENT_SESSION_SCHEMA_VERSION = 1;
-
-interface SessionManifest {
-  latestSessionId: string;
-  updatedAt: number;
-}
 
 export interface SessionStartEntry {
   type: 'session_start';
@@ -252,8 +248,7 @@ interface ParsedSessionLog {
 export class SessionManager {
   private readonly mode: PersistenceMode;
   private readonly workspaceDir: string;
-  private readonly baseDir: string;
-  private readonly workspaceKey: string;
+  private readonly store: WorkspaceSessionStore;
   // Runtime cache for the current active leaf path, not the canonical session history.
   private readonly sessions = new Map<string, Message[]>();
   private readonly sessionMetadata = new Map<string, SessionMetadata>();
@@ -278,8 +273,10 @@ export class SessionManager {
   }) {
     this.mode = mode;
     this.workspaceDir = path.resolve(workspaceDir);
-    this.baseDir = baseDir ?? path.join(os.homedir(), '.eva-ai', 'sessions');
-    this.workspaceKey = encodeURIComponent(this.workspaceDir);
+    this.store = new WorkspaceSessionStore(
+      this.workspaceDir,
+      baseDir ?? path.join(os.homedir(), '.eva-ai', 'sessions'),
+    );
   }
 
   async createSession(systemPrompt: string, sessionId?: string, lineage?: SessionLineageOptions): Promise<string> {
@@ -310,16 +307,15 @@ export class SessionManager {
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
-      await this.ensureWorkspaceDir();
       await this.writeSessionStart(id, now, lineageInfo);
-      await this.appendEntry({
+      await this.store.appendEntry({
         type: 'message',
         sessionId: id,
         timestamp: now,
         ...entryTreeFields(systemEntryNode),
         message: initialMessages[0],
       });
-      await this.writeManifest({ latestSessionId: id, updatedAt: now });
+      await this.store.writeManifest({ latestSessionId: id, updatedAt: now });
     }
     return id;
   }
@@ -369,12 +365,11 @@ export class SessionManager {
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
-      await this.ensureWorkspaceDir();
       await this.writeSessionStart(id, now, lineageInfo);
       for (const entry of forkedPathEntries) {
-        await this.appendEntry(entry);
+        await this.store.appendEntry(entry);
       }
-      await this.writeManifest({ latestSessionId: id, updatedAt: now });
+      await this.store.writeManifest({ latestSessionId: id, updatedAt: now });
     }
 
     return id;
@@ -407,7 +402,7 @@ export class SessionManager {
     await fs.mkdir(path.dirname(resolvedOutputPath), { recursive: true });
 
     if (this.mode === 'jsonl') {
-      await fs.copyFile(this.getSessionFilePath(sessionId), resolvedOutputPath);
+      await this.store.copySessionLog(sessionId, resolvedOutputPath);
       return { sessionId, path: resolvedOutputPath };
     }
 
@@ -447,10 +442,9 @@ export class SessionManager {
 
     let destinationPath: string | undefined;
     if (this.mode === 'jsonl') {
-      await this.ensureWorkspaceDir();
-      destinationPath = this.getSessionFilePath(targetSessionId);
-      await fs.writeFile(destinationPath, rewrittenContent, 'utf-8');
-      await this.writeManifest({ latestSessionId: targetSessionId, updatedAt: Date.now() });
+      destinationPath = this.store.getSessionFilePath(targetSessionId);
+      await this.store.writeSessionLog(targetSessionId, rewrittenContent);
+      await this.store.writeManifest({ latestSessionId: targetSessionId, updatedAt: Date.now() });
     }
 
     return { sessionId: targetSessionId, sourcePath: resolvedInputPath, destinationPath };
@@ -459,7 +453,7 @@ export class SessionManager {
   async loadLatestSession(): Promise<string | null> {
     if (this.mode !== 'jsonl') return null;
     try {
-      const manifest = await this.readManifest();
+      const manifest = await this.store.readManifest();
       if (!manifest?.latestSessionId) return null;
       await this.loadSession(manifest.latestSessionId);
       return manifest.latestSessionId;
@@ -476,7 +470,7 @@ export class SessionManager {
     if (this.mode !== 'jsonl') return false;
 
     try {
-      const content = await fs.readFile(this.getSessionFilePath(sessionId), 'utf-8');
+      const content = await this.store.readSessionLog(sessionId);
       const parsed = this.parseSessionLog(content, sessionId);
       if (!parsed.state.messages.length) return false;
       this.applyParsedSessionLog(sessionId, parsed);
@@ -646,14 +640,14 @@ export class SessionManager {
     };
 
     if (this.mode === 'jsonl') {
-      await this.appendEntry({
+      await this.store.appendEntry({
         type: 'leaf',
         sessionId,
         timestamp: now,
         ...entryTreeFields(leafEntryNode),
         targetEntryId: leafEntryId,
       });
-      await this.appendEntry({
+      await this.store.appendEntry({
         type: 'branch_summary',
         sessionId,
         timestamp: now,
@@ -663,7 +657,7 @@ export class SessionManager {
         pathEntryCount: entryPath.length,
         messageCount: state.messages.length,
       });
-      await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
+      await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
 
     return summary;
@@ -689,14 +683,14 @@ export class SessionManager {
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
-      await this.appendEntry({
+      await this.store.appendEntry({
         type: 'message',
         sessionId,
         timestamp: now,
         ...entryTreeFields(entryNode),
         message,
       });
-      await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
+      await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
   }
 
@@ -728,7 +722,7 @@ export class SessionManager {
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
-      await this.appendEntry({
+      await this.store.appendEntry({
         type: 'usage',
         sessionId,
         timestamp: now,
@@ -736,7 +730,7 @@ export class SessionManager {
         source,
         usage,
       });
-      await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
+      await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
   }
 
@@ -781,13 +775,13 @@ export class SessionManager {
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
-      await this.appendEntry({
+      await this.store.appendEntry({
         type: 'internal',
         sessionId,
         ...entryTreeFields(entryNode),
         ...entry,
       });
-      await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
+      await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
 
     return copyInternalEntry(entry);
@@ -848,7 +842,7 @@ export class SessionManager {
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
-      await this.appendEntry({
+      await this.store.appendEntry({
         type: 'compaction',
         sessionId,
         timestamp: now,
@@ -860,7 +854,7 @@ export class SessionManager {
         messagesAfter: result.messagesAfter,
         customInstructions,
       });
-      await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
+      await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
 
     return result;
@@ -892,16 +886,15 @@ export class SessionManager {
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
-      await fs.writeFile(this.getSessionFilePath(sessionId), '', 'utf-8');
       await this.writeSessionStart(sessionId, now, lineageInfo);
-      await this.appendEntry({
+      await this.store.appendEntry({
         type: 'message',
         sessionId,
         timestamp: now,
         ...entryTreeFields(systemEntryNode),
         message: resetMessages[0],
       });
-      await this.writeManifest({ latestSessionId: sessionId, updatedAt: now });
+      await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
   }
 
@@ -923,20 +916,11 @@ export class SessionManager {
       );
     }
 
-    const manifest = await this.readManifest();
-    let fileNames: string[];
-    try {
-      fileNames = await fs.readdir(this.getWorkspaceDataDir());
-    } catch {
-      return [];
-    }
-
+    const manifest = await this.store.readManifest();
     const sessions: SessionListItem[] = [];
-    for (const fileName of fileNames) {
-      if (!fileName.endsWith('.jsonl')) continue;
-      const sessionId = fileName.slice(0, -'.jsonl'.length);
+    for (const sessionId of await this.store.listSessionIds()) {
       try {
-        const content = await fs.readFile(this.getSessionFilePath(sessionId), 'utf-8');
+        const content = await this.store.readSessionLog(sessionId);
         const parsed = this.parseSessionLog(content, sessionId);
         if (!parsed.state.messages.length) continue;
         sessions.push({
@@ -993,22 +977,6 @@ export class SessionManager {
     return sessions.filter((session) => session.parentSessionId === sessionId);
   }
 
-  private getWorkspaceDataDir(): string {
-    return path.join(this.baseDir, this.workspaceKey);
-  }
-
-  private getSessionFilePath(sessionId: string): string {
-    return path.join(this.getWorkspaceDataDir(), `${sessionId}.jsonl`);
-  }
-
-  private getManifestFilePath(): string {
-    return path.join(this.getWorkspaceDataDir(), 'manifest.json');
-  }
-
-  private async ensureWorkspaceDir(): Promise<void> {
-    await fs.mkdir(this.getWorkspaceDataDir(), { recursive: true });
-  }
-
   private async writeSessionStart(
     sessionId: string,
     createdAt = Date.now(),
@@ -1024,28 +992,7 @@ export class SessionManager {
       rootSessionId: lineage.rootSessionId,
       forkedFromMessageIndex: lineage.forkedFromMessageIndex,
     };
-    await fs.writeFile(this.getSessionFilePath(sessionId), `${JSON.stringify(entry)}\n`, 'utf-8');
-  }
-
-  private async appendEntry(entry: SessionEntry): Promise<void> {
-    await this.ensureWorkspaceDir();
-    await fs.appendFile(this.getSessionFilePath(entry.sessionId), `${JSON.stringify(entry)}\n`, 'utf-8');
-  }
-
-  private async readManifest(): Promise<SessionManifest | null> {
-    try {
-      const raw = await fs.readFile(this.getManifestFilePath(), 'utf-8');
-      const parsed = JSON.parse(raw) as SessionManifest;
-      if (!parsed.latestSessionId) return null;
-      return parsed;
-    } catch {
-      return null;
-    }
-  }
-
-  private async writeManifest(manifest: SessionManifest): Promise<void> {
-    await this.ensureWorkspaceDir();
-    await fs.writeFile(this.getManifestFilePath(), JSON.stringify(manifest, null, 2), 'utf-8');
+    await this.store.writeSessionStart(entry);
   }
 
   private serializeMemorySessionLog(sessionId: string): string {
@@ -1191,7 +1138,7 @@ export class SessionManager {
     const updatedAt = Date.now();
     this.touchSession(sessionId, updatedAt);
     if (this.mode === 'jsonl') {
-      await this.writeManifest({ latestSessionId: sessionId, updatedAt });
+      await this.store.writeManifest({ latestSessionId: sessionId, updatedAt });
     }
   }
 

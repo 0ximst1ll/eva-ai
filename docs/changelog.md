@@ -35,6 +35,19 @@
 35. Durable Branch Summary Entry 最小边界
 36. Durable Leaf Entry 最小边界
 37. Session Entry-Tree-First 读取收敛
+38. Workspace Session Store 边界
+
+
+# Workspace Session Store 边界
+
+继续收敛 session 管理分层，先把 workspace 级 JSONL 文件生命周期从 `SessionManager` 中拆出。
+
+核心变化：
+
+- 新增 `src/core/session-store.ts`，提供 `WorkspaceSessionStore`。
+- store 负责 workspace session 目录、session 文件路径、manifest、session log 读写、append 和 session 文件枚举。
+- `SessionManager` public API 保持不变，内部改为委托 store 完成 JSONL 文件 IO。
+- 当前只完成 workspace store 第一层拆分；entry index/path traversal、active leaf 和 session 语义仍在 `SessionManager` 中，后续再继续拆 `SessionStorage` / `SessionRepo` / `Session`。
 
 
 # Session Entry-Tree-First 读取收敛
