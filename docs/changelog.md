@@ -36,6 +36,19 @@
 36. Durable Leaf Entry 最小边界
 37. Session Entry-Tree-First 读取收敛
 38. Workspace Session Store 边界
+39. Session Entry Store 边界
+
+
+# Session Entry Store 边界
+
+继续按 `pi-mono` harness 的 storage/session 分层方向收敛，把单个 session 的 entry tree 状态从 `SessionManager` 中拆出。
+
+核心变化：
+
+- 新增 `src/core/session-entry-store.ts`，提供 `SessionEntryStore`。
+- entry store 负责 entry tree、path entries、active entry id、entry path traversal 和 entry tree view。
+- `SessionManager` public API 保持不变，内部从 `sessionEntryTrees` / `sessionPathEntries` / `sessionActiveEntryIds` 三组 Map 收敛为 `Map<sessionId, SessionEntryStore>`。
+- 当前仍保留 `SessionManager` 作为 session lifecycle facade；branch/fork/compaction/import/export 语义后续再继续拆到语义层 `Session`。
 
 
 # Workspace Session Store 边界
