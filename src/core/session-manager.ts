@@ -7,17 +7,15 @@ import type { CompactionResult } from './compaction.js';
 import {
   buildEntryPath,
   copySessionPathEntry,
-  createEntryTreeNode,
-  entryTreeFields,
   readEntryTreeNode,
   SessionEntryStore,
 } from './session-entry-store.js';
 import {
   buildSessionStateFromEntryPath,
   copyInternalEntry,
-  copyMessage,
   copySessionEntryPathState,
   createCurrentSessionFormatInfo,
+  createInitialSessionModel,
   createLineageInfo,
   CURRENT_SESSION_SCHEMA_VERSION,
   forkSessionModel,
@@ -277,44 +275,22 @@ export class SessionManager {
   async createSession(systemPrompt: string, sessionId?: string, lineage?: SessionLineageOptions): Promise<string> {
     const id = sessionId ?? randomUUID();
     const now = Date.now();
-    const initialMessages: Message[] = [{ role: 'system', content: systemPrompt }];
-    const lineageInfo = createLineageInfo(id, now, lineage);
-    const systemEntryNode = createEntryTreeNode({
-      parentEntryId: null,
-      type: 'message',
-      timestamp: now,
-      messageIndex: 0,
-    });
-    const initialPathEntries = [createMessagePathEntry({
-      sessionId: id,
-      timestamp: now,
-      entryNode: systemEntryNode,
-      message: initialMessages[0],
-    })];
-    const initialState = buildSessionStateFromEntryPath(initialPathEntries);
-    this.sessionModels.set(id, new SessionModel({
-      sessionId: id,
-      metadata: { createdAt: now, updatedAt: now },
+    const {
+      model,
+      initialEntry,
       lineage: lineageInfo,
-      format: createCurrentSessionFormatInfo(),
-      entryStore: new SessionEntryStore({
-        entryTree: [systemEntryNode],
-        pathEntries: initialPathEntries,
-        activeEntryId: systemEntryNode.entryId,
-      }),
-      activeState: initialState,
-    }));
+    } = createInitialSessionModel({
+      sessionId: id,
+      systemPrompt,
+      timestamp: now,
+      lineageOptions: lineage,
+    });
+    this.sessionModels.set(id, model);
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
       await this.writeSessionStart(id, now, lineageInfo);
-      await this.store.appendEntry({
-        type: 'message',
-        sessionId: id,
-        timestamp: now,
-        ...entryTreeFields(systemEntryNode),
-        message: initialMessages[0],
-      });
+      await this.store.appendEntry(initialEntry);
       await this.store.writeManifest({ latestSessionId: id, updatedAt: now });
     }
     return id;
@@ -629,49 +605,25 @@ export class SessionManager {
 
   async resetSession(sessionId: string, systemPrompt: string): Promise<void> {
     const now = Date.now();
-    const resetMessages: Message[] = [{ role: 'system', content: systemPrompt }];
-    const systemEntryNode = createEntryTreeNode({
-      parentEntryId: null,
-      type: 'message',
-      timestamp: now,
-      messageIndex: 0,
-    });
-    const resetPathEntries = [createMessagePathEntry({
-      sessionId,
-      timestamp: now,
-      entryNode: systemEntryNode,
-      message: resetMessages[0],
-    })];
-    const resetState = buildSessionStateFromEntryPath(resetPathEntries);
     const existingModel = this.sessionModels.get(sessionId);
     const existingMetadata = existingModel?.getMetadata();
     const lineageInfo = existingModel?.getLineageInfo() ?? createLineageInfo(sessionId, now);
-    this.sessionModels.set(sessionId, new SessionModel({
+    const {
+      model,
+      initialEntry,
+    } = createInitialSessionModel({
       sessionId,
-      metadata: {
-        createdAt: existingMetadata?.createdAt ?? now,
-        updatedAt: now,
-      },
+      systemPrompt,
+      timestamp: now,
+      createdAt: existingMetadata?.createdAt ?? now,
       lineage: lineageInfo,
-      format: createCurrentSessionFormatInfo(),
-      entryStore: new SessionEntryStore({
-        entryTree: [systemEntryNode],
-        pathEntries: resetPathEntries,
-        activeEntryId: systemEntryNode.entryId,
-      }),
-      activeState: resetState,
-    }));
+    });
+    this.sessionModels.set(sessionId, model);
     this.touchSession(sessionId, now);
 
     if (this.mode === 'jsonl') {
       await this.writeSessionStart(sessionId, now, lineageInfo);
-      await this.store.appendEntry({
-        type: 'message',
-        sessionId,
-        timestamp: now,
-        ...entryTreeFields(systemEntryNode),
-        message: resetMessages[0],
-      });
+      await this.store.appendEntry(initialEntry);
       await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
   }
@@ -999,26 +951,6 @@ export class SessionManager {
   private sortSessionList(sessions: SessionListItem[]): SessionListItem[] {
     return sessions.sort((a, b) => b.updatedAt - a.updatedAt || a.sessionId.localeCompare(b.sessionId));
   }
-}
-
-function createMessagePathEntry({
-  sessionId,
-  timestamp,
-  entryNode,
-  message,
-}: {
-  sessionId: string;
-  timestamp: number;
-  entryNode: SessionEntryTreeNode;
-  message: Message;
-}): SessionPathEntry {
-  return {
-    type: 'message',
-    sessionId,
-    timestamp,
-    ...entryTreeFields(entryNode),
-    message: copyMessage(message),
-  };
 }
 
 function getSessionIdFromLog(content: string): string | null {

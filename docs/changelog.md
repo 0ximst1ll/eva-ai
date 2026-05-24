@@ -41,6 +41,19 @@
 41. SessionModel Append Operation 边界
 42. SessionModel Branch Operation 边界
 43. Fork Session Model Helper 边界
+44. Initial Session Model Helper 边界
+
+
+# Initial Session Model Helper 边界
+
+继续收敛 create/reset 的初始 session model 构造，减少 `SessionManager` 中重复的 system entry 初始化逻辑。
+
+核心变化：
+
+- 新增 `createInitialSessionModel()` helper。
+- helper 负责创建初始 system message entry、entry tree/path、active state、lineage 和 `SessionModel`。
+- `SessionManager.createSession()` 和 `resetSession()` public API 不变，当前只负责保存 model、写入 `session_start`、持久化 initial entry 和更新 manifest。
+- `resetSession()` 继续保留现有 metadata createdAt 语义。
 
 
 # Fork Session Model Helper 边界

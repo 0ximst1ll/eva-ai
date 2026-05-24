@@ -62,6 +62,12 @@ export interface ForkSessionModelResult {
   lineage: SessionLineageInfo;
 }
 
+export interface InitialSessionModelResult {
+  model: SessionModel;
+  initialEntry: MessageEntry;
+  lineage: SessionLineageInfo;
+}
+
 export class SessionModel {
   readonly sessionId: string;
   readonly entryStore: SessionEntryStore;
@@ -399,6 +405,56 @@ export function buildSessionStateFromEntryPath(entryPath: SessionPathEntry[]): S
     compaction: getLatestCompactionFromPath(entryPath),
     usage: getUsageFromPath(entryPath),
     internalEntries: getInternalEntriesFromPath(entryPath),
+  };
+}
+
+export function createInitialSessionModel({
+  sessionId,
+  systemPrompt,
+  timestamp,
+  createdAt = timestamp,
+  lineage,
+  lineageOptions,
+}: {
+  sessionId: string;
+  systemPrompt: string;
+  timestamp: number;
+  createdAt?: number;
+  lineage?: SessionLineageInfo;
+  lineageOptions?: SessionLineageOptions;
+}): InitialSessionModelResult {
+  const initialMessage: Message = { role: 'system', content: systemPrompt };
+  const entryNode = createEntryTreeNode({
+    parentEntryId: null,
+    type: 'message',
+    timestamp,
+    messageIndex: 0,
+  });
+  const initialEntry: MessageEntry = {
+    type: 'message',
+    sessionId,
+    timestamp,
+    ...entryTreeFields(entryNode),
+    message: copyMessage(initialMessage),
+  };
+  const state = buildSessionStateFromEntryPath([initialEntry]);
+  const resolvedLineage = lineage ?? createLineageInfo(sessionId, timestamp, lineageOptions);
+
+  return {
+    model: new SessionModel({
+      sessionId,
+      metadata: { createdAt, updatedAt: timestamp },
+      lineage: resolvedLineage,
+      format: createCurrentSessionFormatInfo(),
+      entryStore: new SessionEntryStore({
+        entryTree: [entryNode],
+        pathEntries: [initialEntry],
+        activeEntryId: entryNode.entryId,
+      }),
+      activeState: state,
+    }),
+    initialEntry: copySessionPathEntry(initialEntry) as MessageEntry,
+    lineage: resolvedLineage,
   };
 }
 
