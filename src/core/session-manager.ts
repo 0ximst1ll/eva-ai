@@ -3,11 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Message, TokenUsage } from '../schema.js';
-import {
-  chooseFirstKeptMessageIndex,
-  rebuildCompactedMessages,
-  type CompactionResult,
-} from './compaction.js';
+import type { CompactionResult } from './compaction.js';
 import {
   buildEntryPath,
   copySessionPathEntry,
@@ -620,33 +616,13 @@ export class SessionManager {
   }
 
   async appendMessage(sessionId: string, message: Message): Promise<void> {
-    if (!this.sessionModels.has(sessionId)) {
-      throw new Error(`Session not found: ${sessionId}`);
-    }
-    const existing = this.buildActiveState(sessionId).messages;
+    const model = this.requireSessionModel(sessionId);
     const now = Date.now();
-    const entryStore = this.requireSessionEntryStore(sessionId);
-    const entryNode = entryStore.createNextEntryTreeNode('message', now, {
-      messageIndex: existing.length,
-    });
-    entryStore.appendEntryTreeNode(entryNode);
-    entryStore.appendPathEntry(createMessagePathEntry({
-      sessionId,
-      timestamp: now,
-      entryNode,
-      message,
-    }));
-    this.syncActiveStateCache(sessionId);
-    this.touchSession(sessionId, now);
+    const entry = model.appendMessage({ message, timestamp: now });
+    this.latestSessionId = sessionId;
 
     if (this.mode === 'jsonl') {
-      await this.store.appendEntry({
-        type: 'message',
-        sessionId,
-        timestamp: now,
-        ...entryTreeFields(entryNode),
-        message,
-      });
+      await this.store.appendEntry(entry);
       await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
   }
@@ -660,34 +636,13 @@ export class SessionManager {
     usage: TokenUsage;
     source?: SessionUsageSource;
   }): Promise<void> {
-    if (!this.sessionModels.has(sessionId)) {
-      throw new Error(`Session not found: ${sessionId}`);
-    }
-
+    const model = this.requireSessionModel(sessionId);
     const now = Date.now();
-    const entryStore = this.requireSessionEntryStore(sessionId);
-    const entryNode = entryStore.createNextEntryTreeNode('usage', now);
-    entryStore.appendEntryTreeNode(entryNode);
-    entryStore.appendPathEntry({
-      type: 'usage',
-      sessionId,
-      timestamp: now,
-      ...entryTreeFields(entryNode),
-      source,
-      usage: { ...usage },
-    });
-    this.syncActiveStateCache(sessionId);
-    this.touchSession(sessionId, now);
+    const entry = model.appendUsage({ usage, source, timestamp: now });
+    this.latestSessionId = sessionId;
 
     if (this.mode === 'jsonl') {
-      await this.store.appendEntry({
-        type: 'usage',
-        sessionId,
-        timestamp: now,
-        ...entryTreeFields(entryNode),
-        source,
-        usage,
-      });
+      await this.store.appendEntry(entry);
       await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
   }
@@ -703,43 +658,18 @@ export class SessionManager {
     content?: string;
     metadata?: Record<string, unknown>;
   }): Promise<SessionInternalEntry> {
-    if (!this.sessionModels.has(sessionId)) {
-      throw new Error(`Session not found: ${sessionId}`);
-    }
-    if (!kind.trim()) {
-      throw new Error('Internal entry kind is required');
-    }
-
-    const normalizedKind = kind.trim();
+    const model = this.requireSessionModel(sessionId);
     const now = Date.now();
-    const entryStore = this.requireSessionEntryStore(sessionId);
-    const entryNode = entryStore.createNextEntryTreeNode('internal', now, {
-      kind: normalizedKind,
-    });
-    const entry: SessionInternalEntry = {
-      timestamp: now,
-      ...entryTreeFields(entryNode),
-      kind: normalizedKind,
+    const entry = model.appendInternalEntry({
+      kind,
       content,
-      metadata: metadata ? { ...metadata } : undefined,
-    };
-    entryStore.appendEntryTreeNode(entryNode);
-    entryStore.appendPathEntry({
-      type: 'internal',
-      sessionId,
-      ...entryTreeFields(entryNode),
-      ...copyInternalEntry(entry),
+      metadata,
+      timestamp: now,
     });
-    this.syncActiveStateCache(sessionId);
-    this.touchSession(sessionId, now);
+    this.latestSessionId = sessionId;
 
     if (this.mode === 'jsonl') {
-      await this.store.appendEntry({
-        type: 'internal',
-        sessionId,
-        ...entryTreeFields(entryNode),
-        ...entry,
-      });
+      await this.store.appendEntry(entry);
       await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
 
@@ -757,63 +687,18 @@ export class SessionManager {
     customInstructions?: string;
     keepRecentMessages?: number;
   }): Promise<CompactionResult> {
-    if (!this.sessionModels.has(sessionId)) {
-      throw new Error(`Session not found: ${sessionId}`);
-    }
-    const existing = this.buildActiveState(sessionId).messages;
-    if (existing.length <= 2) {
-      throw new Error('Nothing to compact (session too small)');
-    }
-
-    const firstKeptMessageIndex = chooseFirstKeptMessageIndex(existing, keepRecentMessages);
-    const compactedMessages = rebuildCompactedMessages({
-      messages: existing,
-      summary,
-      firstKeptMessageIndex,
-    });
+    const model = this.requireSessionModel(sessionId);
     const now = Date.now();
-    const entryStore = this.requireSessionEntryStore(sessionId);
-    const entryNode = entryStore.createNextEntryTreeNode('compaction', now);
-    const firstKeptEntryId = findFirstKeptEntryIdFromPath(
-      this.getEntryPath(sessionId),
-      firstKeptMessageIndex,
-    );
-    const result: CompactionResult = {
+    const { entry, result } = model.appendCompaction({
       summary,
-      firstKeptMessageIndex,
-      messagesBefore: existing.length,
-      messagesAfter: compactedMessages.length,
-    };
-
-    entryStore.appendEntryTreeNode(entryNode);
-    entryStore.appendPathEntry({
-      type: 'compaction',
-      sessionId,
-      timestamp: now,
-      ...entryTreeFields(entryNode),
-      summary,
-      firstKeptEntryId,
-      firstKeptMessageIndex,
-      messagesBefore: result.messagesBefore,
-      messagesAfter: result.messagesAfter,
       customInstructions,
+      keepRecentMessages,
+      timestamp: now,
     });
-    this.syncActiveStateCache(sessionId);
-    this.touchSession(sessionId, now);
+    this.latestSessionId = sessionId;
 
     if (this.mode === 'jsonl') {
-      await this.store.appendEntry({
-        type: 'compaction',
-        sessionId,
-        timestamp: now,
-        ...entryTreeFields(entryNode),
-        summary,
-        firstKeptEntryId,
-        firstKeptMessageIndex,
-        messagesBefore: result.messagesBefore,
-        messagesAfter: result.messagesAfter,
-        customInstructions,
-      });
+      await this.store.appendEntry(entry);
       await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
 
@@ -1005,10 +890,6 @@ export class SessionManager {
 
   private applyEntryPathState(sessionId: string, state: SessionEntryPathState): void {
     this.requireSessionModel(sessionId).applyEntryPathState(state);
-  }
-
-  private syncActiveStateCache(sessionId: string): SessionEntryPathState {
-    return this.requireSessionModel(sessionId).syncActiveState();
   }
 
   private applyParsedSessionLog(sessionId: string, parsed: ParsedSessionLog): void {
@@ -1216,19 +1097,6 @@ function createMessagePathEntry({
     ...entryTreeFields(entryNode),
     message: copyMessage(message),
   };
-}
-
-function findFirstKeptEntryIdFromPath(
-  entries: SessionPathEntry[],
-  firstKeptMessageIndex: number,
-): string | undefined {
-  let messageIndex = 0;
-  for (const entry of entries) {
-    if (entry.type !== 'message') continue;
-    if (messageIndex === firstKeptMessageIndex) return entry.entryId;
-    messageIndex += 1;
-  }
-  return undefined;
 }
 
 function getSessionIdFromLog(content: string): string | null {

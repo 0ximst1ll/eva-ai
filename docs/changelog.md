@@ -38,6 +38,19 @@
 38. Workspace Session Store 边界
 39. Session Entry Store 边界
 40. SessionModel 状态容器边界
+41. SessionModel Append Operation 边界
+
+
+# SessionModel Append Operation 边界
+
+继续把单 session 语义从 `SessionManager` 下沉到 `SessionModel`，让 manager 更接近 lifecycle / persistence facade。
+
+核心变化：
+
+- `SessionModel` 新增 append message / usage / internal / compaction 语义方法。
+- append 方法负责创建 entry node、追加 path entry、同步 active state cache 和更新 session metadata。
+- append 方法返回 durable entry payload，`SessionManager` 在 jsonl 模式下直接持久化该 entry。
+- `SessionManager` public API 不变，append 路径不再直接操作 `SessionEntryStore`。
 
 
 # SessionModel 状态容器边界

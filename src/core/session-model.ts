@@ -1,7 +1,19 @@
 import type { Message, TokenUsage } from '../schema.js';
-import { createCompactionSummaryMessage } from './compaction.js';
-import { copySessionPathEntry, type SessionEntryStore } from './session-entry-store.js';
+import {
+  chooseFirstKeptMessageIndex,
+  createCompactionSummaryMessage,
+  rebuildCompactedMessages,
+  type CompactionResult,
+} from './compaction.js';
+import {
+  copySessionPathEntry,
+  entryTreeFields,
+  type SessionEntryStore,
+} from './session-entry-store.js';
 import type {
+  CompactionEntry,
+  InternalEntry,
+  MessageEntry,
   SessionCompactionInfo,
   SessionEntryPathState,
   SessionFormatInfo,
@@ -9,6 +21,7 @@ import type {
   SessionLineageInfo,
   SessionPathEntry,
   SessionStartEntry,
+  UsageEntry,
   SessionUsageInfo,
   SessionUsageSource,
 } from './session-manager.js';
@@ -24,6 +37,11 @@ export interface SessionLineageOptions {
   parentSessionId?: string;
   rootSessionId?: string;
   forkedFromMessageIndex?: number;
+}
+
+export interface SessionCompactionAppendResult {
+  entry: CompactionEntry;
+  result: CompactionResult;
 }
 
 export class SessionModel {
@@ -124,9 +142,170 @@ export class SessionModel {
     return { entryPath, state: copySessionEntryPathState(state), targetEntry };
   }
 
+  appendMessage({
+    message,
+    timestamp,
+  }: {
+    message: Message;
+    timestamp: number;
+  }): MessageEntry {
+    const entryNode = this.entryStore.createNextEntryTreeNode('message', timestamp, {
+      messageIndex: this.activeState.messages.length,
+    });
+    const entry: MessageEntry = {
+      type: 'message',
+      sessionId: this.sessionId,
+      timestamp,
+      ...entryTreeFields(entryNode),
+      message: copyMessage(message),
+    };
+
+    this.entryStore.appendEntryTreeNode(entryNode);
+    this.entryStore.appendPathEntry(entry);
+    this.syncActiveState();
+    this.touch(timestamp);
+
+    return copySessionPathEntry(entry) as MessageEntry;
+  }
+
+  appendUsage({
+    usage,
+    source,
+    timestamp,
+  }: {
+    usage: TokenUsage;
+    source: SessionUsageSource;
+    timestamp: number;
+  }): UsageEntry {
+    const entryNode = this.entryStore.createNextEntryTreeNode('usage', timestamp);
+    const entry: UsageEntry = {
+      type: 'usage',
+      sessionId: this.sessionId,
+      timestamp,
+      ...entryTreeFields(entryNode),
+      source,
+      usage: { ...usage },
+    };
+
+    this.entryStore.appendEntryTreeNode(entryNode);
+    this.entryStore.appendPathEntry(entry);
+    this.syncActiveState();
+    this.touch(timestamp);
+
+    return copySessionPathEntry(entry) as UsageEntry;
+  }
+
+  appendInternalEntry({
+    kind,
+    content,
+    metadata,
+    timestamp,
+  }: {
+    kind: string;
+    content?: string;
+    metadata?: Record<string, unknown>;
+    timestamp: number;
+  }): InternalEntry {
+    const normalizedKind = kind.trim();
+    if (!normalizedKind) {
+      throw new Error('Internal entry kind is required');
+    }
+
+    const entryNode = this.entryStore.createNextEntryTreeNode('internal', timestamp, {
+      kind: normalizedKind,
+    });
+    const entry: InternalEntry = {
+      type: 'internal',
+      sessionId: this.sessionId,
+      timestamp,
+      ...entryTreeFields(entryNode),
+      kind: normalizedKind,
+      content,
+      metadata: metadata ? { ...metadata } : undefined,
+    };
+
+    this.entryStore.appendEntryTreeNode(entryNode);
+    this.entryStore.appendPathEntry(entry);
+    this.syncActiveState();
+    this.touch(timestamp);
+
+    return copySessionPathEntry(entry) as InternalEntry;
+  }
+
+  appendCompaction({
+    summary,
+    customInstructions,
+    keepRecentMessages,
+    timestamp,
+  }: {
+    summary: string;
+    customInstructions?: string;
+    keepRecentMessages: number;
+    timestamp: number;
+  }): SessionCompactionAppendResult {
+    const existing = this.activeState.messages;
+    if (existing.length <= 2) {
+      throw new Error('Nothing to compact (session too small)');
+    }
+
+    const firstKeptMessageIndex = chooseFirstKeptMessageIndex(existing, keepRecentMessages);
+    const compactedMessages = rebuildCompactedMessages({
+      messages: existing,
+      summary,
+      firstKeptMessageIndex,
+    });
+    const firstKeptEntryId = findFirstKeptEntryIdFromPath(
+      this.entryStore.getEntryPath(),
+      firstKeptMessageIndex,
+    );
+    const result: CompactionResult = {
+      summary,
+      firstKeptMessageIndex,
+      messagesBefore: existing.length,
+      messagesAfter: compactedMessages.length,
+    };
+
+    const entryNode = this.entryStore.createNextEntryTreeNode('compaction', timestamp);
+    const entry: CompactionEntry = {
+      type: 'compaction',
+      sessionId: this.sessionId,
+      timestamp,
+      ...entryTreeFields(entryNode),
+      summary,
+      firstKeptEntryId,
+      firstKeptMessageIndex,
+      messagesBefore: result.messagesBefore,
+      messagesAfter: result.messagesAfter,
+      customInstructions,
+    };
+
+    this.entryStore.appendEntryTreeNode(entryNode);
+    this.entryStore.appendPathEntry(entry);
+    this.syncActiveState();
+    this.touch(timestamp);
+
+    return {
+      entry: copySessionPathEntry(entry) as CompactionEntry,
+      result,
+    };
+  }
+
   private buildActiveState(): SessionEntryPathState {
     return buildSessionStateFromEntryPath(this.entryStore.getEntryPath());
   }
+}
+
+function findFirstKeptEntryIdFromPath(
+  entries: SessionPathEntry[],
+  firstKeptMessageIndex: number,
+): string | undefined {
+  let messageIndex = 0;
+  for (const entry of entries) {
+    if (entry.type !== 'message') continue;
+    if (messageIndex === firstKeptMessageIndex) return entry.entryId;
+    messageIndex += 1;
+  }
+  return undefined;
 }
 
 export function buildSessionStateFromEntryPath(entryPath: SessionPathEntry[]): SessionEntryPathState {
