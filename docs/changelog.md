@@ -40,6 +40,19 @@
 40. SessionModel 状态容器边界
 41. SessionModel Append Operation 边界
 42. SessionModel Branch Operation 边界
+43. Fork Session Model Helper 边界
+
+
+# Fork Session Model Helper 边界
+
+继续收敛 fork/clone 的 entry-tree-first 语义，把 target session model 构造从 `SessionManager` 中拆出。
+
+核心变化：
+
+- 新增 `forkSessionModel()` helper。
+- helper 负责复制 source active/指定 leaf entry path、派生 active state、构造 target entry tree、创建 lineage metadata 和 target `SessionModel`。
+- `SessionManager.forkSession()` public API 不变，当前只负责加载 source session、保存 target model、写入 `session_start`、持久化 forked path entries 和更新 manifest。
+- `cloneSession()` 继续复用 `forkSession()`，保持 current-leaf fork 语义。
 
 
 # SessionModel Branch Operation 边界

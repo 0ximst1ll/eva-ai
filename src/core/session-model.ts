@@ -7,10 +7,11 @@ import {
 } from './compaction.js';
 import {
   copySessionPathEntry,
+  createEntryTreeFromPathEntries,
   createEntryTreeNode,
   createEntryTreeViewItem,
   entryTreeFields,
-  type SessionEntryStore,
+  SessionEntryStore,
 } from './session-entry-store.js';
 import type {
   BranchSummaryEntry,
@@ -53,6 +54,12 @@ export interface SessionBranchOperationResult {
   leafEntry: LeafEntry;
   branchSummaryEntry: BranchSummaryEntry;
   summary: SessionBranchSummary;
+}
+
+export interface ForkSessionModelResult {
+  model: SessionModel;
+  pathEntries: SessionPathEntry[];
+  lineage: SessionLineageInfo;
 }
 
 export class SessionModel {
@@ -392,6 +399,57 @@ export function buildSessionStateFromEntryPath(entryPath: SessionPathEntry[]): S
     compaction: getLatestCompactionFromPath(entryPath),
     usage: getUsageFromPath(entryPath),
     internalEntries: getInternalEntriesFromPath(entryPath),
+  };
+}
+
+export function forkSessionModel({
+  sourceModel,
+  targetSessionId,
+  leafEntryId,
+  timestamp,
+}: {
+  sourceModel: SessionModel;
+  targetSessionId: string;
+  leafEntryId?: string;
+  timestamp: number;
+}): ForkSessionModelResult {
+  const sourceEntryPath = sourceModel.entryStore.getEntryPath(leafEntryId);
+  if (!sourceEntryPath.length) {
+    if (leafEntryId) {
+      throw new Error(`Entry not found in session ${sourceModel.sessionId}: ${leafEntryId}`);
+    }
+    throw new Error(`Session has no active entry path: ${sourceModel.sessionId}`);
+  }
+
+  const pathEntries = sourceEntryPath.map((entry) => copySessionPathEntryForSession(entry, targetSessionId));
+  const state = buildSessionStateFromEntryPath(pathEntries);
+  if (!state.messages.length) {
+    throw new Error(`Session has no messages to fork: ${sourceModel.sessionId}`);
+  }
+
+  const entryTree = createEntryTreeFromPathEntries(pathEntries);
+  const sourceLineage = sourceModel.getLineageInfo();
+  const lineage = createLineageInfo(targetSessionId, timestamp, {
+    parentSessionId: sourceModel.sessionId,
+    rootSessionId: sourceLineage.rootSessionId,
+    forkedFromMessageIndex: state.messages.length - 1,
+  });
+
+  return {
+    model: new SessionModel({
+      sessionId: targetSessionId,
+      metadata: { createdAt: timestamp, updatedAt: timestamp },
+      lineage,
+      format: createCurrentSessionFormatInfo(),
+      entryStore: new SessionEntryStore({
+        entryTree,
+        pathEntries,
+        activeEntryId: entryTree[entryTree.length - 1]?.entryId,
+      }),
+      activeState: state,
+    }),
+    pathEntries: pathEntries.map(copySessionPathEntry),
+    lineage,
   };
 }
 

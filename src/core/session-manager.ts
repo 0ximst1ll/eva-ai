@@ -7,7 +7,6 @@ import type { CompactionResult } from './compaction.js';
 import {
   buildEntryPath,
   copySessionPathEntry,
-  createEntryTreeFromPathEntries,
   createEntryTreeNode,
   entryTreeFields,
   readEntryTreeNode,
@@ -18,10 +17,10 @@ import {
   copyInternalEntry,
   copyMessage,
   copySessionEntryPathState,
-  copySessionPathEntryForSession,
   createCurrentSessionFormatInfo,
   createLineageInfo,
   CURRENT_SESSION_SCHEMA_VERSION,
+  forkSessionModel,
   readSessionFormatInfo,
   SessionModel,
   type SessionLineageOptions,
@@ -336,43 +335,23 @@ export class SessionManager {
 
     const id = sessionId ?? randomUUID();
     const now = Date.now();
-    const sourceEntryPath = this.getEntryPath(sourceSessionId, leafEntryId);
-    if (!sourceEntryPath.length) {
-      if (leafEntryId) {
-        throw new Error(`Entry not found in session ${sourceSessionId}: ${leafEntryId}`);
-      }
-      throw new Error(`Session has no active entry path: ${sourceSessionId}`);
-    }
-    const forkedPathEntries = sourceEntryPath.map((entry) => copySessionPathEntryForSession(entry, id));
-    const forkedState = buildSessionStateFromEntryPath(forkedPathEntries);
-    if (!forkedState.messages.length) {
-      throw new Error(`Session has no messages to fork: ${sourceSessionId}`);
-    }
-    const forkedEntryNodes = createEntryTreeFromPathEntries(forkedPathEntries);
-    const sourceLineage = this.getLineageInfo(sourceSessionId);
-    const lineageInfo = createLineageInfo(id, now, {
-      parentSessionId: sourceSessionId,
-      rootSessionId: sourceLineage.rootSessionId,
-      forkedFromMessageIndex: forkedState.messages.length - 1,
+    const {
+      model,
+      pathEntries,
+      lineage,
+    } = forkSessionModel({
+      sourceModel: this.requireSessionModel(sourceSessionId),
+      targetSessionId: id,
+      leafEntryId,
+      timestamp: now,
     });
 
-    this.sessionModels.set(id, new SessionModel({
-      sessionId: id,
-      metadata: { createdAt: now, updatedAt: now },
-      lineage: lineageInfo,
-      format: createCurrentSessionFormatInfo(),
-      entryStore: new SessionEntryStore({
-        entryTree: forkedEntryNodes,
-        pathEntries: forkedPathEntries,
-        activeEntryId: forkedEntryNodes[forkedEntryNodes.length - 1]?.entryId,
-      }),
-      activeState: forkedState,
-    }));
+    this.sessionModels.set(id, model);
     this.latestSessionId = id;
 
     if (this.mode === 'jsonl') {
-      await this.writeSessionStart(id, now, lineageInfo);
-      for (const entry of forkedPathEntries) {
+      await this.writeSessionStart(id, now, lineage);
+      for (const entry of pathEntries) {
         await this.store.appendEntry(entry);
       }
       await this.store.writeManifest({ latestSessionId: id, updatedAt: now });
