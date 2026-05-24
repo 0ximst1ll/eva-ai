@@ -8,7 +8,6 @@ import {
   buildEntryPath,
   copySessionPathEntry,
   readEntryTreeNode,
-  SessionEntryStore,
 } from './session-entry-store.js';
 import {
   buildSessionStateFromEntryPath,
@@ -17,6 +16,7 @@ import {
   createCurrentSessionFormatInfo,
   createInitialSessionModel,
   createLineageInfo,
+  createSessionModelFromParsedLog,
   CURRENT_SESSION_SCHEMA_VERSION,
   forkSessionModel,
   readSessionFormatInfo,
@@ -754,40 +754,18 @@ export class SessionManager {
     this.latestSessionId = sessionId;
   }
 
-  private applyActiveEntryPath(sessionId: string, leafEntryId: string): {
-    entryPath: SessionPathEntry[];
-    state: SessionEntryPathState;
-    targetEntry: SessionPathEntry;
-  } {
-    return this.requireSessionModel(sessionId).applyActiveEntryPath(leafEntryId);
-  }
-
-  private applyEntryPathState(sessionId: string, state: SessionEntryPathState): void {
-    this.requireSessionModel(sessionId).applyEntryPathState(state);
-  }
-
   private applyParsedSessionLog(sessionId: string, parsed: ParsedSessionLog): void {
-    this.sessionModels.set(sessionId, new SessionModel({
+    this.sessionModels.set(sessionId, createSessionModelFromParsedLog({
       sessionId,
-      metadata: {
-        createdAt: parsed.createdAt ?? parsed.updatedAt,
-        updatedAt: parsed.updatedAt,
-      },
+      state: parsed.state,
+      createdAt: parsed.createdAt,
+      updatedAt: parsed.updatedAt,
       lineage: parsed.lineage,
+      entryTree: parsed.entryTree,
+      pathEntries: parsed.pathEntries,
+      activeEntryId: parsed.activeEntryId,
       format: parsed.format,
-      entryStore: new SessionEntryStore({
-        entryTree: parsed.entryTree,
-        pathEntries: parsed.pathEntries,
-        activeEntryId: parsed.activeEntryId,
-      }),
-      activeState: parsed.state,
     }));
-    if (parsed.activeEntryId && parsed.pathEntries.length) {
-      this.applyActiveEntryPath(sessionId, parsed.activeEntryId);
-    } else {
-      this.applyEntryPathState(sessionId, parsed.state);
-      this.requireSessionEntryStore(sessionId).setActiveEntryId(parsed.activeEntryId);
-    }
   }
 
   private requireSessionModel(sessionId: string): SessionModel {
@@ -796,10 +774,6 @@ export class SessionManager {
       throw new Error(`Session not found: ${sessionId}`);
     }
     return model;
-  }
-
-  private requireSessionEntryStore(sessionId: string): SessionEntryStore {
-    return this.requireSessionModel(sessionId).entryStore;
   }
 
   private buildActiveState(sessionId: string): SessionEntryPathState {

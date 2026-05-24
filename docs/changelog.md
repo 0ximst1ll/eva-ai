@@ -42,6 +42,19 @@
 42. SessionModel Branch Operation 边界
 43. Fork Session Model Helper 边界
 44. Initial Session Model Helper 边界
+45. Parsed Session Model Application 边界
+
+
+# Parsed Session Model Application 边界
+
+继续收敛 load/import 的 session model restoration 语义，把 parsed log 到 model 的应用从 `SessionManager` 中拆出。
+
+核心变化：
+
+- 新增 `createSessionModelFromParsedLog()` helper。
+- helper 负责从 parsed state、metadata、lineage、schema format、entry tree、path entries 和 active entry id 创建 `SessionModel`。
+- helper 内部统一应用 active leaf path；没有 active path 时保持 parsed state 和 active entry id。
+- `SessionManager` 仍保留 JSONL parser，load/import public API 不变。
 
 
 # Initial Session Model Helper 边界

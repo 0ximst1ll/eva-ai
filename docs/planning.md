@@ -718,6 +718,7 @@ user/assistant/tool: durable session history
 - branch active leaf 应用、durable `leaf` entry、durable `branch_summary` entry 和 branch operation summary 组装已下沉到 `SessionModel.branchToEntry()`。
 - fork/clone 的 entry-path 复制、state 派生、lineage 和 target `SessionModel` 初始化已收敛到 `forkSessionModel()` helper。
 - create/reset 的初始 system message entry、entry tree/path、active state 和 `SessionModel` 初始化已收敛到 `createInitialSessionModel()` helper。
+- parsed session log 到 `SessionModel` 的应用已收敛到 `createSessionModelFromParsedLog()` helper；JSONL parser 暂时仍在 `SessionManager`。
 - branch 已写入 durable `leaf` entry，用于记录 active leaf 切换；reload/import 可从 `leaf` entry 恢复 active leaf。
 
 目标语义：

@@ -22,6 +22,7 @@ import type {
   SessionBranchSummary,
   SessionCompactionInfo,
   SessionEntryPathState,
+  SessionEntryTreeNode,
   SessionFormatInfo,
   SessionInternalEntry,
   SessionLineageInfo,
@@ -66,6 +67,18 @@ export interface InitialSessionModelResult {
   model: SessionModel;
   initialEntry: MessageEntry;
   lineage: SessionLineageInfo;
+}
+
+export interface ParsedSessionModelInput {
+  sessionId: string;
+  state: SessionEntryPathState;
+  createdAt?: number;
+  updatedAt: number;
+  lineage: SessionLineageInfo;
+  entryTree: SessionEntryTreeNode[];
+  pathEntries: SessionPathEntry[];
+  activeEntryId?: string;
+  format: SessionFormatInfo;
 }
 
 export class SessionModel {
@@ -456,6 +469,43 @@ export function createInitialSessionModel({
     initialEntry: copySessionPathEntry(initialEntry) as MessageEntry,
     lineage: resolvedLineage,
   };
+}
+
+export function createSessionModelFromParsedLog({
+  sessionId,
+  state,
+  createdAt,
+  updatedAt,
+  lineage,
+  entryTree,
+  pathEntries,
+  activeEntryId,
+  format,
+}: ParsedSessionModelInput): SessionModel {
+  const model = new SessionModel({
+    sessionId,
+    metadata: {
+      createdAt: createdAt ?? updatedAt,
+      updatedAt,
+    },
+    lineage,
+    format,
+    entryStore: new SessionEntryStore({
+      entryTree,
+      pathEntries,
+      activeEntryId,
+    }),
+    activeState: state,
+  });
+
+  if (activeEntryId && pathEntries.length) {
+    model.applyActiveEntryPath(activeEntryId);
+  } else {
+    model.applyEntryPathState(state);
+    model.entryStore.setActiveEntryId(activeEntryId);
+  }
+
+  return model;
 }
 
 export function forkSessionModel({
