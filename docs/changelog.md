@@ -39,6 +39,18 @@
 39. Session Entry Store 边界
 40. SessionModel 状态容器边界
 41. SessionModel Append Operation 边界
+42. SessionModel Branch Operation 边界
+
+
+# SessionModel Branch Operation 边界
+
+继续把同 session 内 entry-level branch 语义从 `SessionManager` 下沉到 `SessionModel`。
+
+核心变化：
+
+- `SessionModel` 新增 `branchToEntry()`。
+- `branchToEntry()` 负责应用目标 active leaf path、追加 durable `leaf` entry、追加 durable `branch_summary` entry、更新 metadata，并组装 `SessionBranchSummary`。
+- `SessionManager.branchSession()` public API 不变，当前只负责调用 model、持久化返回的 durable entries 和更新 manifest。
 
 
 # SessionModel Append Operation 边界

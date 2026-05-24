@@ -9,7 +9,6 @@ import {
   copySessionPathEntry,
   createEntryTreeFromPathEntries,
   createEntryTreeNode,
-  createEntryTreeViewItem,
   entryTreeFields,
   readEntryTreeNode,
   SessionEntryStore,
@@ -538,77 +537,21 @@ export class SessionManager {
     sessionId: string;
     leafEntryId: string;
   }): Promise<SessionBranchSummary> {
-    if (!this.sessionModels.has(sessionId)) {
-      throw new Error(`Session not found: ${sessionId}`);
-    }
-    const entryStore = this.requireSessionEntryStore(sessionId);
-    const fromEntryId = entryStore.getActiveEntryId() ?? null;
-    const { entryPath, state, targetEntry } = this.applyActiveEntryPath(sessionId, leafEntryId);
+    const model = this.requireSessionModel(sessionId);
     const now = Date.now();
-    const leafEntryNode = createEntryTreeNode({
-      parentEntryId: fromEntryId,
-      type: 'leaf',
-      timestamp: now,
-    });
-    entryStore.appendEntryTreeNode(leafEntryNode, { setActive: false });
-    entryStore.appendPathEntry({
-      type: 'leaf',
-      sessionId,
-      timestamp: now,
-      ...entryTreeFields(leafEntryNode),
-      targetEntryId: leafEntryId,
-    });
-    entryStore.setActiveEntryId(leafEntryId);
-    const branchEntryNode = entryStore.createNextEntryTreeNode('branch_summary', now);
-    entryStore.appendEntryTreeNode(branchEntryNode);
-    entryStore.appendPathEntry({
-      type: 'branch_summary',
-      sessionId,
-      timestamp: now,
-      ...entryTreeFields(branchEntryNode),
-      fromEntryId,
-      toEntryId: leafEntryId,
-      pathEntryCount: entryPath.length,
-      messageCount: state.messages.length,
-    });
-    this.touchSession(sessionId, now);
-
-    const metadata = entryStore.getEntryTree().find(
-      (entry) => entry.entryId === leafEntryId,
-    );
-    const summary: SessionBranchSummary = {
-      sessionId,
+    const {
+      leafEntry,
+      branchSummaryEntry,
+      summary,
+    } = model.branchToEntry({
       leafEntryId,
-      branchEntryId: branchEntryNode.entryId,
-      fromEntryId,
-      pathEntryCount: entryPath.length,
-      messageCount: state.messages.length,
-      targetEntry: createEntryTreeViewItem({
-        entry: targetEntry,
-        metadata,
-        activeEntryId: branchEntryNode.entryId,
-        activePathEntryIds: new Set([...entryPath.map((entry) => entry.entryId), branchEntryNode.entryId]),
-      }),
-    };
+      timestamp: now,
+    });
+    this.latestSessionId = sessionId;
 
     if (this.mode === 'jsonl') {
-      await this.store.appendEntry({
-        type: 'leaf',
-        sessionId,
-        timestamp: now,
-        ...entryTreeFields(leafEntryNode),
-        targetEntryId: leafEntryId,
-      });
-      await this.store.appendEntry({
-        type: 'branch_summary',
-        sessionId,
-        timestamp: now,
-        ...entryTreeFields(branchEntryNode),
-        fromEntryId,
-        toEntryId: leafEntryId,
-        pathEntryCount: entryPath.length,
-        messageCount: state.messages.length,
-      });
+      await this.store.appendEntry(leafEntry);
+      await this.store.appendEntry(branchSummaryEntry);
       await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
     }
 

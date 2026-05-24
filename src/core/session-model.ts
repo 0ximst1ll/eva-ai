@@ -7,13 +7,18 @@ import {
 } from './compaction.js';
 import {
   copySessionPathEntry,
+  createEntryTreeNode,
+  createEntryTreeViewItem,
   entryTreeFields,
   type SessionEntryStore,
 } from './session-entry-store.js';
 import type {
+  BranchSummaryEntry,
   CompactionEntry,
   InternalEntry,
+  LeafEntry,
   MessageEntry,
+  SessionBranchSummary,
   SessionCompactionInfo,
   SessionEntryPathState,
   SessionFormatInfo,
@@ -42,6 +47,12 @@ export interface SessionLineageOptions {
 export interface SessionCompactionAppendResult {
   entry: CompactionEntry;
   result: CompactionResult;
+}
+
+export interface SessionBranchOperationResult {
+  leafEntry: LeafEntry;
+  branchSummaryEntry: BranchSummaryEntry;
+  summary: SessionBranchSummary;
 }
 
 export class SessionModel {
@@ -287,6 +298,73 @@ export class SessionModel {
     return {
       entry: copySessionPathEntry(entry) as CompactionEntry,
       result,
+    };
+  }
+
+  branchToEntry({
+    leafEntryId,
+    timestamp,
+  }: {
+    leafEntryId: string;
+    timestamp: number;
+  }): SessionBranchOperationResult {
+    const fromEntryId = this.entryStore.getActiveEntryId() ?? null;
+    const { entryPath, state, targetEntry } = this.applyActiveEntryPath(leafEntryId);
+    const leafEntryNode = createEntryTreeNode({
+      parentEntryId: fromEntryId,
+      type: 'leaf',
+      timestamp,
+    });
+    const leafEntry: LeafEntry = {
+      type: 'leaf',
+      sessionId: this.sessionId,
+      timestamp,
+      ...entryTreeFields(leafEntryNode),
+      targetEntryId: leafEntryId,
+    };
+
+    this.entryStore.appendEntryTreeNode(leafEntryNode, { setActive: false });
+    this.entryStore.appendPathEntry(leafEntry);
+    this.entryStore.setActiveEntryId(leafEntryId);
+
+    const branchEntryNode = this.entryStore.createNextEntryTreeNode('branch_summary', timestamp);
+    const branchSummaryEntry: BranchSummaryEntry = {
+      type: 'branch_summary',
+      sessionId: this.sessionId,
+      timestamp,
+      ...entryTreeFields(branchEntryNode),
+      fromEntryId,
+      toEntryId: leafEntryId,
+      pathEntryCount: entryPath.length,
+      messageCount: state.messages.length,
+    };
+
+    this.entryStore.appendEntryTreeNode(branchEntryNode);
+    this.entryStore.appendPathEntry(branchSummaryEntry);
+    this.touch(timestamp);
+
+    const metadata = this.entryStore.getEntryTree().find(
+      (entry) => entry.entryId === leafEntryId,
+    );
+    const summary: SessionBranchSummary = {
+      sessionId: this.sessionId,
+      leafEntryId,
+      branchEntryId: branchEntryNode.entryId,
+      fromEntryId,
+      pathEntryCount: entryPath.length,
+      messageCount: state.messages.length,
+      targetEntry: createEntryTreeViewItem({
+        entry: targetEntry,
+        metadata,
+        activeEntryId: branchEntryNode.entryId,
+        activePathEntryIds: new Set([...entryPath.map((entry) => entry.entryId), branchEntryNode.entryId]),
+      }),
+    };
+
+    return {
+      leafEntry: copySessionPathEntry(leafEntry) as LeafEntry,
+      branchSummaryEntry: copySessionPathEntry(branchSummaryEntry) as BranchSummaryEntry,
+      summary,
     };
   }
 

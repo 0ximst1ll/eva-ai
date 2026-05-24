@@ -715,6 +715,7 @@ user/assistant/tool: durable session history
 - 单 session entry store 已从 `SessionManager` 抽出，负责 entry tree、path entries、active entry id、entry path traversal 和 entry tree view。
 - 最小 `SessionModel` 状态容器已从 `SessionManager` 抽出，负责 metadata、lineage、schema format、entry store 和 active state cache；`SessionManager` 不再维护多组 per-session Map。
 - append message/usage/internal/compaction 的单 session 内存变更已下沉到 `SessionModel`，`SessionManager` 只负责持久化返回的 durable entry。
+- branch active leaf 应用、durable `leaf` entry、durable `branch_summary` entry 和 branch operation summary 组装已下沉到 `SessionModel.branchToEntry()`。
 - branch 已写入 durable `leaf` entry，用于记录 active leaf 切换；reload/import 可从 `leaf` entry 恢复 active leaf。
 
 目标语义：
