@@ -24,21 +24,22 @@
 - fork/clone 的 entry-path 复制、state 派生、lineage 和新 `SessionModel` 初始化已收敛到 `forkSessionModel()` helper；`SessionManager.forkSession()` 只负责加载 source session、保存 model 和 JSONL 持久化。
 - create/reset 的初始 system message entry、entry tree/path、active state 和 `SessionModel` 初始化已收敛到 `createInitialSessionModel()` helper；`SessionManager` 保留 create/reset lifecycle 和 JSONL 持久化。
 - parsed session log 到 `SessionModel` 的应用已收敛到 `createSessionModelFromParsedLog()` helper；`SessionManager` 仍保留 JSONL parser，但 load/import 的 model restoration 语义已移出 manager。
+- `src/core/session-log-parser.ts` 已抽出 JSONL session parser / imported session rewrite 边界，负责 `parseSessionLog()`、`getSessionIdFromLog()` 和 `rewriteImportedSessionLog()`。
 - interactive/TUI slash command 已支持 `/fork [id] [--entry <entryId>]`、`/clone [id] [--entry <entryId>]`、`/branch <entryId>`、`/entries`、`/sessions`、`/parent`、`/children`、`/child [id]`、`/export [path]`、`/import <path>`。
 
 ## 进行中
 
-- session 管理继续完善：当前正在评估 parsed session model application 稳定后的下一步拆分边界，重点是 JSONL parser / import-load lifecycle 和 repo/session 分层。
+- session 管理继续完善：当前正在评估 session parser 边界稳定后的下一步拆分，重点是 import/export lifecycle 和 repo/session 分层。
 
 ## 下一步
 
-- 保持 `SessionManager` public API 不变，继续评估 JSONL parser、import/load lifecycle 和 repo/session 分层。
+- 保持 `SessionManager` public API 不变，继续评估 import/export lifecycle 和 repo/session 分层。
 - 优先保持现有 session tree 行为稳定，再决定是否拆 `SessionRepo`。
 - 后续补完整 tree navigation 交互和 branch summarization pipeline。
 
 ## 已知问题
 
-- `SessionManager` 仍是偏大的 facade，同时负责 session lifecycle、load/import/export 和 JSONL parsing；workspace JSONL 文件 IO、单 session entry store、最小 session model、append/branch semantic operation、fork/clone model helper、create/reset model helper 与 parsed session model application 已拆出，但尚未拆成完整 repo/storage/session 三层。
+- `SessionManager` 仍是偏大的 facade，同时负责 session lifecycle、load/import/export 和 manifest/latest session 编排；workspace JSONL 文件 IO、session log parser、单 session entry store、最小 session model、append/branch semantic operation、fork/clone model helper、create/reset model helper 与 parsed session model application 已拆出，但尚未拆成完整 repo/storage/session 三层。
 - 当前 `SessionModel` 仍保留 active state cache 作为运行期派生缓存，尚未完全收敛为只保存 entry tree + active leaf。
 - 当前只支持当前 session 文件内的指定 leaf entry path fork/clone、最小 entry-level branch、durable leaf entry、durable branch summary、branch operation summary、entry tree active path 展示、TUI entry selector、session-level parent navigation 和 direct child navigation；跨 session parent/child entry graph、完整 child branch navigation、完整 tree navigation 交互和 branch summarization pipeline 仍未实现。
 - 运行期 `resource_context` / `compaction_summary` internal marker 仍默认不持久化；只有明确需要跨 resume 恢复的 harness metadata 才写入 durable `internal` entry。

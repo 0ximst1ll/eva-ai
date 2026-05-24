@@ -43,6 +43,19 @@
 43. Fork Session Model Helper 边界
 44. Initial Session Model Helper 边界
 45. Parsed Session Model Application 边界
+46. Session Log Parser 边界
+
+
+# Session Log Parser 边界
+
+继续收敛 `SessionManager` 的职责，把 JSONL session 解析和 import rewrite 从 lifecycle facade 中拆出。
+
+核心变化：
+
+- 新增 `src/core/session-log-parser.ts`。
+- 移入 `parseSessionLog()`、`getSessionIdFromLog()` 和 `rewriteImportedSessionLog()`。
+- `SessionManager` public API 不变，load/import/listSessions 仍复用同一解析行为。
+- 当前 parser 仍保持原有 entry-tree-first 读取策略，不恢复旧 flat JSONL fallback。
 
 
 # Parsed Session Model Application 边界
