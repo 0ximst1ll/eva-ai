@@ -8,6 +8,7 @@ import {
   CURRENT_SESSION_SCHEMA_VERSION,
   SessionManager,
 } from '../src/core/session-manager.js';
+import { MemorySessionStorage } from '../src/core/session-store.js';
 
 test('SessionManager stores and resets memory sessions', async () => {
   const manager = new SessionManager({ workspaceDir: '/workspace', mode: 'memory' });
@@ -73,7 +74,29 @@ test('SessionManager stores and resets memory sessions', async () => {
     })),
     [{ sessionId, messageCount: 1, isLatest: true }],
   );
-  assert.equal(await manager.loadLatestSession(), null);
+  assert.equal(await manager.loadLatestSession(), sessionId);
+});
+
+test('SessionManager can share a memory storage backend across managers', async () => {
+  const storage = new MemorySessionStorage();
+  const first = new SessionManager({ workspaceDir: '/workspace', storage });
+  const sessionId = await first.createSession('system', 'session-a');
+  await first.appendMessage(sessionId, { role: 'user', content: 'hello' });
+
+  const second = new SessionManager({ workspaceDir: '/workspace', storage });
+  assert.equal(await second.loadLatestSession(), sessionId);
+  assert.deepEqual(second.getMessages(sessionId), [
+    { role: 'system', content: 'system' },
+    { role: 'user', content: 'hello' },
+  ]);
+  assert.deepEqual(
+    (await second.listSessions()).map((session) => ({
+      sessionId: session.sessionId,
+      messageCount: session.messageCount,
+      isLatest: session.isLatest,
+    })),
+    [{ sessionId, messageCount: 2, isLatest: true }],
+  );
 });
 
 test('SessionManager persists and reloads jsonl sessions', async () => {

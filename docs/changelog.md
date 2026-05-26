@@ -38,6 +38,7 @@
 38. Workspace Session Store 边界
 39. Session Entry Store 边界
 40. SessionModel 状态容器边界
+41. SessionStorage Backend 边界
 41. SessionModel Append Operation 边界
 42. SessionModel Branch Operation 边界
 43. Fork Session Model Helper 边界

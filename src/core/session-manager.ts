@@ -24,7 +24,11 @@ import {
   SessionModel,
   type SessionLineageOptions,
 } from './session-model.js';
-import { WorkspaceSessionStore } from './session-store.js';
+import {
+  JsonlSessionStorage,
+  MemorySessionStorage,
+  type SessionStorage,
+} from './session-store.js';
 
 type PersistenceMode = 'memory' | 'jsonl';
 
@@ -239,9 +243,8 @@ export interface SessionImportResult {
 }
 
 export class SessionManager {
-  private readonly mode: PersistenceMode;
   private readonly workspaceDir: string;
-  private readonly store: WorkspaceSessionStore;
+  private readonly storage: SessionStorage;
   private readonly sessionModels = new Map<string, SessionModel>();
   private latestSessionId?: string;
 
@@ -249,17 +252,21 @@ export class SessionManager {
     workspaceDir,
     mode = 'jsonl',
     baseDir,
+    storage,
   }: {
     workspaceDir: string;
     mode?: PersistenceMode;
     baseDir?: string;
+    storage?: SessionStorage;
   }) {
-    this.mode = mode;
     this.workspaceDir = path.resolve(workspaceDir);
-    this.store = new WorkspaceSessionStore(
-      this.workspaceDir,
-      baseDir ?? path.join(os.homedir(), '.eva-ai', 'sessions'),
-    );
+    this.storage = storage
+      ?? (mode === 'memory'
+        ? new MemorySessionStorage()
+        : new JsonlSessionStorage(
+          this.workspaceDir,
+          baseDir ?? path.join(os.homedir(), '.eva-ai', 'sessions'),
+        ));
   }
 
   async createSession(systemPrompt: string, sessionId?: string, lineage?: SessionLineageOptions): Promise<string> {
@@ -278,11 +285,9 @@ export class SessionManager {
     this.sessionModels.set(id, model);
     this.latestSessionId = id;
 
-    if (this.mode === 'jsonl') {
-      await this.writeSessionStart(id, now, lineageInfo);
-      await this.store.appendEntry(initialEntry);
-      await this.store.writeManifest({ latestSessionId: id, updatedAt: now });
-    }
+    await this.writeSessionStart(id, now, lineageInfo);
+    await this.storage.appendEntry(initialEntry);
+    await this.storage.writeManifest({ latestSessionId: id, updatedAt: now });
     return id;
   }
 
@@ -315,13 +320,11 @@ export class SessionManager {
     this.sessionModels.set(id, model);
     this.latestSessionId = id;
 
-    if (this.mode === 'jsonl') {
-      await this.writeSessionStart(id, now, lineage);
-      for (const entry of pathEntries) {
-        await this.store.appendEntry(entry);
-      }
-      await this.store.writeManifest({ latestSessionId: id, updatedAt: now });
+    await this.writeSessionStart(id, now, lineage);
+    for (const entry of pathEntries) {
+      await this.storage.appendEntry(entry);
     }
+    await this.storage.writeManifest({ latestSessionId: id, updatedAt: now });
 
     return id;
   }
@@ -352,13 +355,7 @@ export class SessionManager {
     const resolvedOutputPath = path.resolve(outputPath ?? `${sessionId}.jsonl`);
     await fs.mkdir(path.dirname(resolvedOutputPath), { recursive: true });
 
-    if (this.mode === 'jsonl') {
-      await this.store.copySessionLog(sessionId, resolvedOutputPath);
-      return { sessionId, path: resolvedOutputPath };
-    }
-
-    const content = this.serializeMemorySessionLog(sessionId);
-    await fs.writeFile(resolvedOutputPath, content, 'utf-8');
+    await this.storage.copySessionLog(sessionId, resolvedOutputPath);
     return { sessionId, path: resolvedOutputPath };
   }
 
@@ -391,20 +388,16 @@ export class SessionManager {
     this.applyParsedSessionLog(targetSessionId, parsed);
     this.latestSessionId = targetSessionId;
 
-    let destinationPath: string | undefined;
-    if (this.mode === 'jsonl') {
-      destinationPath = this.store.getSessionFilePath(targetSessionId);
-      await this.store.writeSessionLog(targetSessionId, rewrittenContent);
-      await this.store.writeManifest({ latestSessionId: targetSessionId, updatedAt: Date.now() });
-    }
+    const destinationPath = this.storage.getSessionFilePath(targetSessionId);
+    await this.storage.writeSessionLog(targetSessionId, rewrittenContent);
+    await this.storage.writeManifest({ latestSessionId: targetSessionId, updatedAt: Date.now() });
 
     return { sessionId: targetSessionId, sourcePath: resolvedInputPath, destinationPath };
   }
 
   async loadLatestSession(): Promise<string | null> {
-    if (this.mode !== 'jsonl') return null;
     try {
-      const manifest = await this.store.readManifest();
+      const manifest = await this.storage.readManifest();
       if (!manifest?.latestSessionId) return null;
       await this.loadSession(manifest.latestSessionId);
       return manifest.latestSessionId;
@@ -418,10 +411,9 @@ export class SessionManager {
       await this.markLatestSession(sessionId);
       return true;
     }
-    if (this.mode !== 'jsonl') return false;
 
     try {
-      const content = await this.store.readSessionLog(sessionId);
+      const content = await this.storage.readSessionLog(sessionId);
       const parsed = parseSessionLog(content, sessionId);
       if (!parsed.state.messages.length) return false;
       this.applyParsedSessionLog(sessionId, parsed);
@@ -494,11 +486,9 @@ export class SessionManager {
     });
     this.latestSessionId = sessionId;
 
-    if (this.mode === 'jsonl') {
-      await this.store.appendEntry(leafEntry);
-      await this.store.appendEntry(branchSummaryEntry);
-      await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
-    }
+    await this.storage.appendEntry(leafEntry);
+    await this.storage.appendEntry(branchSummaryEntry);
+    await this.storage.writeManifest({ latestSessionId: sessionId, updatedAt: now });
 
     return summary;
   }
@@ -509,10 +499,8 @@ export class SessionManager {
     const entry = model.appendMessage({ message, timestamp: now });
     this.latestSessionId = sessionId;
 
-    if (this.mode === 'jsonl') {
-      await this.store.appendEntry(entry);
-      await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
-    }
+    await this.storage.appendEntry(entry);
+    await this.storage.writeManifest({ latestSessionId: sessionId, updatedAt: now });
   }
 
   async appendUsage({
@@ -529,10 +517,8 @@ export class SessionManager {
     const entry = model.appendUsage({ usage, source, timestamp: now });
     this.latestSessionId = sessionId;
 
-    if (this.mode === 'jsonl') {
-      await this.store.appendEntry(entry);
-      await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
-    }
+    await this.storage.appendEntry(entry);
+    await this.storage.writeManifest({ latestSessionId: sessionId, updatedAt: now });
   }
 
   async appendInternalEntry({
@@ -556,10 +542,8 @@ export class SessionManager {
     });
     this.latestSessionId = sessionId;
 
-    if (this.mode === 'jsonl') {
-      await this.store.appendEntry(entry);
-      await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
-    }
+    await this.storage.appendEntry(entry);
+    await this.storage.writeManifest({ latestSessionId: sessionId, updatedAt: now });
 
     return copyInternalEntry(entry);
   }
@@ -585,10 +569,8 @@ export class SessionManager {
     });
     this.latestSessionId = sessionId;
 
-    if (this.mode === 'jsonl') {
-      await this.store.appendEntry(entry);
-      await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
-    }
+    await this.storage.appendEntry(entry);
+    await this.storage.writeManifest({ latestSessionId: sessionId, updatedAt: now });
 
     return result;
   }
@@ -611,37 +593,17 @@ export class SessionManager {
     this.sessionModels.set(sessionId, model);
     this.touchSession(sessionId, now);
 
-    if (this.mode === 'jsonl') {
-      await this.writeSessionStart(sessionId, now, lineageInfo);
-      await this.store.appendEntry(initialEntry);
-      await this.store.writeManifest({ latestSessionId: sessionId, updatedAt: now });
-    }
+    await this.writeSessionStart(sessionId, now, lineageInfo);
+    await this.storage.appendEntry(initialEntry);
+    await this.storage.writeManifest({ latestSessionId: sessionId, updatedAt: now });
   }
 
   async listSessions(): Promise<SessionListItem[]> {
-    if (this.mode === 'memory') {
-      return this.sortSessionList(
-        [...this.sessionModels.keys()].map((sessionId) => {
-          const lineage = this.getLineageInfo(sessionId);
-          const metadata = this.requireSessionModel(sessionId).getMetadata();
-          return {
-            sessionId,
-            messageCount: this.buildActiveState(sessionId).messages.length,
-            updatedAt: metadata.updatedAt,
-            isLatest: this.latestSessionId === sessionId,
-            parentSessionId: lineage.parentSessionId,
-            rootSessionId: lineage.rootSessionId,
-            forkedFromMessageIndex: lineage.forkedFromMessageIndex,
-          };
-        }),
-      );
-    }
-
-    const manifest = await this.store.readManifest();
+    const manifest = await this.storage.readManifest();
     const sessions: SessionListItem[] = [];
-    for (const sessionId of await this.store.listSessionIds()) {
+    for (const sessionId of await this.storage.listSessionIds()) {
       try {
-        const content = await this.store.readSessionLog(sessionId);
+        const content = await this.storage.readSessionLog(sessionId);
         const parsed = parseSessionLog(content, sessionId);
         if (!parsed.state.messages.length) continue;
         sessions.push({
@@ -713,30 +675,7 @@ export class SessionManager {
       rootSessionId: lineage.rootSessionId,
       forkedFromMessageIndex: lineage.forkedFromMessageIndex,
     };
-    await this.store.writeSessionStart(entry);
-  }
-
-  private serializeMemorySessionLog(sessionId: string): string {
-    const model = this.requireSessionModel(sessionId);
-    const metadata = model.getMetadata();
-    const lineage = this.getLineageInfo(sessionId);
-    const lines = [
-      JSON.stringify({
-        type: 'session_start',
-        sessionId,
-        workspaceDir: this.workspaceDir,
-        createdAt: metadata.createdAt,
-        schemaVersion: this.getSessionFormatInfo(sessionId).schemaVersion ?? CURRENT_SESSION_SCHEMA_VERSION,
-        parentSessionId: lineage.parentSessionId,
-        rootSessionId: lineage.rootSessionId,
-        forkedFromMessageIndex: lineage.forkedFromMessageIndex,
-      } satisfies SessionStartEntry),
-    ];
-
-    const pathEntries = model.entryStore.getPathEntries();
-    lines.push(...pathEntries.map((entry) => JSON.stringify(entry)));
-
-    return `${lines.join('\n')}\n`;
+    await this.storage.writeSessionStart(entry);
   }
 
   private touchSession(sessionId: string, updatedAt: number): void {
@@ -773,9 +712,7 @@ export class SessionManager {
   private async markLatestSession(sessionId: string): Promise<void> {
     const updatedAt = Date.now();
     this.touchSession(sessionId, updatedAt);
-    if (this.mode === 'jsonl') {
-      await this.store.writeManifest({ latestSessionId: sessionId, updatedAt });
-    }
+    await this.storage.writeManifest({ latestSessionId: sessionId, updatedAt });
   }
 
   private sortSessionList(sessions: SessionListItem[]): SessionListItem[] {

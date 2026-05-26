@@ -7,7 +7,21 @@ export interface SessionManifest {
   updatedAt: number;
 }
 
-export class WorkspaceSessionStore {
+export interface SessionStorage {
+  readonly kind: 'memory' | 'jsonl';
+  getSessionFilePath(sessionId: string): string | undefined;
+  writeSessionStart(entry: SessionStartEntry): Promise<void>;
+  appendEntry(entry: SessionEntry): Promise<void>;
+  readSessionLog(sessionId: string): Promise<string>;
+  writeSessionLog(sessionId: string, content: string): Promise<void>;
+  copySessionLog(sessionId: string, outputPath: string): Promise<void>;
+  listSessionIds(): Promise<string[]>;
+  readManifest(): Promise<SessionManifest | null>;
+  writeManifest(manifest: SessionManifest): Promise<void>;
+}
+
+export class JsonlSessionStorage implements SessionStorage {
+  readonly kind = 'jsonl';
   private readonly workspaceKey: string;
 
   constructor(
@@ -83,3 +97,52 @@ export class WorkspaceSessionStore {
     await fs.writeFile(this.getManifestFilePath(), JSON.stringify(manifest, null, 2), 'utf-8');
   }
 }
+
+export class MemorySessionStorage implements SessionStorage {
+  readonly kind = 'memory';
+  private readonly sessionLogs = new Map<string, string>();
+  private manifest: SessionManifest | null = null;
+
+  getSessionFilePath(): undefined {
+    return undefined;
+  }
+
+  async writeSessionStart(entry: SessionStartEntry): Promise<void> {
+    this.sessionLogs.set(entry.sessionId, `${JSON.stringify(entry)}\n`);
+  }
+
+  async appendEntry(entry: SessionEntry): Promise<void> {
+    const current = this.sessionLogs.get(entry.sessionId) ?? '';
+    this.sessionLogs.set(entry.sessionId, `${current}${JSON.stringify(entry)}\n`);
+  }
+
+  async readSessionLog(sessionId: string): Promise<string> {
+    const content = this.sessionLogs.get(sessionId);
+    if (content === undefined) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    return content;
+  }
+
+  async writeSessionLog(sessionId: string, content: string): Promise<void> {
+    this.sessionLogs.set(sessionId, content.endsWith('\n') ? content : `${content}\n`);
+  }
+
+  async copySessionLog(sessionId: string, outputPath: string): Promise<void> {
+    await fs.writeFile(outputPath, await this.readSessionLog(sessionId), 'utf-8');
+  }
+
+  async listSessionIds(): Promise<string[]> {
+    return [...this.sessionLogs.keys()];
+  }
+
+  async readManifest(): Promise<SessionManifest | null> {
+    return this.manifest;
+  }
+
+  async writeManifest(manifest: SessionManifest): Promise<void> {
+    this.manifest = { ...manifest };
+  }
+}
+
+export { JsonlSessionStorage as WorkspaceSessionStore };
