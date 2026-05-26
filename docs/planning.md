@@ -649,6 +649,7 @@ user/assistant/tool: durable session history
 - `/fork`
 - `/clone`
 - import/export。
+- `SessionStorage` backend 抽象。
 - sidecar metadata 预留。
 
 当前最小落地：
@@ -686,6 +687,7 @@ user/assistant/tool: durable session history
 - 更完整的 child branch navigation。
 - entry-level branch / navigate 继续增强：补更完整导航体验。
 - entry-tree-first 继续收敛：让 append-only `SessionEntry` tree 成为主要事实源，active state cache 进一步退化为 active leaf path 的运行期缓存。
+- `SessionStorage` interface 最小抽象：把当前 `mode === 'memory' | 'jsonl'` 分支收敛为可替换 backend，补 `JsonlSessionStorage` 和 `MemorySessionStorage`，让 `SessionManager` 继续保留 lifecycle facade，但不直接决定具体存储实现。
 - 跨 session parent/child entry graph 与 sidecar metadata。
 
 验收标准：
@@ -712,6 +714,7 @@ user/assistant/tool: durable session history
 - load/import 已通过统一 parsed session application 边界恢复 metadata、entry tree、path entries 和 active state；旧 flat JSONL fallback 已移除。
 - 新 session 已在 `session_start` 写入 schema version；session format info 仅记录当前 schema version。
 - workspace JSONL store 已从 `SessionManager` 抽出，负责 session 文件路径、manifest、session log 读写、append 和文件枚举。
+- 当前尚未抽出 `SessionStorage` interface；`memory` 模式仍是 `SessionManager` 内部特殊分支，`jsonl` 模式通过 workspace JSONL store 读写文件。
 - 单 session entry store 已从 `SessionManager` 抽出，负责 entry tree、path entries、active entry id、entry path traversal 和 entry tree view。
 - 最小 `SessionModel` 状态容器已从 `SessionManager` 抽出，负责 metadata、lineage、schema format、entry store 和 active state cache；`SessionManager` 不再维护多组 per-session Map。
 - append message/usage/internal/compaction 的单 session 内存变更已下沉到 `SessionModel`，`SessionManager` 只负责持久化返回的 durable entry。
@@ -732,6 +735,7 @@ user/assistant/tool: durable session history
 - active leaf 切换本身应是一等 durable control entry，而不是只存在于运行期 cache。
 - branch summary、model/thinking changes、label/session info 和 future custom metadata 可作为一等 entry 渐进引入。
 - 后续只有在出现 schema migration、sidecar store、repo-level delete/list、跨 session entry graph 等明确需求时，再继续拆完整 repo/storage/session 边界；当前先保持 `SessionManager` 作为稳定 public lifecycle facade。
+- 但在继续做更重的 repo/storage/session 拆分前，应先补 `SessionStorage` 最小 backend interface，使 in-memory 和 JSONL 存储共享同一组 load/list/manifest/append 边界。
 
 推荐落地顺序：
 
@@ -756,8 +760,9 @@ user/assistant/tool: durable session history
 19. 再逐步把 `SessionManager` 内部主状态从 active state cache 收敛为 entry tree + active leaf。
 20. 已完成 workspace JSONL store 第一层拆分，`SessionManager` 不再直接持有 workspace session 文件路径、manifest 和 append/read/write 细节。
 21. 已完成单 session entry store 第一层拆分，`SessionManager` 不再直接维护 `sessionEntryTrees` / `sessionPathEntries` / `sessionActiveEntryIds` 三组 Map。
-22. 后续按需拆出语义层 `Session`，避免 `SessionManager` 同时承担 branch/fork/compact/context 派生组合职责。
-23. 后续如需要再补完整旧 JSONL 到 entry-tree-first 的迁移器。
+22. 补 `SessionStorage` interface 最小抽象：`WorkspaceSessionStore` 收敛为 JSONL backend，新建 `MemorySessionStorage`，`SessionManager` 通过注入 storage 或兼容 `mode` shortcut 选择 backend。
+23. 后续按需拆出语义层 `Session`，避免 `SessionManager` 同时承担 branch/fork/compact/context 派生组合职责。
+24. 后续如需要再补完整旧 JSONL 到 entry-tree-first 的迁移器。
 
 长期更优设计：
 

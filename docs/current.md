@@ -30,17 +30,18 @@
 
 ## 进行中
 
-- session 管理当前进入收口状态：M4.x semantic split 已完成最小边界评估，暂不继续拆 `SessionRepo`；已补最小 active entry path 展示，后续可进入 branch summarization pipeline 或下一阶段能力。
+- session 管理当前进入收口状态：M4.x semantic split 已完成最小边界评估，暂不继续拆完整 `SessionRepo`；下一步优先补 `SessionStorage` interface 最小抽象，再进入 branch summarization pipeline 或下一阶段能力。
 
 ## 下一步
 
 - 优先保持现有 session tree 行为稳定，不在当前阶段继续拆 `SessionRepo`。
-- 下一步可进入 branch summarization pipeline、更完整的 tree navigation 交互，或按阶段规划切到下一块能力。
+- 下一步补 `SessionStorage` interface 最小抽象：让 `memory` 和 `jsonl` 通过可替换 backend 共享 load/list/manifest/append 边界，减少 `SessionManager` 内部 `mode` 分支。
+- 之后可进入 branch summarization pipeline、更完整的 tree navigation 交互，或按阶段规划切到下一块能力。
 - import/export lifecycle 目前保留在 `SessionManager` facade 中，等出现 schema migration、sidecar store 或 repo-level delete/list 需求时再拆。
 
 ## 已知问题
 
-- `SessionManager` 仍是 public facade，负责 session lifecycle、memory/jsonl 分发、load/import/export 和 manifest/latest session 编排；workspace JSONL 文件 IO、session log parser、单 session entry store、最小 session model、append/branch semantic operation、fork/clone model helper、create/reset model helper 与 parsed session model application 已拆出。当前有意暂不拆完整 repo/storage/session 三层。
+- `SessionManager` 仍是 public facade，负责 session lifecycle、memory/jsonl 分发、load/import/export 和 manifest/latest session 编排；workspace JSONL 文件 IO、session log parser、单 session entry store、最小 session model、append/branch semantic operation、fork/clone model helper、create/reset model helper 与 parsed session model application 已拆出。当前尚未抽出 `SessionStorage` interface，`memory` 模式仍是 manager 内部特殊分支。
 - 当前 `SessionModel` 仍保留 active state cache 作为运行期派生缓存，尚未完全收敛为只保存 entry tree + active leaf。
 - 当前只支持当前 session 文件内的指定 leaf entry path fork/clone、最小 entry-level branch、durable leaf entry、durable branch summary、branch operation summary、entry tree active path 展示、TUI entry selector、session-level parent navigation 和 direct child navigation；跨 session parent/child entry graph、完整 child branch navigation、完整 tree navigation 交互和 branch summarization pipeline 仍未实现。
 - 运行期 `resource_context` / `compaction_summary` internal marker 仍默认不持久化；只有明确需要跨 resume 恢复的 harness metadata 才写入 durable `internal` entry。
