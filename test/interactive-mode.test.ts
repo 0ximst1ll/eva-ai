@@ -279,6 +279,38 @@ test('/resume <id> reports missing sessions without throwing', async () => {
   assert.match(output.join('\n'), /Session not found: .*missing-session/);
 });
 
+test('/resume <id> reports unloadable session diagnostics', async () => {
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-current';
+    },
+    async switchSession() {
+      throw new RuntimeSessionNotFoundError('broken-session', [{
+        source: 'session',
+        level: 'error',
+        type: 'error',
+        code: 'session_load_invalid_log',
+        message: 'Session is not loadable: active entry path is broken',
+        details: {
+          sessionId: 'broken-session',
+          diagnosticCode: 'session_log_broken_parent_chain',
+        },
+      }]);
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/resume broken-session',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.match(output.join('\n'), /Session could not be loaded: .*broken-session/);
+  assert.match(output.join('\n'), /active entry path is broken/);
+});
+
 test('/fork forks the active runtime session through RuntimeHost', async () => {
   let sessionId = 'session-current';
   const forkedSessions: Array<{ sessionId?: string; leafEntryId?: string }> = [];

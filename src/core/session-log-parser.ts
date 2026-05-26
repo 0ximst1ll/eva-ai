@@ -38,6 +38,7 @@ export type SessionLogDiagnosticCode =
   | 'session_log_invalid_json'
   | 'session_log_invalid_entry'
   | 'session_log_unsupported_schema'
+  | 'session_log_missing_session_start'
   | 'session_log_entry_before_start'
   | 'session_log_missing_entry_metadata'
   | 'session_log_unknown_entry_type'
@@ -265,6 +266,15 @@ export function parseSessionLog(
         line: lineNumber,
       });
     }
+  }
+
+  if (!hasCurrentSessionStart) {
+    diagnostics.push({
+      level: 'error',
+      code: 'session_log_missing_session_start',
+      message: 'Session log is missing a valid session_start entry',
+      details: { sessionId },
+    });
   }
 
   const activePathEntries = buildEntryPath(pathEntries, activeEntryId);

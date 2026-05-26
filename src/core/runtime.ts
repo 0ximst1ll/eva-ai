@@ -67,11 +67,13 @@ export interface Runtime {
 
 export class RuntimeSessionNotFoundError extends Error {
   readonly sessionId: string;
+  readonly diagnostics: RuntimeDiagnostic[];
 
-  constructor(sessionId: string) {
+  constructor(sessionId: string, diagnostics: RuntimeDiagnostic[] = []) {
     super('Session not found: ' + sessionId);
     this.name = 'RuntimeSessionNotFoundError';
     this.sessionId = sessionId;
+    this.diagnostics = diagnostics;
   }
 }
 
@@ -199,7 +201,10 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
         details: { sessionId },
       }));
     } else if (options.createSessionIfMissing === false) {
-      throw new RuntimeSessionNotFoundError(options.sessionId);
+      throw new RuntimeSessionNotFoundError(options.sessionId, [
+        ...diagnostics,
+        ...sessionManager.getDiagnostics(),
+      ]);
     } else {
       sessionId = await sessionManager.createSession(systemPrompt, options.sessionId);
       diagnostics.push(createDiagnostic({

@@ -1,5 +1,10 @@
 import * as readline from 'node:readline';
-import { RuntimeSessionNotFoundError, type ToolConfirmationRequest, type ToolPermissionDecision } from '../core/runtime.js';
+import {
+  RuntimeSessionNotFoundError,
+  type RuntimeDiagnostic,
+  type ToolConfirmationRequest,
+  type ToolPermissionDecision,
+} from '../core/runtime.js';
 import type { ContextBuildSummary } from '../core/context-builder.js';
 import type { ContextDiagnostics } from '../core/context-manager.js';
 import type {
@@ -332,6 +337,43 @@ function formatBranchError(error: unknown, leafEntryId: string): string {
   return `Branch failed: ${message}`;
 }
 
+function getSessionLoadDiagnostic(diagnostics: RuntimeDiagnostic[], sessionId: string): RuntimeDiagnostic | undefined {
+  const loadCodes = new Set([
+    'session_load_invalid_log',
+    'session_load_no_messages',
+    'session_load_failed',
+    'session_log_unsupported_schema',
+    'session_log_missing_session_start',
+    'session_log_missing_entry_metadata',
+    'session_log_active_leaf_missing',
+    'session_log_broken_parent_chain',
+  ]);
+  let latest: RuntimeDiagnostic | undefined;
+  for (const diagnostic of diagnostics) {
+    if (
+      diagnostic.source === 'session'
+      && diagnostic.details?.['sessionId'] === sessionId
+      && loadCodes.has(diagnostic.code)
+    ) {
+      latest = diagnostic;
+    }
+  }
+  return latest;
+}
+
+function writeSessionNotFoundError(
+  error: RuntimeSessionNotFoundError,
+  writeLine: (message?: string) => void,
+): void {
+  const diagnostic = getSessionLoadDiagnostic(error.diagnostics, error.sessionId);
+  if (!diagnostic) {
+    writeLine(`${Colors.RED}❌ Session not found: ${error.sessionId}${Colors.RESET}\n`);
+    return;
+  }
+  writeLine(`${Colors.RED}❌ Session could not be loaded: ${error.sessionId}${Colors.RESET}`);
+  writeLine(`${Colors.DIM}${diagnostic.message}${Colors.RESET}\n`);
+}
+
 function parseSkillCommand(command: string, args: string[]): string | null {
   if (command.toLowerCase().startsWith('/skill:')) {
     return command.slice('/skill:'.length).trim() || null;
@@ -416,7 +458,7 @@ export async function handleInteractiveCommand({
       writeLine(`${Colors.DIM}Previous session: ${previousSessionId}${Colors.RESET}\n`);
     } catch (e) {
       if (e instanceof RuntimeSessionNotFoundError) {
-        writeLine(`${Colors.RED}❌ Session not found: ${e.sessionId}${Colors.RESET}\n`);
+        writeSessionNotFoundError(e, writeLine);
       } else {
         throw e;
       }

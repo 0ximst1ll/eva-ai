@@ -385,6 +385,22 @@ export class SessionManager {
     });
     const parsed = parseSessionLog(rewrittenContent, targetSessionId);
     this.recordParserDiagnostics('import', targetSessionId, parsed.diagnostics);
+    const blockingDiagnostic = getBlockingSessionLogDiagnostic(parsed);
+    if (blockingDiagnostic) {
+      const message = `Imported session is not loadable: ${formatSessionLoadFailureReason(blockingDiagnostic)}`;
+      this.recordDiagnostic({
+        level: 'error',
+        code: 'session_import_invalid_log',
+        message,
+        details: {
+          sessionId: targetSessionId,
+          inputPath: resolvedInputPath,
+          diagnosticCode: blockingDiagnostic.code,
+          line: blockingDiagnostic.line,
+        },
+      });
+      throw new Error(message);
+    }
     if (!parsed.state.messages.length) {
       this.recordDiagnostic({
         level: 'error',
@@ -440,6 +456,20 @@ export class SessionManager {
       const content = await this.storage.readSessionLog(sessionId);
       const parsed = parseSessionLog(content, sessionId);
       this.recordParserDiagnostics('load', sessionId, parsed.diagnostics);
+      const blockingDiagnostic = getBlockingSessionLogDiagnostic(parsed);
+      if (blockingDiagnostic) {
+        this.recordDiagnostic({
+          level: 'error',
+          code: 'session_load_invalid_log',
+          message: `Session is not loadable: ${formatSessionLoadFailureReason(blockingDiagnostic)}`,
+          details: {
+            sessionId,
+            diagnosticCode: blockingDiagnostic.code,
+            line: blockingDiagnostic.line,
+          },
+        });
+        return false;
+      }
       if (!parsed.state.messages.length) {
         this.recordDiagnostic({
           level: 'error',
@@ -649,6 +679,7 @@ export class SessionManager {
         const content = await this.storage.readSessionLog(sessionId);
         const parsed = parseSessionLog(content, sessionId);
         this.recordParserDiagnostics('list', sessionId, parsed.diagnostics);
+        if (getBlockingSessionLogDiagnostic(parsed)) continue;
         if (!parsed.state.messages.length) continue;
         sessions.push({
           sessionId,
@@ -801,5 +832,38 @@ export class SessionManager {
 
   private sortSessionList(sessions: SessionListItem[]): SessionListItem[] {
     return sessions.sort((a, b) => b.updatedAt - a.updatedAt || a.sessionId.localeCompare(b.sessionId));
+  }
+}
+
+function getBlockingSessionLogDiagnostic(parsed: ParsedSessionLog): SessionLogDiagnostic | undefined {
+  const blockingDiagnostic = parsed.diagnostics.find((diagnostic) => (
+    diagnostic.code === 'session_log_unsupported_schema'
+    || diagnostic.code === 'session_log_missing_session_start'
+    || diagnostic.code === 'session_log_active_leaf_missing'
+    || diagnostic.code === 'session_log_broken_parent_chain'
+  ));
+  if (blockingDiagnostic) return blockingDiagnostic;
+
+  if (!parsed.state.messages.length) {
+    return parsed.diagnostics.find((diagnostic) => diagnostic.code === 'session_log_missing_entry_metadata');
+  }
+  return undefined;
+}
+
+function formatSessionLoadFailureReason(diagnostic: SessionLogDiagnostic): string {
+  const line = diagnostic.line ? ` (line ${diagnostic.line})` : '';
+  switch (diagnostic.code) {
+    case 'session_log_unsupported_schema':
+      return `unsupported session schema${line}`;
+    case 'session_log_missing_session_start':
+      return `missing session_start entry${line}`;
+    case 'session_log_missing_entry_metadata':
+      return `missing entry tree metadata${line}`;
+    case 'session_log_active_leaf_missing':
+      return 'active leaf entry is missing';
+    case 'session_log_broken_parent_chain':
+      return 'active entry path is broken';
+    default:
+      return `${diagnostic.message}${line}`;
   }
 }

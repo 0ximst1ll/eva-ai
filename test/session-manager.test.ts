@@ -1102,6 +1102,11 @@ test('SessionManager rejects sessions without entry metadata', async () => {
       diagnostic.code === 'session_log_missing_entry_metadata'
       && diagnostic.details?.['sessionId'] === 'old-session'
     )));
+    assert.ok(manager.getDiagnostics().some((diagnostic) => (
+      diagnostic.code === 'session_load_invalid_log'
+      && diagnostic.details?.['sessionId'] === 'old-session'
+      && diagnostic.details?.['diagnosticCode'] === 'session_log_missing_entry_metadata'
+    )));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -1164,7 +1169,73 @@ test('SessionManager rejects invalid session entry payloads with diagnostics', a
   )));
 });
 
-test('SessionManager reports diagnostics for broken active parent chains', async () => {
+test('SessionManager rejects unsupported session schema versions', async () => {
+  const storage = new MemorySessionStorage();
+  const sessionId = 'unsupported-schema-session';
+  await storage.writeSessionLog(sessionId, [
+    JSON.stringify({
+      type: 'session_start',
+      sessionId,
+      workspaceDir: '/workspace',
+      createdAt: 123,
+      schemaVersion: CURRENT_SESSION_SCHEMA_VERSION + 1,
+    }),
+    JSON.stringify({
+      type: 'message',
+      sessionId,
+      timestamp: 124,
+      entryId: 'entry-system',
+      parentEntryId: null,
+      message: { role: 'system', content: 'system' },
+    }),
+    '',
+  ].join('\n'));
+
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  assert.equal(await manager.loadSession(sessionId), false);
+  assert.deepEqual(manager.getMessages(sessionId), []);
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_log_unsupported_schema'
+    && diagnostic.details?.['sessionId'] === sessionId
+    && diagnostic.details?.['schemaVersion'] === CURRENT_SESSION_SCHEMA_VERSION + 1
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_load_invalid_log'
+    && diagnostic.details?.['sessionId'] === sessionId
+    && diagnostic.details?.['diagnosticCode'] === 'session_log_unsupported_schema'
+  )));
+});
+
+test('SessionManager rejects session logs without a valid session_start', async () => {
+  const storage = new MemorySessionStorage();
+  const sessionId = 'missing-start-session';
+  await storage.writeSessionLog(sessionId, [
+    JSON.stringify({
+      type: 'message',
+      sessionId,
+      timestamp: 124,
+      entryId: 'entry-system',
+      parentEntryId: null,
+      message: { role: 'system', content: 'system' },
+    }),
+    '',
+  ].join('\n'));
+
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  assert.equal(await manager.loadSession(sessionId), false);
+  assert.deepEqual(manager.getMessages(sessionId), []);
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_log_missing_session_start'
+    && diagnostic.details?.['sessionId'] === sessionId
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_load_invalid_log'
+    && diagnostic.details?.['sessionId'] === sessionId
+    && diagnostic.details?.['diagnosticCode'] === 'session_log_missing_session_start'
+  )));
+});
+
+test('SessionManager rejects broken active parent chains', async () => {
   const storage = new MemorySessionStorage();
   const sessionId = 'broken-parent-session';
   await storage.writeSessionLog(sessionId, [
@@ -1187,11 +1258,17 @@ test('SessionManager reports diagnostics for broken active parent chains', async
   ].join('\n'));
 
   const manager = new SessionManager({ workspaceDir: '/workspace', storage });
-  assert.equal(await manager.loadSession(sessionId), true);
+  assert.equal(await manager.loadSession(sessionId), false);
+  assert.deepEqual(manager.getMessages(sessionId), []);
   assert.ok(manager.getDiagnostics().some((diagnostic) => (
     diagnostic.code === 'session_log_broken_parent_chain'
     && diagnostic.details?.['sessionId'] === sessionId
     && diagnostic.details?.['missingParentEntryId'] === 'missing-parent'
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_load_invalid_log'
+    && diagnostic.details?.['sessionId'] === sessionId
+    && diagnostic.details?.['diagnosticCode'] === 'session_log_broken_parent_chain'
   )));
 });
 
