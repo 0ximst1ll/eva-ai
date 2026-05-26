@@ -91,6 +91,7 @@ createRuntime()
 - `/reload`：重新加载 runtime resources，并保持当前 session 不变；输出 project context 和 skills 数量。
 - `/sessions`：以 session lineage tree 展示当前 workspace 下的 sessions，并标记当前 active session 和 latest session。
 - `/entries`：readline interactive mode 会以 entry tree 展示当前 session 文件内的 entries，包含 entry id、parent、type、message role、preview、active leaf marker 和 active path marker；TUI mode 会显示 entry selector，选中后复用 `/branch <entryId>`。
+- `/path`：展示当前 active entry path，按顺序列出 path entries，并标记当前 active leaf；用于确认当前上下文实际来自哪条 branch。
 - `/log`：当前是忽略型占位命令。
 
 ## Headless RPC
@@ -454,7 +455,7 @@ JSONL 模式下：
 - `getSessionFormatInfo()` 返回当前 session 的 schema version。
 - `getEntryTreeInfo()` 返回当前 session 已持久化 entry tree 的 entries 和 active entry id。
 - `listEntryTree()` 返回用于展示的 entry tree view，包含 entry id、parent、type、timestamp、active marker 和 payload preview。
-- `getEntryPath()` 从 active entry leaf 沿 `parentEntryId` 回溯，返回当前 branch path 上带 payload 的 entries；`leaf` control entry 只用于恢复 active leaf，不参与 provider context 派生。
+- `getEntryPath()` 从 active entry leaf 沿 `parentEntryId` 回溯，返回当前 branch path 上带 payload 的 entries；interactive `/path` 会直接展示该 active path；`leaf` control entry 只用于恢复 active leaf，不参与 provider context 派生。
 - `buildSessionStateFromEntryPath()` 是当前 entry path 派生边界，会从 path entries 得到 active messages、compaction、usage 和 internal entries。
 - `applyActiveEntryPath()` 已收敛到 `SessionModel`，会统一取 entry path、派生 active state、写入 active state cache 并设置 active entry id；branch 和 parsed log restoration 等语义路径通过 model/helper 复用该边界。
 - `getActiveState()` 是 `SessionManager` 的 active state 读取边界，会返回 copy 后的 active messages、compaction、usage 和 internal entries。

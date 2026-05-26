@@ -676,7 +676,7 @@ user/assistant/tool: durable session history
 - `RuntimeHost.branchSession()`、interactive `/branch <entryId>` 和 RPC `branch_session` 已暴露 entry-level branch 最小入口。
 - `SessionManager.listEntryTree()` 和 interactive `/entries` 已支持当前 session entry tree 展示，使 `/branch <entryId>` 的 entry id 可发现。
 - `branchSession()` 已返回 branch operation summary，interactive `/branch` 和 RPC `branch_session` 会暴露 path entries 数、message 数和目标 entry view。
-- `/entries` 已区分 active path 与 active leaf，interactive `/branch` 已对常见 entry 错误给出可操作提示。
+- `/entries` 已区分 active path 与 active leaf，interactive `/path` 已支持当前 active entry path 展示，interactive `/branch` 已对常见 entry 错误给出可操作提示。
 - `buildSessionStateFromEntryPath()` 已成为 entry path 派生边界，branch、fork、load 和 context rebuild 共享该边界派生 active messages、compaction、usage 和 internal entries。
 - `applyActiveEntryPath()` 已成为 `SessionManager` 内部 active leaf 应用边界，branch、load 和 import path 会通过该边界统一应用 active state cache 与 active entry id。
 - `branch_summary` 已作为持久化 entry 落地；`/branch` 会追加 summary entry，下一次 append 会从该 summary entry 继续。
@@ -704,7 +704,7 @@ user/assistant/tool: durable session history
 - `SessionModel` 维护 active state cache，branch、load/import、context rebuild、getter 读取和 append path cache sync 已共享 entry path state derivation / application / read 边界。
 - `forkSession()` / `cloneSession()` 已优先复制指定 leaf path 上的 session entries，RuntimeHost、interactive slash command 和 RPC 均可传入 leaf entry。
 - `branchSession()` 已可在同 session 文件内移动 active leaf，下一次 append 会从该 leaf 形成新分支。
-- `/entries` 已可展示当前 session 文件内部 entry tree，并区分 active path 与 active leaf；TUI `/entries` 已提供 entry selector，选中后复用 `/branch <entryId>` 切换 active leaf。
+- `/entries` 已可展示当前 session 文件内部 entry tree，并区分 active path 与 active leaf；`/path` 已可展示当前 active entry path；TUI `/entries` 已提供 entry selector，选中后复用 `/branch <entryId>` 切换 active leaf。
 - `/branch` 和 RPC `branch_session` 已返回 branch operation summary，且 branch 操作会写入持久化 `branch_summary` entry。
 - session-level direct child navigation 已有最小边界：`/children` 列出 direct children，`/child [id]` 切换 direct child session。
 - append message/usage/internal/compaction 路径已先写入 entry/path entry，再从 active entry path 派生并同步运行期 active state cache。

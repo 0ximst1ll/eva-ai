@@ -6,6 +6,7 @@ import type {
   SessionBranchSummary,
   SessionListItem,
   SessionEntryTreeViewNode,
+  SessionPathEntry,
   SessionTreeNode,
 } from '../core/session-manager.js';
 import {
@@ -264,6 +265,48 @@ function writeEntryTree({
     );
     writeEntryTree({ nodes: node.children, writeLine, depth: depth + 1 });
   }
+}
+
+function getPathEntryLabel(entry: SessionPathEntry, index: number): string {
+  if (entry.type === 'message') {
+    const content = typeof entry.message.content === 'string'
+      ? entry.message.content
+      : JSON.stringify(entry.message.content);
+    const preview = content.length > 80 ? `${content.slice(0, 77)}...` : content;
+    return `#${index} ${entry.entryId} type=message role=${entry.message.role} parent=${entry.parentEntryId ?? 'root'} preview="${preview}"`;
+  }
+
+  if (entry.type === 'internal') {
+    const preview = entry.content ? ` preview="${entry.content.length > 80 ? `${entry.content.slice(0, 77)}...` : entry.content}"` : '';
+    return `#${index} ${entry.entryId} type=internal kind=${entry.kind} parent=${entry.parentEntryId ?? 'root'}${preview}`;
+  }
+
+  if (entry.type === 'compaction') {
+    return `#${index} ${entry.entryId} type=compaction parent=${entry.parentEntryId ?? 'root'} messages=${entry.messagesBefore}->${entry.messagesAfter}`;
+  }
+
+  if (entry.type === 'usage') {
+    return `#${index} ${entry.entryId} type=usage source=${entry.source} parent=${entry.parentEntryId ?? 'root'} total=${entry.usage.total_tokens}`;
+  }
+
+  if (entry.type === 'branch_summary') {
+    return `#${index} ${entry.entryId} type=branch_summary parent=${entry.parentEntryId ?? 'root'} from=${entry.fromEntryId ?? 'root'} to=${entry.toEntryId} messages=${entry.messageCount}`;
+  }
+
+  return `#${index} ${entry.entryId} type=leaf parent=${entry.parentEntryId ?? 'root'} target=${entry.targetEntryId ?? 'root'}`;
+}
+
+function writeEntryPath({
+  entries,
+  writeLine,
+}: {
+  entries: SessionPathEntry[];
+  writeLine: (message?: string) => void;
+}): void {
+  entries.forEach((entry, index) => {
+    const activeMarker = index === entries.length - 1 ? '*' : ' ';
+    writeLine(`  ${activeMarker} ${getPathEntryLabel(entry, index)}`);
+  });
 }
 
 function formatBranchSummary(summary: SessionBranchSummary): string {
@@ -632,6 +675,19 @@ export async function handleInteractiveCommand({
 
     writeLine(`\n${Colors.BRIGHT_CYAN}Current session entries:${Colors.RESET}`);
     writeEntryTree({ nodes: entryTree, writeLine });
+    writeLine();
+    return 'continue';
+  }
+
+  if (cmd === '/path') {
+    const entryPath = host.runtime.sessionManager.getEntryPath(host.sessionId);
+    if (!entryPath.length) {
+      writeLine(`\n${Colors.YELLOW}No active entry path found for current session.${Colors.RESET}\n`);
+      return 'continue';
+    }
+
+    writeLine(`\n${Colors.BRIGHT_CYAN}Current active entry path:${Colors.RESET}`);
+    writeEntryPath({ entries: entryPath, writeLine });
     writeLine();
     return 'continue';
   }

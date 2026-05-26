@@ -997,6 +997,93 @@ test('/entries reports when the current session has no entry tree metadata', asy
   assert.match(output.join('\n'), /No entry tree metadata found/);
 });
 
+test('/path prints current active entry path', async () => {
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-current';
+    },
+    get runtime() {
+      return {
+        sessionManager: {
+          getEntryPath(sessionId: string) {
+            assert.equal(sessionId, 'session-current');
+            return [
+              {
+                type: 'message',
+                sessionId,
+                timestamp: Date.parse('2026-05-08T00:00:00.000Z'),
+                entryId: 'entry-system',
+                parentEntryId: null,
+                message: { role: 'system', content: 'system prompt' },
+              },
+              {
+                type: 'message',
+                sessionId,
+                timestamp: Date.parse('2026-05-08T00:00:01.000Z'),
+                entryId: 'entry-user',
+                parentEntryId: 'entry-system',
+                message: { role: 'user', content: 'user task' },
+              },
+              {
+                type: 'branch_summary',
+                sessionId,
+                timestamp: Date.parse('2026-05-08T00:00:02.000Z'),
+                entryId: 'entry-summary',
+                parentEntryId: 'entry-user',
+                fromEntryId: null,
+                toEntryId: 'entry-user',
+                pathEntryCount: 2,
+                messageCount: 2,
+              },
+            ];
+          },
+        },
+      };
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/path',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+  const text = output.join('\n');
+
+  assert.equal(result, 'continue');
+  assert.match(text, /Current active entry path:/);
+  assert.match(text, /#0 entry-system type=message role=system parent=root preview="system prompt"/);
+  assert.match(text, /#1 entry-user type=message role=user parent=entry-system preview="user task"/);
+  assert.match(text, /\* #2 entry-summary type=branch_summary parent=entry-user from=root to=entry-user messages=2/);
+});
+
+test('/path reports when the current session has no active entry path', async () => {
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-current';
+    },
+    get runtime() {
+      return {
+        sessionManager: {
+          getEntryPath() {
+            return [];
+          },
+        },
+      };
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/path',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.match(output.join('\n'), /No active entry path found/);
+});
+
 test('/diagnostics prints full runtime diagnostics', async () => {
   const output: string[] = [];
   const contextBuilder = createContextBuilder({
