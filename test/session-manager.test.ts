@@ -1204,6 +1204,56 @@ test('SessionManager rejects unsupported session schema versions', async () => {
     && diagnostic.details?.['sessionId'] === sessionId
     && diagnostic.details?.['diagnosticCode'] === 'session_log_unsupported_schema'
   )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_load_invalid_log'
+    && diagnostic.message.includes(`schema version ${CURRENT_SESSION_SCHEMA_VERSION + 1}`)
+    && diagnostic.message.includes(`supports schema version ${CURRENT_SESSION_SCHEMA_VERSION}`)
+    && /Upgrade Eva or run a session migration/.test(diagnostic.message)
+  )));
+});
+
+test('SessionManager reports actionable import errors for unsupported schema versions', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-import-schema-'));
+  const inputPath = path.join(tempDir, 'unsupported-schema.jsonl');
+  const sessionId = 'unsupported-import-session';
+
+  try {
+    await fs.writeFile(inputPath, [
+      JSON.stringify({
+        type: 'session_start',
+        sessionId,
+        workspaceDir: '/source',
+        createdAt: 123,
+        schemaVersion: CURRENT_SESSION_SCHEMA_VERSION + 1,
+      }),
+      JSON.stringify({
+        type: 'message',
+        sessionId,
+        timestamp: 124,
+        entryId: 'entry-system',
+        parentEntryId: null,
+        message: { role: 'system', content: 'system' },
+      }),
+      '',
+    ].join('\n'), 'utf-8');
+
+    const manager = new SessionManager({ workspaceDir: '/workspace', mode: 'memory' });
+    await assert.rejects(
+      () => manager.importSession({ inputPath }),
+      new RegExp(
+        'Imported session is not loadable: unsupported session schema version '
+        + `${CURRENT_SESSION_SCHEMA_VERSION + 1}; this Eva build supports schema version `
+        + `${CURRENT_SESSION_SCHEMA_VERSION}. Upgrade Eva or run a session migration`,
+      ),
+    );
+    assert.ok(manager.getDiagnostics().some((diagnostic) => (
+      diagnostic.code === 'session_import_invalid_log'
+      && diagnostic.details?.['sessionId'] === sessionId
+      && diagnostic.details?.['diagnosticCode'] === 'session_log_unsupported_schema'
+    )));
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 test('SessionManager rejects session logs without a valid session_start', async () => {
@@ -1272,6 +1322,70 @@ test('SessionManager rejects broken active parent chains', async () => {
   )));
 });
 
+test('SessionManager falls back to a loadable session when latest manifest target is missing', async () => {
+  const storage = new MemorySessionStorage();
+  const writer = new SessionManager({ workspaceDir: '/workspace', storage });
+  const fallbackSessionId = await writer.createSession('system', 'fallback-session');
+  await writer.appendMessage(fallbackSessionId, { role: 'user', content: 'fallback task' });
+  await storage.writeManifest({ latestSessionId: 'missing-session', updatedAt: 999 });
+
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  assert.equal(await manager.loadLatestSession(), fallbackSessionId);
+  assert.deepEqual(
+    manager.getMessages(fallbackSessionId).map((message) => message.content),
+    ['system', 'fallback task'],
+  );
+  assert.equal((await storage.readManifest())?.latestSessionId, fallbackSessionId);
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_load_failed'
+    && diagnostic.details?.['sessionId'] === 'missing-session'
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'latest_session_fallback_loaded'
+    && diagnostic.details?.['sessionId'] === fallbackSessionId
+    && diagnostic.details?.['failedLatestSessionId'] === 'missing-session'
+  )));
+});
+
+test('SessionManager skips unloadable latest sessions during fallback selection', async () => {
+  const storage = new MemorySessionStorage();
+  const writer = new SessionManager({ workspaceDir: '/workspace', storage });
+  const fallbackSessionId = await writer.createSession('system', 'fallback-schema-session');
+  await writer.appendMessage(fallbackSessionId, { role: 'user', content: 'fallback task' });
+  await storage.writeSessionLog('bad-latest-session', [
+    JSON.stringify({
+      type: 'session_start',
+      sessionId: 'bad-latest-session',
+      workspaceDir: '/workspace',
+      createdAt: 123,
+      schemaVersion: CURRENT_SESSION_SCHEMA_VERSION + 1,
+    }),
+    JSON.stringify({
+      type: 'message',
+      sessionId: 'bad-latest-session',
+      timestamp: 124,
+      entryId: 'entry-system',
+      parentEntryId: null,
+      message: { role: 'system', content: 'system' },
+    }),
+    '',
+  ].join('\n'));
+  await storage.writeManifest({ latestSessionId: 'bad-latest-session', updatedAt: 999 });
+
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  assert.equal(await manager.loadLatestSession(), fallbackSessionId);
+  assert.equal((await storage.readManifest())?.latestSessionId, fallbackSessionId);
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_log_unsupported_schema'
+    && diagnostic.details?.['sessionId'] === 'bad-latest-session'
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'latest_session_fallback_loaded'
+    && diagnostic.details?.['sessionId'] === fallbackSessionId
+    && diagnostic.details?.['failedLatestSessionId'] === 'bad-latest-session'
+  )));
+});
+
 test('SessionManager reports diagnostics when latest manifest points to an unloadable session', async () => {
   const storage = new MemorySessionStorage();
   const manager = new SessionManager({ workspaceDir: '/workspace', storage });
@@ -1284,6 +1398,10 @@ test('SessionManager reports diagnostics when latest manifest points to an unloa
   )));
   assert.ok(manager.getDiagnostics().some((diagnostic) => (
     diagnostic.code === 'latest_session_load_failed'
+    && diagnostic.details?.['sessionId'] === 'missing-session'
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'latest_session_fallback_unavailable'
     && diagnostic.details?.['sessionId'] === 'missing-session'
   )));
 });

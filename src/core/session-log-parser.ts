@@ -92,7 +92,7 @@ export function parseSessionLog(
           diagnostics.push({
             level: 'error',
             code: 'session_log_unsupported_schema',
-            message: `Unsupported session schema version: ${entry.schemaVersion}`,
+            message: `Unsupported session schema version: ${entry.schemaVersion}; supported version: ${CURRENT_SESSION_SCHEMA_VERSION}`,
             line: lineNumber,
             details: {
               schemaVersion: entry.schemaVersion,

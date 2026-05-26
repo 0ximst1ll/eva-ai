@@ -433,7 +433,40 @@ export class SessionManager {
           message: `Latest session could not be loaded: ${manifest.latestSessionId}`,
           details: { sessionId: manifest.latestSessionId },
         });
-        return null;
+        const fallbackSession = (await this.listSessions())
+          .find((session) => session.sessionId !== manifest.latestSessionId);
+        if (!fallbackSession) {
+          this.recordDiagnostic({
+            level: 'warning',
+            code: 'latest_session_fallback_unavailable',
+            message: 'No loadable fallback session found after latest session failed',
+            details: { sessionId: manifest.latestSessionId },
+          });
+          return null;
+        }
+        const fallbackLoaded = await this.loadSession(fallbackSession.sessionId);
+        if (!fallbackLoaded) {
+          this.recordDiagnostic({
+            level: 'warning',
+            code: 'latest_session_fallback_failed',
+            message: `Fallback session could not be loaded: ${fallbackSession.sessionId}`,
+            details: {
+              sessionId: fallbackSession.sessionId,
+              failedLatestSessionId: manifest.latestSessionId,
+            },
+          });
+          return null;
+        }
+        this.recordDiagnostic({
+          level: 'warning',
+          code: 'latest_session_fallback_loaded',
+          message: `Loaded fallback session after latest session failed: ${fallbackSession.sessionId}`,
+          details: {
+            sessionId: fallbackSession.sessionId,
+            failedLatestSessionId: manifest.latestSessionId,
+          },
+        });
+        return fallbackSession.sessionId;
       }
       return manifest.latestSessionId;
     } catch (error) {
@@ -853,8 +886,15 @@ function getBlockingSessionLogDiagnostic(parsed: ParsedSessionLog): SessionLogDi
 function formatSessionLoadFailureReason(diagnostic: SessionLogDiagnostic): string {
   const line = diagnostic.line ? ` (line ${diagnostic.line})` : '';
   switch (diagnostic.code) {
-    case 'session_log_unsupported_schema':
-      return `unsupported session schema${line}`;
+    case 'session_log_unsupported_schema': {
+      const actualVersion = typeof diagnostic.details?.['schemaVersion'] === 'number'
+        ? diagnostic.details['schemaVersion']
+        : 'unknown';
+      const supportedVersion = typeof diagnostic.details?.['expectedSchemaVersion'] === 'number'
+        ? diagnostic.details['expectedSchemaVersion']
+        : CURRENT_SESSION_SCHEMA_VERSION;
+      return `unsupported session schema version ${actualVersion}; this Eva build supports schema version ${supportedVersion}. Upgrade Eva or run a session migration before resuming/importing this session${line}`;
+    }
     case 'session_log_missing_session_start':
       return `missing session_start entry${line}`;
     case 'session_log_missing_entry_metadata':
