@@ -701,7 +701,7 @@ user/assistant/tool: durable session history
 当前状态：
 
 - Eva 已有 `entryId` / `parentEntryId`、`activeEntryId`、`getEntryPath()` 和 entry-path resume。
-- `SessionManager` 仍维护 active state cache，但 branch、load/import、context rebuild、getter 读取和 append path cache sync 已共享 entry path state derivation / application / read 边界。
+- `SessionModel` 维护 active state cache，branch、load/import、context rebuild、getter 读取和 append path cache sync 已共享 entry path state derivation / application / read 边界。
 - `forkSession()` / `cloneSession()` 已优先复制指定 leaf path 上的 session entries，RuntimeHost、interactive slash command 和 RPC 均可传入 leaf entry。
 - `branchSession()` 已可在同 session 文件内移动 active leaf，下一次 append 会从该 leaf 形成新分支。
 - `/entries` 已可展示当前 session 文件内部 entry tree，并区分 active path 与 active leaf；TUI `/entries` 已提供 entry selector，选中后复用 `/branch <entryId>` 切换 active leaf。
@@ -721,6 +721,7 @@ user/assistant/tool: durable session history
 - parsed session log 到 `SessionModel` 的应用已收敛到 `createSessionModelFromParsedLog()` helper；JSONL parser 暂时仍在 `SessionManager`。
 - JSONL session parser / imported session rewrite 已抽出到 `src/core/session-log-parser.ts`。
 - branch 已写入 durable `leaf` entry，用于记录 active leaf 切换；reload/import 可从 `leaf` entry 恢复 active leaf。
+- M4.x session semantic split 已基本收口：`SessionManager` 当前主要保留 public lifecycle facade、memory/jsonl 分发、manifest/latest session、list/import/export 编排；暂不继续拆完整 `SessionRepo`。
 
 目标语义：
 
@@ -730,7 +731,7 @@ user/assistant/tool: durable session history
 - 同一 session 文件内支持 entry-level branch / navigate；切换 leaf 不修改旧 entries。
 - active leaf 切换本身应是一等 durable control entry，而不是只存在于运行期 cache。
 - branch summary、model/thinking changes、label/session info 和 future custom metadata 可作为一等 entry 渐进引入。
-- `SessionManager` 后续应按 repo/storage/session 边界继续拆分：repo 负责 create/open/list/delete/fork，storage 负责 append/get/path/leaf，`SessionModel` / session 语义层负责 branch/compact/context 派生与状态应用。
+- 后续只有在出现 schema migration、sidecar store、repo-level delete/list、跨 session entry graph 等明确需求时，再继续拆完整 repo/storage/session 边界；当前先保持 `SessionManager` 作为稳定 public lifecycle facade。
 
 推荐落地顺序：
 

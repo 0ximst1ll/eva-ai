@@ -456,7 +456,7 @@ JSONL 模式下：
 - `listEntryTree()` 返回用于展示的 entry tree view，包含 entry id、parent、type、timestamp、active marker 和 payload preview。
 - `getEntryPath()` 从 active entry leaf 沿 `parentEntryId` 回溯，返回当前 branch path 上带 payload 的 entries；`leaf` control entry 只用于恢复 active leaf，不参与 provider context 派生。
 - `buildSessionStateFromEntryPath()` 是当前 entry path 派生边界，会从 path entries 得到 active messages、compaction、usage 和 internal entries。
-- `applyActiveEntryPath()` 已收敛到 `SessionModel`，会统一取 entry path、派生 active state、写入 active state cache 并设置 active entry id；`SessionManager` 只通过该边界应用 branch/load/import 的 active leaf。
+- `applyActiveEntryPath()` 已收敛到 `SessionModel`，会统一取 entry path、派生 active state、写入 active state cache 并设置 active entry id；branch 和 parsed log restoration 等语义路径通过 model/helper 复用该边界。
 - `getActiveState()` 是 `SessionManager` 的 active state 读取边界，会返回 copy 后的 active messages、compaction、usage 和 internal entries。
 - append message/usage/internal/compaction 路径已收敛到 `SessionModel`：model 会先追加 entry/path entry，再通过 active entry path 派生并同步运行期 active state cache，同时返回 durable entry 给 `SessionManager` 持久化；这使 append-only entry tree 更接近主要事实源，并避免 abandoned branch state 泄漏。
 - create/reset 会委托 `createInitialSessionModel()` 建立初始 system message entry、entry tree/path、active state 和 `SessionModel`；fork 会委托 `forkSessionModel()` 建立 target path entries、lineage 和 `SessionModel`。
@@ -469,7 +469,7 @@ JSONL 模式下：
 
 `src/core/session-context-rebuilder.ts` 是当前最小 session context rebuild 边界。它从 `SessionManager.getActiveState()` 读取当前 active entry path 派生出的 session snapshot，返回 active messages、lineage、branch path、compaction、usage、internal entries 和 entry tree metadata。当前 rebuild strategy 固定为 `entry_path`；没有 entry metadata 的旧 flat JSONL 不再进入 context rebuild。compaction path rebuild 会使用 active path 上的 `firstKeptEntryId` 优先恢复 compact summary 后的保留消息，并兼容旧的 `firstKeptMessageIndex` 字段。
 
-`SessionManager.loadSession()` / `importSession()` 已在主加载路径中先解析 entry metadata，再通过 `createSessionModelFromParsedLog()` 应用 active leaf；因此 `RuntimeHost` resume/switch 后创建的 `AgentSession` 会使用 entry-path 后的上下文和 metadata。当前 session model 支持 compaction entry、usage entry、internal entry、branch summary entry、lineage metadata、schema format metadata、entry tree metadata、create/reset initial model 构造、基于指定 leaf entry path 的 fork/clone session model 构造、parsed log model restoration、同 session 文件内 active leaf branch、branch operation summary、entry tree 展示、TUI entry selector、JSONL import/export、session-level lineage tree、向 parent session 导航、direct child navigation，以及基于 active leaf 的最小 path-aware context rebuild；还不支持跨 session parent/child entry graph 或完整 child branch navigation。
+`SessionManager.loadSession()` / `importSession()` 已在主加载路径中先解析 entry metadata，再通过 `createSessionModelFromParsedLog()` 应用 active leaf；因此 `RuntimeHost` resume/switch 后创建的 `AgentSession` 会使用 entry-path 后的上下文和 metadata。当前 session model 支持 compaction entry、usage entry、internal entry、branch summary entry、lineage metadata、schema format metadata、entry tree metadata、create/reset initial model 构造、基于指定 leaf entry path 的 fork/clone session model 构造、parsed log model restoration、同 session 文件内 active leaf branch、branch operation summary、entry tree 展示、TUI entry selector、JSONL import/export、session-level lineage tree、向 parent session 导航、direct child navigation，以及基于 active leaf 的最小 path-aware context rebuild。M4.x session semantic split 当前已基本收口，`SessionManager` 主要保留 public lifecycle facade、memory/jsonl 分发、manifest/latest session、list/import/export 编排；还不支持跨 session parent/child entry graph 或完整 child branch navigation。
 
 ## Tools
 
