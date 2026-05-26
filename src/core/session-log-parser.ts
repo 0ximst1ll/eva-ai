@@ -36,6 +36,7 @@ export type SessionLogDiagnosticLevel = 'warning' | 'error';
 
 export type SessionLogDiagnosticCode =
   | 'session_log_invalid_json'
+  | 'session_log_invalid_entry'
   | 'session_log_unsupported_schema'
   | 'session_log_entry_before_start'
   | 'session_log_missing_entry_metadata'
@@ -73,9 +74,19 @@ export function parseSessionLog(
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      const entry = JSON.parse(trimmed) as SessionEntry;
+      const parsedEntry = JSON.parse(trimmed) as unknown;
+      if (!isRecord(parsedEntry)) {
+        diagnostics.push(createInvalidEntryDiagnostic(parsedEntry, lineNumber, 'entry must be an object'));
+        continue;
+      }
+      const entry = parsedEntry as unknown as SessionEntry;
       if (entry.sessionId !== sessionId) continue;
       if (entry.type === 'session_start') {
+        const invalidReason = validateSessionStartEntry(entry);
+        if (invalidReason) {
+          diagnostics.push(createInvalidEntryDiagnostic(entry, lineNumber, invalidReason));
+          continue;
+        }
         if (entry.schemaVersion !== CURRENT_SESSION_SCHEMA_VERSION) {
           diagnostics.push({
             level: 'error',
@@ -111,6 +122,11 @@ export function parseSessionLog(
         continue;
       }
       if (entry.type === 'message') {
+        const invalidReason = validateMessageEntry(entry);
+        if (invalidReason) {
+          diagnostics.push(createInvalidEntryDiagnostic(entry, lineNumber, invalidReason));
+          continue;
+        }
         const entryNode = readEntryTreeNode(entry, {
           messageIndex,
         });
@@ -130,6 +146,11 @@ export function parseSessionLog(
         continue;
       }
       if (entry.type === 'compaction') {
+        const invalidReason = validateCompactionEntry(entry);
+        if (invalidReason) {
+          diagnostics.push(createInvalidEntryDiagnostic(entry, lineNumber, invalidReason));
+          continue;
+        }
         const entryNode = readEntryTreeNode(entry);
         if (!entryNode) {
           diagnostics.push(createMissingEntryMetadataDiagnostic(entry, lineNumber));
@@ -146,6 +167,11 @@ export function parseSessionLog(
         continue;
       }
       if (entry.type === 'usage') {
+        const invalidReason = validateUsageEntry(entry);
+        if (invalidReason) {
+          diagnostics.push(createInvalidEntryDiagnostic(entry, lineNumber, invalidReason));
+          continue;
+        }
         const entryNode = readEntryTreeNode(entry);
         if (!entryNode) {
           diagnostics.push(createMissingEntryMetadataDiagnostic(entry, lineNumber));
@@ -162,6 +188,11 @@ export function parseSessionLog(
         continue;
       }
       if (entry.type === 'internal') {
+        const invalidReason = validateInternalEntry(entry);
+        if (invalidReason) {
+          diagnostics.push(createInvalidEntryDiagnostic(entry, lineNumber, invalidReason));
+          continue;
+        }
         const entryNode = readEntryTreeNode(entry, { kind: entry.kind });
         if (!entryNode) {
           diagnostics.push(createMissingEntryMetadataDiagnostic(entry, lineNumber));
@@ -178,6 +209,11 @@ export function parseSessionLog(
         continue;
       }
       if (entry.type === 'branch_summary') {
+        const invalidReason = validateBranchSummaryEntry(entry);
+        if (invalidReason) {
+          diagnostics.push(createInvalidEntryDiagnostic(entry, lineNumber, invalidReason));
+          continue;
+        }
         const entryNode = readEntryTreeNode(entry);
         if (!entryNode) {
           diagnostics.push(createMissingEntryMetadataDiagnostic(entry, lineNumber));
@@ -194,6 +230,11 @@ export function parseSessionLog(
         continue;
       }
       if (entry.type === 'leaf') {
+        const invalidReason = validateLeafEntry(entry);
+        if (invalidReason) {
+          diagnostics.push(createInvalidEntryDiagnostic(entry, lineNumber, invalidReason));
+          continue;
+        }
         const entryNode = readEntryTreeNode(entry);
         if (!entryNode) {
           diagnostics.push(createMissingEntryMetadataDiagnostic(entry, lineNumber));
@@ -271,6 +312,145 @@ function createMissingEntryMetadataDiagnostic(
     line,
     details: { type: entry.type },
   };
+}
+
+function createInvalidEntryDiagnostic(
+  entry: unknown,
+  line: number,
+  reason: string,
+): SessionLogDiagnostic {
+  return {
+    level: 'error',
+    code: 'session_log_invalid_entry',
+    message: `Invalid session entry: ${reason}`,
+    line,
+    details: {
+      reason,
+      type: isRecord(entry) ? entry['type'] : typeof entry,
+    },
+  };
+}
+
+function validateSessionStartEntry(entry: SessionEntry): string | null {
+  if (entry.type !== 'session_start') return null;
+  if (!isNonEmptyString(entry.sessionId)) return 'session_start.sessionId must be a non-empty string';
+  if (typeof entry.workspaceDir !== 'string') return 'session_start.workspaceDir must be a string';
+  if (!isFiniteNumber(entry.createdAt)) return 'session_start.createdAt must be a finite number';
+  if (!isFiniteNumber(entry.schemaVersion)) return 'session_start.schemaVersion must be a finite number';
+  if (entry.parentSessionId !== undefined && !isNonEmptyString(entry.parentSessionId)) {
+    return 'session_start.parentSessionId must be a non-empty string when present';
+  }
+  if (entry.rootSessionId !== undefined && !isNonEmptyString(entry.rootSessionId)) {
+    return 'session_start.rootSessionId must be a non-empty string when present';
+  }
+  if (entry.forkedFromMessageIndex !== undefined && !isFiniteNumber(entry.forkedFromMessageIndex)) {
+    return 'session_start.forkedFromMessageIndex must be a finite number when present';
+  }
+  return null;
+}
+
+function validateMessageEntry(entry: SessionEntry): string | null {
+  if (entry.type !== 'message') return null;
+  const commonError = validatePathEntryBase(entry);
+  if (commonError) return commonError;
+  const message = entry.message;
+  if (!isRecord(message)) return 'message.message must be an object';
+  if (!['system', 'user', 'assistant', 'tool'].includes(String(message['role']))) {
+    return 'message.message.role must be system, user, assistant, or tool';
+  }
+  if (typeof message['content'] !== 'string') return 'message.message.content must be a string';
+  if (message['role'] === 'tool' && !isNonEmptyString(message['tool_call_id'])) {
+    return 'message.message.tool_call_id must be a non-empty string for tool messages';
+  }
+  if (message['role'] === 'assistant' && message['thinking'] !== undefined && typeof message['thinking'] !== 'string') {
+    return 'message.message.thinking must be a string when present';
+  }
+  if (message['role'] === 'assistant' && message['tool_calls'] !== undefined && !Array.isArray(message['tool_calls'])) {
+    return 'message.message.tool_calls must be an array when present';
+  }
+  return null;
+}
+
+function validateCompactionEntry(entry: SessionEntry): string | null {
+  if (entry.type !== 'compaction') return null;
+  const commonError = validatePathEntryBase(entry);
+  if (commonError) return commonError;
+  if (typeof entry.summary !== 'string') return 'compaction.summary must be a string';
+  if (!isFiniteNumber(entry.firstKeptMessageIndex)) return 'compaction.firstKeptMessageIndex must be a finite number';
+  if (!isFiniteNumber(entry.messagesBefore)) return 'compaction.messagesBefore must be a finite number';
+  if (!isFiniteNumber(entry.messagesAfter)) return 'compaction.messagesAfter must be a finite number';
+  if (entry.firstKeptEntryId !== undefined && !isNonEmptyString(entry.firstKeptEntryId)) {
+    return 'compaction.firstKeptEntryId must be a non-empty string when present';
+  }
+  if (entry.customInstructions !== undefined && typeof entry.customInstructions !== 'string') {
+    return 'compaction.customInstructions must be a string when present';
+  }
+  return null;
+}
+
+function validateUsageEntry(entry: SessionEntry): string | null {
+  if (entry.type !== 'usage') return null;
+  const commonError = validatePathEntryBase(entry);
+  if (commonError) return commonError;
+  if (!['assistant', 'compaction'].includes(entry.source)) return 'usage.source must be assistant or compaction';
+  if (!isRecord(entry.usage)) return 'usage.usage must be an object';
+  if (!isFiniteNumber(entry.usage.prompt_tokens)) return 'usage.usage.prompt_tokens must be a finite number';
+  if (!isFiniteNumber(entry.usage.completion_tokens)) return 'usage.usage.completion_tokens must be a finite number';
+  if (!isFiniteNumber(entry.usage.total_tokens)) return 'usage.usage.total_tokens must be a finite number';
+  return null;
+}
+
+function validateInternalEntry(entry: SessionEntry): string | null {
+  if (entry.type !== 'internal') return null;
+  const commonError = validatePathEntryBase(entry);
+  if (commonError) return commonError;
+  if (!isNonEmptyString(entry.kind)) return 'internal.kind must be a non-empty string';
+  if (entry.content !== undefined && typeof entry.content !== 'string') return 'internal.content must be a string when present';
+  if (entry.metadata !== undefined && !isRecord(entry.metadata)) return 'internal.metadata must be an object when present';
+  return null;
+}
+
+function validateBranchSummaryEntry(entry: SessionEntry): string | null {
+  if (entry.type !== 'branch_summary') return null;
+  const commonError = validatePathEntryBase(entry);
+  if (commonError) return commonError;
+  if (entry.fromEntryId !== null && !isNonEmptyString(entry.fromEntryId)) {
+    return 'branch_summary.fromEntryId must be null or a non-empty string';
+  }
+  if (!isNonEmptyString(entry.toEntryId)) return 'branch_summary.toEntryId must be a non-empty string';
+  if (!isFiniteNumber(entry.pathEntryCount)) return 'branch_summary.pathEntryCount must be a finite number';
+  if (!isFiniteNumber(entry.messageCount)) return 'branch_summary.messageCount must be a finite number';
+  if (entry.label !== undefined && typeof entry.label !== 'string') return 'branch_summary.label must be a string when present';
+  if (entry.reason !== undefined && typeof entry.reason !== 'string') return 'branch_summary.reason must be a string when present';
+  return null;
+}
+
+function validateLeafEntry(entry: SessionEntry): string | null {
+  if (entry.type !== 'leaf') return null;
+  const commonError = validatePathEntryBase(entry);
+  if (commonError) return commonError;
+  if (entry.targetEntryId !== null && !isNonEmptyString(entry.targetEntryId)) {
+    return 'leaf.targetEntryId must be null or a non-empty string';
+  }
+  return null;
+}
+
+function validatePathEntryBase(entry: Extract<SessionEntry, { entryId: string }>): string | null {
+  if (!isNonEmptyString(entry.sessionId)) return `${entry.type}.sessionId must be a non-empty string`;
+  if (!isFiniteNumber(entry.timestamp)) return `${entry.type}.timestamp must be a finite number`;
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
 }
 
 export function getSessionIdFromLog(content: string): string | null {

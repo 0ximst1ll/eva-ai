@@ -99,6 +99,35 @@ test('SessionManager can share a memory storage backend across managers', async 
   );
 });
 
+test('SessionManager preserves active path parent invariants across append, branch, and reset', async () => {
+  const manager = new SessionManager({ workspaceDir: '/workspace', mode: 'memory' });
+  const sessionId = await manager.createSession('system');
+  await manager.appendMessage(sessionId, { role: 'user', content: 'first task' });
+  const firstTaskEntryId = manager.getEntryPath(sessionId).at(-1)?.entryId;
+  assert.ok(firstTaskEntryId);
+
+  await manager.appendMessage(sessionId, { role: 'assistant', content: 'main answer' });
+  const mainPath = manager.getEntryPath(sessionId);
+  assert.equal(mainPath.at(-1)?.parentEntryId, firstTaskEntryId);
+
+  await manager.branchSession({ sessionId, leafEntryId: firstTaskEntryId });
+  const branchSummaryEntry = manager.getEntryPath(sessionId).at(-1);
+  assert.equal(branchSummaryEntry?.type, 'branch_summary');
+  assert.equal(branchSummaryEntry?.parentEntryId, firstTaskEntryId);
+
+  await manager.appendMessage(sessionId, { role: 'assistant', content: 'branch answer' });
+  const branchAnswerEntry = manager.getEntryPath(sessionId).at(-1);
+  assert.equal(branchAnswerEntry?.type, 'message');
+  assert.equal(branchAnswerEntry?.parentEntryId, branchSummaryEntry?.entryId);
+  assert.deepEqual(manager.getActiveState(sessionId), buildSessionStateFromEntryPath(manager.getEntryPath(sessionId)));
+
+  await manager.resetSession(sessionId, 'reset system');
+  assert.deepEqual(manager.getMessages(sessionId), [{ role: 'system', content: 'reset system' }]);
+  assert.deepEqual(manager.getEntryPath(sessionId).map((entry) => (
+    entry.type === 'message' ? entry.message.content : entry.type
+  )), ['reset system']);
+});
+
 test('SessionManager persists and reloads jsonl sessions', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-'));
   const workspaceDir = path.join(tempDir, 'workspace');
@@ -1090,6 +1119,79 @@ test('SessionManager reports diagnostics for corrupt JSONL while loading valid e
   assert.ok(reloaded.getDiagnostics().some((diagnostic) => (
     diagnostic.code === 'session_log_invalid_json'
     && diagnostic.details?.['sessionId'] === sessionId
+  )));
+});
+
+test('SessionManager rejects invalid session entry payloads with diagnostics', async () => {
+  const storage = new MemorySessionStorage();
+  const sessionId = 'invalid-payload-session';
+  await storage.writeSessionLog(sessionId, [
+    JSON.stringify({
+      type: 'session_start',
+      sessionId,
+      workspaceDir: '/workspace',
+      createdAt: 123,
+      schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
+    }),
+    JSON.stringify({
+      type: 'message',
+      sessionId,
+      timestamp: 124,
+      entryId: 'entry-system',
+      parentEntryId: null,
+      message: { role: 'system', content: 'system' },
+    }),
+    JSON.stringify({
+      type: 'usage',
+      sessionId,
+      timestamp: 125,
+      entryId: 'entry-bad-usage',
+      parentEntryId: 'entry-system',
+      source: 'assistant',
+      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 'bad' },
+    }),
+    '',
+  ].join('\n'));
+
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  assert.equal(await manager.loadSession(sessionId), true);
+  assert.deepEqual(manager.getMessages(sessionId), [{ role: 'system', content: 'system' }]);
+  assert.equal(manager.getUsageInfo(sessionId).count, 0);
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_log_invalid_entry'
+    && diagnostic.details?.['sessionId'] === sessionId
+    && diagnostic.details?.['reason'] === 'usage.usage.total_tokens must be a finite number'
+  )));
+});
+
+test('SessionManager reports diagnostics for broken active parent chains', async () => {
+  const storage = new MemorySessionStorage();
+  const sessionId = 'broken-parent-session';
+  await storage.writeSessionLog(sessionId, [
+    JSON.stringify({
+      type: 'session_start',
+      sessionId,
+      workspaceDir: '/workspace',
+      createdAt: 123,
+      schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
+    }),
+    JSON.stringify({
+      type: 'message',
+      sessionId,
+      timestamp: 124,
+      entryId: 'entry-orphan',
+      parentEntryId: 'missing-parent',
+      message: { role: 'system', content: 'orphan system' },
+    }),
+    '',
+  ].join('\n'));
+
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  assert.equal(await manager.loadSession(sessionId), true);
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_log_broken_parent_chain'
+    && diagnostic.details?.['sessionId'] === sessionId
+    && diagnostic.details?.['missingParentEntryId'] === 'missing-parent'
   )));
 });
 

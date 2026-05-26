@@ -789,10 +789,11 @@ user/assistant/tool: durable session history
 当前最小落地：
 
 - `parseSessionLog()` 已返回 structured diagnostics，覆盖 invalid JSON、unsupported schema、entry before start、missing entry metadata、unknown entry type、active leaf missing 和 broken parent chain。
+- `parseSessionLog()` 已补最小 schema validation，覆盖 message、compaction、usage、internal、branch_summary 和 leaf 的必要 payload 字段，invalid payload 会产生 `session_log_invalid_entry` diagnostics 并被跳过。
 - `SessionManager.getDiagnostics()` 已可读取 load/import/list/latest 过程中记录的 session diagnostics。
 - `loadSession()` / `loadLatestSession()` 保留 boolean / nullable public API，但失败原因会进入 session diagnostics。
 - interactive `/diagnostics` 已合并展示动态 session diagnostics。
-- 已补 legacy flat JSONL missing metadata、corrupt JSONL valid-load 和 manifest mismatch 的最小测试。
+- 已补 legacy flat JSONL missing metadata、corrupt JSONL valid-load、manifest mismatch、invalid payload、broken parent chain 和 active path parent invariant 的最小测试。
 
 长期更优设计：
 
