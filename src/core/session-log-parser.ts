@@ -29,6 +29,26 @@ export interface ParsedSessionLog {
   pathEntries: SessionPathEntry[];
   activeEntryId?: string;
   format: SessionFormatInfo;
+  diagnostics: SessionLogDiagnostic[];
+}
+
+export type SessionLogDiagnosticLevel = 'warning' | 'error';
+
+export type SessionLogDiagnosticCode =
+  | 'session_log_invalid_json'
+  | 'session_log_unsupported_schema'
+  | 'session_log_entry_before_start'
+  | 'session_log_missing_entry_metadata'
+  | 'session_log_unknown_entry_type'
+  | 'session_log_active_leaf_missing'
+  | 'session_log_broken_parent_chain';
+
+export interface SessionLogDiagnostic {
+  level: SessionLogDiagnosticLevel;
+  code: SessionLogDiagnosticCode;
+  message: string;
+  line?: number;
+  details?: Record<string, unknown>;
 }
 
 export function parseSessionLog(
@@ -44,15 +64,31 @@ export function parseSessionLog(
   let format = createCurrentSessionFormatInfo();
   let hasCurrentSessionStart = false;
   let messageIndex = 0;
+  const diagnostics: SessionLogDiagnostic[] = [];
 
-  for (const line of content.split('\n')) {
+  const lines = content.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    const lineNumber = index + 1;
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
       const entry = JSON.parse(trimmed) as SessionEntry;
       if (entry.sessionId !== sessionId) continue;
       if (entry.type === 'session_start') {
-        if (entry.schemaVersion !== CURRENT_SESSION_SCHEMA_VERSION) continue;
+        if (entry.schemaVersion !== CURRENT_SESSION_SCHEMA_VERSION) {
+          diagnostics.push({
+            level: 'error',
+            code: 'session_log_unsupported_schema',
+            message: `Unsupported session schema version: ${entry.schemaVersion}`,
+            line: lineNumber,
+            details: {
+              schemaVersion: entry.schemaVersion,
+              expectedSchemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
+            },
+          });
+          continue;
+        }
         hasCurrentSessionStart = true;
         createdAt = entry.createdAt;
         updatedAt = Math.max(updatedAt, entry.createdAt);
@@ -64,12 +100,24 @@ export function parseSessionLog(
         });
         continue;
       }
-      if (!hasCurrentSessionStart) continue;
+      if (!hasCurrentSessionStart) {
+        diagnostics.push({
+          level: 'warning',
+          code: 'session_log_entry_before_start',
+          message: 'Ignored session entry before a valid session_start entry',
+          line: lineNumber,
+          details: { type: entry.type },
+        });
+        continue;
+      }
       if (entry.type === 'message') {
         const entryNode = readEntryTreeNode(entry, {
           messageIndex,
         });
-        if (!entryNode) continue;
+        if (!entryNode) {
+          diagnostics.push(createMissingEntryMetadataDiagnostic(entry, lineNumber));
+          continue;
+        }
         messageIndex += 1;
         entryTree.push(entryNode);
         pathEntries.push(copySessionPathEntry({
@@ -83,7 +131,10 @@ export function parseSessionLog(
       }
       if (entry.type === 'compaction') {
         const entryNode = readEntryTreeNode(entry);
-        if (!entryNode) continue;
+        if (!entryNode) {
+          diagnostics.push(createMissingEntryMetadataDiagnostic(entry, lineNumber));
+          continue;
+        }
         entryTree.push(entryNode);
         pathEntries.push(copySessionPathEntry({
           ...entry,
@@ -96,7 +147,10 @@ export function parseSessionLog(
       }
       if (entry.type === 'usage') {
         const entryNode = readEntryTreeNode(entry);
-        if (!entryNode) continue;
+        if (!entryNode) {
+          diagnostics.push(createMissingEntryMetadataDiagnostic(entry, lineNumber));
+          continue;
+        }
         entryTree.push(entryNode);
         pathEntries.push(copySessionPathEntry({
           ...entry,
@@ -109,7 +163,10 @@ export function parseSessionLog(
       }
       if (entry.type === 'internal') {
         const entryNode = readEntryTreeNode(entry, { kind: entry.kind });
-        if (!entryNode) continue;
+        if (!entryNode) {
+          diagnostics.push(createMissingEntryMetadataDiagnostic(entry, lineNumber));
+          continue;
+        }
         entryTree.push(entryNode);
         pathEntries.push(copySessionPathEntry({
           ...entry,
@@ -122,7 +179,10 @@ export function parseSessionLog(
       }
       if (entry.type === 'branch_summary') {
         const entryNode = readEntryTreeNode(entry);
-        if (!entryNode) continue;
+        if (!entryNode) {
+          diagnostics.push(createMissingEntryMetadataDiagnostic(entry, lineNumber));
+          continue;
+        }
         entryTree.push(entryNode);
         pathEntries.push(copySessionPathEntry({
           ...entry,
@@ -135,7 +195,10 @@ export function parseSessionLog(
       }
       if (entry.type === 'leaf') {
         const entryNode = readEntryTreeNode(entry);
-        if (!entryNode) continue;
+        if (!entryNode) {
+          diagnostics.push(createMissingEntryMetadataDiagnostic(entry, lineNumber));
+          continue;
+        }
         entryTree.push(entryNode);
         pathEntries.push(copySessionPathEntry({
           ...entry,
@@ -144,13 +207,44 @@ export function parseSessionLog(
         }));
         activeEntryId = entry.targetEntryId ?? undefined;
         updatedAt = Math.max(updatedAt, entry.timestamp);
+        continue;
       }
-    } catch {
-      continue;
+      diagnostics.push({
+        level: 'warning',
+        code: 'session_log_unknown_entry_type',
+        message: `Ignored unknown session entry type: ${(entry as { type?: unknown }).type}`,
+        line: lineNumber,
+        details: { type: (entry as { type?: unknown }).type },
+      });
+    } catch (error) {
+      diagnostics.push({
+        level: 'error',
+        code: 'session_log_invalid_json',
+        message: `Invalid session JSONL line: ${(error as Error).message}`,
+        line: lineNumber,
+      });
     }
   }
 
   const activePathEntries = buildEntryPath(pathEntries, activeEntryId);
+  if (activeEntryId && activePathEntries.length === 0) {
+    diagnostics.push({
+      level: 'error',
+      code: 'session_log_active_leaf_missing',
+      message: `Active entry not found in session path entries: ${activeEntryId}`,
+      details: { activeEntryId },
+    });
+  } else if (activePathEntries[0]?.parentEntryId) {
+    diagnostics.push({
+      level: 'error',
+      code: 'session_log_broken_parent_chain',
+      message: `Active entry path is missing parent entry: ${activePathEntries[0].parentEntryId}`,
+      details: {
+        activeEntryId,
+        missingParentEntryId: activePathEntries[0].parentEntryId,
+      },
+    });
+  }
   const activeState = buildSessionStateFromEntryPath(activePathEntries);
 
   return {
@@ -162,6 +256,20 @@ export function parseSessionLog(
     pathEntries,
     activeEntryId,
     format,
+    diagnostics,
+  };
+}
+
+function createMissingEntryMetadataDiagnostic(
+  entry: SessionEntry,
+  line: number,
+): SessionLogDiagnostic {
+  return {
+    level: 'error',
+    code: 'session_log_missing_entry_metadata',
+    message: `Session entry is missing valid entryId/parentEntryId metadata: ${entry.type}`,
+    line,
+    details: { type: entry.type },
   };
 }
 

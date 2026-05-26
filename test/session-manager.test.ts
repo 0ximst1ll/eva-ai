@@ -1069,9 +1069,44 @@ test('SessionManager rejects sessions without entry metadata', async () => {
     assert.equal(await manager.loadSession('old-session'), false);
     assert.deepEqual(manager.getMessages('old-session'), []);
     assert.deepEqual(manager.getEntryPath('old-session'), []);
+    assert.ok(manager.getDiagnostics().some((diagnostic) => (
+      diagnostic.code === 'session_log_missing_entry_metadata'
+      && diagnostic.details?.['sessionId'] === 'old-session'
+    )));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
+});
+
+test('SessionManager reports diagnostics for corrupt JSONL while loading valid entries', async () => {
+  const storage = new MemorySessionStorage();
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  const sessionId = await manager.createSession('system', 'corrupt-session');
+  await manager.appendMessage(sessionId, { role: 'user', content: 'hello' });
+  await storage.writeSessionLog(sessionId, `${await storage.readSessionLog(sessionId)}{"type":"message"\n`);
+  const reloaded = new SessionManager({ workspaceDir: '/workspace', storage });
+
+  assert.equal(await reloaded.loadSession(sessionId), true);
+  assert.ok(reloaded.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_log_invalid_json'
+    && diagnostic.details?.['sessionId'] === sessionId
+  )));
+});
+
+test('SessionManager reports diagnostics when latest manifest points to an unloadable session', async () => {
+  const storage = new MemorySessionStorage();
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  await storage.writeManifest({ latestSessionId: 'missing-session', updatedAt: 123 });
+
+  assert.equal(await manager.loadLatestSession(), null);
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_load_failed'
+    && diagnostic.details?.['sessionId'] === 'missing-session'
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'latest_session_load_failed'
+    && diagnostic.details?.['sessionId'] === 'missing-session'
+  )));
 });
 
 function escapeRegExp(value: string): string {

@@ -615,7 +615,11 @@ export async function handleInteractiveCommand({
   }
 
   if (cmd === '/diagnostics') {
-    const diagnostics = host.runtime.diagnostics;
+    const sessionDiagnostics = host.runtime.sessionManager?.getDiagnostics?.() ?? [];
+    const diagnostics = [
+      ...host.runtime.diagnostics,
+      ...sessionDiagnostics,
+    ];
     writeLine(`\n${Colors.BRIGHT_CYAN}Runtime diagnostics:${Colors.RESET}`);
     if (!diagnostics.length) {
       writeLine(`${Colors.DIM}No diagnostics recorded.${Colors.RESET}\n`);

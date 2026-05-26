@@ -684,6 +684,7 @@ user/assistant/tool: durable session history
 
 后续仍需：
 
+- session reliability 收口：structured parse/load diagnostics、最小 schema validation、corrupt/partial JSONL 容错、manifest 不一致诊断和 active path 不变量测试。
 - 更完整的 child branch navigation。
 - entry-level branch / navigate 继续增强：补更完整导航体验。
 - entry-tree-first 继续收敛：让 append-only `SessionEntry` tree 成为主要事实源，active state cache 进一步退化为 active leaf path 的运行期缓存。
@@ -693,6 +694,7 @@ user/assistant/tool: durable session history
 
 - branch/fork 保留历史。
 - context rebuild 可测试且确定。
+- load/import 失败原因可诊断。
 - 旧 flat JSONL 不再进入 active context；后续如需历史数据保留，应通过显式 migration 完成。
 
 #### M4.x：Entry Tree First 对齐
@@ -759,8 +761,38 @@ user/assistant/tool: durable session history
 20. 已完成 `SessionStorage` backend 第一层拆分，`SessionManager` 不再直接持有 workspace session 文件路径、manifest 和 append/read/write 细节；`JsonlSessionStorage` 和 `MemorySessionStorage` 共享同一接口。
 21. 已完成单 session entry store 第一层拆分，`SessionManager` 不再直接维护 `sessionEntryTrees` / `sessionPathEntries` / `sessionActiveEntryIds` 三组 Map。
 22. 已完成 `SessionStorage` interface 最小抽象：`WorkspaceSessionStore` 收敛为 `JsonlSessionStorage` backend，新建 `MemorySessionStorage`，`SessionManager` 通过注入 storage 或兼容 `mode` shortcut 选择 backend。
-23. 后续按需拆出语义层 `Session`，避免 `SessionManager` 同时承担 branch/fork/compact/context 派生组合职责。
-24. 后续如需要再补完整旧 JSONL 到 entry-tree-first 的迁移器。
+23. 补 session reliability 最小闭环：structured parse/load diagnostics、corrupt/partial JSONL 测试、unsupported schema version / missing entry metadata / broken parent chain / manifest mismatch 的可观测失败原因。
+24. 后续按需拆出语义层 `Session`，避免 `SessionManager` 同时承担 branch/fork/compact/context 派生组合职责。
+25. 后续如需要再补完整旧 JSONL 到 entry-tree-first 的迁移器。
+
+#### M4.x：Session Reliability 收口
+
+目标：不继续增加 session tree 功能，而是让现有 entry-tree-first / storage backend / resume 路径更稳定、可诊断、可测试。
+
+范围：
+
+- `parseSessionLog()` 提供 structured diagnostics 或 structured error。
+- `loadSession()` / `loadLatestSession()` 失败原因可被 diagnostics 读取；保留当前 boolean public API。
+- corrupt / partial JSONL 有明确测试和可观测诊断。
+- unsupported schema version、missing entry metadata、invalid active leaf、broken parent chain 有明确错误原因。
+- manifest 指向不存在或不可加载 session 时有诊断。
+- import/export failure message 清晰，schema 不兼容不被吞掉。
+- active leaf/path 不变量有集中测试：append parent、branch 后 parent、load/import active state 与 active path 一致、reset 后旧 path 不泄漏。
+- 文档明确旧 flat JSONL 不再自动加载，后续如需保留历史数据走显式 migration。
+
+非目标：
+
+- 不在本阶段实现 pi-mono-style LLM branch summarization。
+- 不引入完整 `SessionRepo` / sidecar metadata。
+- 不做大规模 session list index 或 HTML/tree visualization。
+
+当前最小落地：
+
+- `parseSessionLog()` 已返回 structured diagnostics，覆盖 invalid JSON、unsupported schema、entry before start、missing entry metadata、unknown entry type、active leaf missing 和 broken parent chain。
+- `SessionManager.getDiagnostics()` 已可读取 load/import/list/latest 过程中记录的 session diagnostics。
+- `loadSession()` / `loadLatestSession()` 保留 boolean / nullable public API，但失败原因会进入 session diagnostics。
+- interactive `/diagnostics` 已合并展示动态 session diagnostics。
+- 已补 legacy flat JSONL missing metadata、corrupt JSONL valid-load 和 manifest mismatch 的最小测试。
 
 长期更优设计：
 

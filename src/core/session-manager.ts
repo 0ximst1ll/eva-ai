@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { createDiagnostic, type RuntimeDiagnostic } from '../diagnostics.js';
 import type { Message, TokenUsage } from '../schema.js';
 import type { CompactionResult } from './compaction.js';
 import { copySessionPathEntry } from './session-entry-store.js';
@@ -9,6 +10,7 @@ import {
   getSessionIdFromLog,
   parseSessionLog,
   rewriteImportedSessionLog,
+  type SessionLogDiagnostic,
   type ParsedSessionLog,
 } from './session-log-parser.js';
 import {
@@ -246,6 +248,7 @@ export class SessionManager {
   private readonly workspaceDir: string;
   private readonly storage: SessionStorage;
   private readonly sessionModels = new Map<string, SessionModel>();
+  private readonly diagnostics: RuntimeDiagnostic[] = [];
   private latestSessionId?: string;
 
   constructor({
@@ -381,7 +384,14 @@ export class SessionManager {
       workspaceDir: this.workspaceDir,
     });
     const parsed = parseSessionLog(rewrittenContent, targetSessionId);
+    this.recordParserDiagnostics('import', targetSessionId, parsed.diagnostics);
     if (!parsed.state.messages.length) {
+      this.recordDiagnostic({
+        level: 'error',
+        code: 'session_import_no_messages',
+        message: `Imported session has no active messages: ${targetSessionId}`,
+        details: { sessionId: targetSessionId, inputPath: resolvedInputPath },
+      });
       throw new Error(`Imported session has no messages: ${targetSessionId}`);
     }
 
@@ -399,9 +409,23 @@ export class SessionManager {
     try {
       const manifest = await this.storage.readManifest();
       if (!manifest?.latestSessionId) return null;
-      await this.loadSession(manifest.latestSessionId);
+      const loaded = await this.loadSession(manifest.latestSessionId);
+      if (!loaded) {
+        this.recordDiagnostic({
+          level: 'error',
+          code: 'latest_session_load_failed',
+          message: `Latest session could not be loaded: ${manifest.latestSessionId}`,
+          details: { sessionId: manifest.latestSessionId },
+        });
+        return null;
+      }
       return manifest.latestSessionId;
-    } catch {
+    } catch (error) {
+      this.recordDiagnostic({
+        level: 'error',
+        code: 'latest_session_load_failed',
+        message: `Latest session could not be loaded: ${(error as Error).message}`,
+      });
       return null;
     }
   }
@@ -415,13 +439,32 @@ export class SessionManager {
     try {
       const content = await this.storage.readSessionLog(sessionId);
       const parsed = parseSessionLog(content, sessionId);
-      if (!parsed.state.messages.length) return false;
+      this.recordParserDiagnostics('load', sessionId, parsed.diagnostics);
+      if (!parsed.state.messages.length) {
+        this.recordDiagnostic({
+          level: 'error',
+          code: 'session_load_no_messages',
+          message: `Session has no active messages: ${sessionId}`,
+          details: { sessionId },
+        });
+        return false;
+      }
       this.applyParsedSessionLog(sessionId, parsed);
       await this.markLatestSession(sessionId);
       return true;
-    } catch {
+    } catch (error) {
+      this.recordDiagnostic({
+        level: 'error',
+        code: 'session_load_failed',
+        message: `Session could not be loaded: ${(error as Error).message}`,
+        details: { sessionId },
+      });
       return false;
     }
+  }
+
+  getDiagnostics(): RuntimeDiagnostic[] {
+    return this.diagnostics.slice();
   }
 
   getMessages(sessionId: string): Message[] {
@@ -605,6 +648,7 @@ export class SessionManager {
       try {
         const content = await this.storage.readSessionLog(sessionId);
         const parsed = parseSessionLog(content, sessionId);
+        this.recordParserDiagnostics('list', sessionId, parsed.diagnostics);
         if (!parsed.state.messages.length) continue;
         sessions.push({
           sessionId,
@@ -713,6 +757,46 @@ export class SessionManager {
     const updatedAt = Date.now();
     this.touchSession(sessionId, updatedAt);
     await this.storage.writeManifest({ latestSessionId: sessionId, updatedAt });
+  }
+
+  private recordParserDiagnostics(
+    operation: string,
+    sessionId: string,
+    diagnostics: SessionLogDiagnostic[],
+  ): void {
+    for (const diagnostic of diagnostics) {
+      this.recordDiagnostic({
+        level: diagnostic.level,
+        code: diagnostic.code,
+        message: diagnostic.message,
+        details: {
+          ...diagnostic.details,
+          operation,
+          sessionId,
+          line: diagnostic.line,
+        },
+      });
+    }
+  }
+
+  private recordDiagnostic({
+    level,
+    code,
+    message,
+    details,
+  }: {
+    level: RuntimeDiagnostic['level'];
+    code: string;
+    message: string;
+    details?: Record<string, unknown>;
+  }): void {
+    this.diagnostics.push(createDiagnostic({
+      source: 'session',
+      level,
+      code,
+      message,
+      details,
+    }));
   }
 
   private sortSessionList(sessions: SessionListItem[]): SessionListItem[] {
