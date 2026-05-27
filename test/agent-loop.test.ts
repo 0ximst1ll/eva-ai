@@ -82,6 +82,59 @@ test('runAgentLoop continues after tool calls and preserves tool result order', 
   );
 });
 
+test('runAgentLoop applies tool result budget before the next provider request', async () => {
+  const largeOutput = 'x'.repeat(500);
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-large', 'large_output')],
+    },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const tool: Tool = {
+    name: 'large_output',
+    description: 'Return large output',
+    parameters: { type: 'object' },
+    metadata: {
+      category: 'read',
+      riskLevel: 'low',
+      source: 'builtin',
+      isReadOnly: true,
+      isConcurrencySafe: true,
+    },
+    async execute() {
+      return { success: true, content: largeOutput };
+    },
+  };
+  const events: AgentLoopEvent[] = [];
+
+  const result = await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [tool],
+    maxSteps: 3,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+    toolResultBudget: { maxChars: 120 },
+    emit: (event) => {
+      events.push(event);
+    },
+  });
+
+  const toolMessage = llm.calls[1].at(-1);
+  const toolResultEvent = events.find((event) => event.type === 'tool_result');
+  assert.equal(result.finalContent, 'done');
+  assert.equal(toolMessage?.role, 'tool');
+  assert.ok((toolMessage?.content ?? '').length <= 120);
+  assert.match(toolMessage?.content ?? '', /Tool result truncated/);
+  assert.equal(toolResultEvent?.type, 'tool_result');
+  assert.equal(toolResultEvent?.result.contentTruncated, true);
+  assert.equal(toolResultEvent?.result.originalContentLength, largeOutput.length);
+  assert.equal(
+    result.messages.find((message) => message.role === 'tool')?.content,
+    toolMessage?.content,
+  );
+});
+
 test('runAgentLoop sends transient project context to the LLM without persisting it', async () => {
   const llm = new ScriptedLLM([
     { content: 'done', finish_reason: 'stop' },

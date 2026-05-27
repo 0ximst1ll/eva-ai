@@ -24,6 +24,7 @@ import {
   type SessionCompactionInfo,
   type SessionUsageInfo,
 } from './session-manager.js';
+import { formatToolResultMessageContent } from './tool-result-budget.js';
 
 type AgentRunAttempt = {
   result: string;
@@ -324,7 +325,7 @@ export class AgentSession {
       onEvent?.(event);
       await this.sessionManager.appendMessage(this.sessionId, {
         role: 'tool',
-        content: event.result.success ? event.result.content : `Error: ${event.result.error ?? 'Unknown error'}`,
+        content: formatToolResultMessageContent(event.result),
         tool_call_id: event.result.toolCallId,
         name: event.result.toolName,
       });

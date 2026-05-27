@@ -1,6 +1,6 @@
 # Eva AI Current
 
-## 当前状态（2026-05-26）
+## 当前状态（2026-05-27）
 
 ## 已完成
 
@@ -33,15 +33,18 @@
 - session recovery smoke cases 已补齐：runtime latest 恢复、session list/tree 跳过坏文件、import 失败隔离和 RPC resume 失败行为已有覆盖。
 - M4.x session semantic split 已基本收口：`SessionManager` 当前主要保留 public lifecycle facade、memory/jsonl 分发、manifest/latest session、list/import/export 编排。
 - interactive/TUI slash command 已支持 `/fork [id] [--entry <entryId>]`、`/clone [id] [--entry <entryId>]`、`/branch <entryId>`、`/entries`、`/path`、`/sessions`、`/parent`、`/children`、`/child [id]`、`/export [path]`、`/import <path>`。
+- M5 Tool Result Budget 最小闭环已实现：tool result 在 agent-loop 统一写回边界应用默认字符预算，超预算结果会截断并携带原始长度/预算 metadata，进入下一次 provider request 和 session tool message 的内容保持一致。
 
 ## 进行中
 
-- M4 Session / Recovery 阶段已完成当前计划内的核心架构和 reliability 收口；下一步准备进入 M5 Tool / Permission Governance。
+- M5 Tool / Permission Governance 已开始；当前阶段继续收敛工具结果治理、工具执行编排和权限 rule/mode 边界。
 
 ## 下一步
 
 - 优先保持现有 session tree 行为稳定，不在当前阶段继续拆 `SessionRepo`。
-- 下一步进入 M5 Tool / Permission Governance，优先评估 tool result budget、大输出持久化、权限 rule/mode 边界。
+- 下一步评估超大工具输出持久化引用机制，避免仅靠截断丢失可追溯内容。
+- 继续推进工具执行编排：read-only 并发、write/bash 串行和 tool result ordering。
+- 继续推进权限治理：permission rule engine、permission mode 和 headless/RPC fail-closed 策略收敛。
 - branch summarization pipeline、更完整 tree navigation 交互保留为后续 Session / Recovery 增强项，不阻塞 M4 阶段完成。
 - import/export lifecycle 目前保留在 `SessionManager` facade 中，等出现 schema migration、sidecar store 或 repo-level delete/list 需求时再拆。
 
@@ -58,5 +61,6 @@
 - MCP 相关配置字段已解析，但当前只报告 extension boundary diagnostic，尚未接入 MCP server lifecycle。
 - 当前 `max_steps` 字段名仍偏模糊，后续应迁移为 `max_steps_per_run` 或同类命名。
 - RPC mode 仍是最小闭环，尚未支持完整 ACP 兼容层。
-- tool result budget、超大输出持久化、完整 permission pipeline 尚未实现。
+- tool result budget 已有最小截断闭环，但尚未支持超大输出持久化引用或工具结果 micro-compaction。
+- 完整 permission pipeline 尚未实现。
 - TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。

@@ -12,6 +12,11 @@ import {
   type TransformContext,
 } from './agent-messages.js';
 import type { ContextBuilder, ProviderRequestView } from './context-builder.js';
+import {
+  applyToolResultBudget,
+  formatToolResultMessageContent,
+  type ToolResultBudgetOptions,
+} from './tool-result-budget.js';
 
 export type ToolExecutionMode = 'parallel' | 'sequential';
 
@@ -69,6 +74,7 @@ export interface AgentLoopConfig {
   signal?: AbortSignal;
   emit?: AgentLoopEventSink;
   toolExecution?: ToolExecutionMode;
+  toolResultBudget?: ToolResultBudgetOptions;
   getSteeringMessages?: () => AgentMessage[] | Promise<AgentMessage[]>;
   getFollowUpMessages?: () => AgentMessage[] | Promise<AgentMessage[]>;
   beforeToolCall?: (
@@ -169,13 +175,16 @@ async function executeToolCall(
 
   const tool = toolMap.get(toolName);
   if (!tool) {
-    const result = {
-      toolCallId,
-      toolName,
-      success: false,
-      content: '',
-      error: `Unknown tool: ${toolName}`,
-    } satisfies ToolExecutionResult;
+    const result = applyToolResultBudget(
+      {
+        toolCallId,
+        toolName,
+        success: false,
+        content: '',
+        error: `Unknown tool: ${toolName}`,
+      },
+      config.toolResultBudget,
+    );
     await emit(config.emit, { type: 'tool_execution_end', result });
     return result;
   }
@@ -183,34 +192,41 @@ async function executeToolCall(
   try {
     const before = await config.beforeToolCall?.({ toolCall, tool, args, messages }, config.signal);
     if (before?.block) {
-      const result = createBlockedToolResult(toolCall, before.reason);
+      const result = applyToolResultBudget(
+        createBlockedToolResult(toolCall, before.reason),
+        config.toolResultBudget,
+      );
       await emit(config.emit, { type: 'tool_execution_end', result });
       return result;
     }
 
     const output = await tool.execute(args, { toolCallId, signal: config.signal });
-    let result = {
+    let result: ToolExecutionResult = {
       toolCallId,
       toolName,
       success: output.success,
       content: output.content,
       error: output.error,
-    } satisfies ToolExecutionResult;
+    };
 
     const after = await config.afterToolCall?.({ toolCall, tool, args, result, messages }, config.signal);
     if (after) result = { ...result, ...after };
+    result = applyToolResultBudget(result, config.toolResultBudget);
 
     await emit(config.emit, { type: 'tool_execution_end', result });
     return result;
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
-    const result = {
-      toolCallId,
-      toolName,
-      success: false,
-      content: '',
-      error: `Tool execution failed: ${err.message}\n\nStack:\n${err.stack ?? ''}`,
-    } satisfies ToolExecutionResult;
+    const result = applyToolResultBudget(
+      {
+        toolCallId,
+        toolName,
+        success: false,
+        content: '',
+        error: `Tool execution failed: ${err.message}\n\nStack:\n${err.stack ?? ''}`,
+      },
+      config.toolResultBudget,
+    );
     await emit(config.emit, { type: 'tool_execution_end', result });
     return result;
   }
@@ -388,7 +404,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           await emit(config.emit, { type: 'tool_result', result });
           messages.push({
             role: 'tool',
-            content: result.success ? result.content : `Error: ${result.error ?? 'Unknown error'}`,
+            content: formatToolResultMessageContent(result),
             tool_call_id: result.toolCallId,
             name: result.toolName,
           });

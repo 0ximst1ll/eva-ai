@@ -78,6 +78,12 @@ export interface ToolExecutionResult {
     success: boolean;
     content: string;
     error?: string;
+    contentTruncated?: boolean;
+    originalContentLength?: number;
+    maxContentLength?: number;
+    errorTruncated?: boolean;
+    originalErrorLength?: number;
+    maxErrorLength?: number;
 }
 
 export type AgentSessionEvent =
