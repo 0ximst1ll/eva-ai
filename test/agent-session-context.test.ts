@@ -9,7 +9,15 @@ import {
 import { createContextManager } from '../src/core/context-manager.js';
 import { SessionManager } from '../src/core/session-manager.js';
 import type { LLMClient } from '../src/llm/llm-client.js';
-import type { AgentMessage, InternalAgentMessage, LLMResponse, LLMStreamEvent, Message } from '../src/schema.js';
+import type {
+  AgentMessage,
+  AgentSessionEvent,
+  InternalAgentMessage,
+  LLMResponse,
+  LLMStreamEvent,
+  Message,
+} from '../src/schema.js';
+import type { Tool } from '../src/tools/base.js';
 
 type ScriptedLLMStep = LLMResponse | Error;
 
@@ -35,6 +43,14 @@ class ScriptedLLM {
     yield { type: 'done', response };
     return response;
   }
+}
+
+function toolCall(id: string, name: string, args: Record<string, unknown> = {}) {
+  return {
+    id,
+    type: 'function',
+    function: { name, arguments: args },
+  };
 }
 
 test('AgentSession keeps transient project context out of session history', async () => {
@@ -124,6 +140,70 @@ test('AgentSession forwards agent lifecycle events to the UI boundary', async ()
 
   assert.equal(events[0], 'agent_start');
   assert.equal(events.at(-1), 'agent_end');
+});
+
+test('AgentSession persists large tool results as artifacts before budget truncation', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-1');
+  const largeOutput = 'x'.repeat(300);
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-large', 'large_output')],
+    },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const tool: Tool = {
+    name: 'large_output',
+    description: 'Return large output',
+    parameters: { type: 'object' },
+    metadata: {
+      category: 'read',
+      riskLevel: 'low',
+      source: 'builtin',
+      isReadOnly: true,
+      isConcurrencySafe: true,
+    },
+    async execute() {
+      return { success: true, content: largeOutput };
+    },
+  };
+  const events: AgentSessionEvent[] = [];
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [tool],
+    maxSteps: 3,
+    toolResultBudget: { maxChars: 120 },
+    sessionManager,
+    sessionId,
+  });
+
+  await session.addUserMessage('run');
+  assert.equal(await session.run({ onEvent: (event) => events.push(event) }), 'done');
+
+  const toolEvent = events.find((event) => event.type === 'tool_result');
+  assert.equal(toolEvent?.type, 'tool_result');
+  const artifact = toolEvent?.result.contentArtifact;
+  assert.ok(artifact);
+  assert.equal(await sessionManager.readToolResultArtifact(sessionId, artifact.artifactId), largeOutput);
+  assert.equal(artifact.charLength, largeOutput.length);
+
+  const providerToolMessage = llm.calls[1]?.at(-1);
+  assert.equal(providerToolMessage?.role, 'tool');
+  assert.ok((providerToolMessage?.content ?? '').length <= 120);
+  assert.match(providerToolMessage?.content ?? '', new RegExp(artifact.artifactId));
+  assert.notEqual(providerToolMessage?.content, largeOutput);
+
+  const internalEntries = sessionManager.getInternalEntries(sessionId, 'tool_result_artifact');
+  assert.equal(internalEntries.length, 1);
+  const metadata = internalEntries[0]?.metadata as Record<string, unknown>;
+  assert.equal(metadata['toolCallId'], 'call-large');
+  assert.deepEqual(metadata['contentArtifact'], artifact);
 });
 
 test('AgentSession compacts history into a summary message and keeps recent context', async () => {

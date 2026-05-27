@@ -14,7 +14,7 @@ export function applyToolResultBudget(
   if (maxChars === null) return result;
 
   let next = result;
-  const content = truncateText(result.content, maxChars, 'Tool result');
+  const content = truncateText(result.content, maxChars, 'Tool result', result.contentArtifact?.artifactId);
   if (content.truncated) {
     next = {
       ...next,
@@ -26,7 +26,7 @@ export function applyToolResultBudget(
   }
 
   if (result.error !== undefined) {
-    const error = truncateText(result.error, maxChars, 'Tool error');
+    const error = truncateText(result.error, maxChars, 'Tool error', result.errorArtifact?.artifactId);
     if (error.truncated) {
       next = {
         ...next,
@@ -52,16 +52,22 @@ function normalizeMaxChars(maxChars: number | null | undefined): number | null {
   return Math.floor(maxChars);
 }
 
+export function resolveToolResultMaxChars(options: ToolResultBudgetOptions = {}): number | null {
+  return normalizeMaxChars(options.maxChars);
+}
+
 function truncateText(
   text: string,
   maxChars: number,
   label: string,
+  artifactId?: string,
 ): { text: string; truncated: boolean; originalLength: number } {
   if (text.length <= maxChars) {
     return { text, truncated: false, originalLength: text.length };
   }
 
-  const marker = `\n\n[${label} truncated: original ${text.length} chars, budget ${maxChars} chars.]`;
+  const artifactSuffix = artifactId ? ` artifact=${artifactId}` : '';
+  const marker = `\n\n[${label} truncated: original=${text.length} budget=${maxChars}${artifactSuffix}]`;
   const previewLength = Math.max(0, maxChars - marker.length);
   const truncatedText = `${text.slice(0, previewLength)}${marker}`.slice(0, maxChars);
   return {

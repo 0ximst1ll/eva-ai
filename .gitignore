@@ -6,3 +6,4 @@ config/mcp.json
 workspace/
 .agent_memory.json
 .antigravitycli/
+.eva-ai/

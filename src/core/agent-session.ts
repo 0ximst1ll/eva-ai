@@ -1,5 +1,5 @@
 import type { LLMClient } from '../llm/llm-client.js';
-import type { AgentMessage, AgentSessionEvent, Message } from '../schema.js';
+import type { AgentMessage, AgentSessionEvent, Message, ToolExecutionResult } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { Agent } from './agent.js';
 import {
@@ -24,7 +24,11 @@ import {
   type SessionCompactionInfo,
   type SessionUsageInfo,
 } from './session-manager.js';
-import { formatToolResultMessageContent } from './tool-result-budget.js';
+import {
+  formatToolResultMessageContent,
+  resolveToolResultMaxChars,
+  type ToolResultBudgetOptions,
+} from './tool-result-budget.js';
 
 type AgentRunAttempt = {
   result: string;
@@ -74,6 +78,7 @@ export class AgentSession {
   private readonly contextManager?: ContextManager;
   private _systemPrompt: string;
   private readonly _maxSteps?: number | null;
+  private readonly toolResultBudget?: ToolResultBudgetOptions;
   readonly sessionId: string;
 
   apiTotalTokens = 0;
@@ -83,6 +88,7 @@ export class AgentSession {
     systemPrompt,
     tools,
     maxSteps,
+    toolResultBudget,
     toolExecution,
     contextBuilder,
     contextManager,
@@ -95,6 +101,7 @@ export class AgentSession {
     systemPrompt: string;
     tools: Tool[];
     maxSteps?: number | null;
+    toolResultBudget?: ToolResultBudgetOptions;
     toolExecution?: ToolExecutionMode;
     contextBuilder?: ContextBuilder;
     contextManager?: ContextManager;
@@ -110,16 +117,18 @@ export class AgentSession {
     this.sessionManager = sessionManager;
     this.contextManager = contextManager;
     this._maxSteps = maxSteps;
+    this.toolResultBudget = toolResultBudget;
     this.sessionId = sessionId;
     this.agent = new Agent({
       llmClient,
       systemPrompt,
       tools,
       maxSteps,
+      toolResultBudget,
       toolExecution,
       contextBuilder,
       beforeToolCall,
-      afterToolCall,
+      afterToolCall: this.createToolResultPersistenceHook(afterToolCall),
       messages: this.sessionManager.getMessages(sessionId),
     });
     this.apiTotalTokens = this.sessionManager.getUsageInfo(sessionId).total.total_tokens;
@@ -287,6 +296,50 @@ export class AgentSession {
     this.agent.apiTotalTokens = this.apiTotalTokens;
   }
 
+  private createToolResultPersistenceHook(
+    afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) =>
+      AfterToolCallResult | Promise<AfterToolCallResult | undefined> | undefined,
+  ): (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined> {
+    return async (context, signal) => {
+      const after = await afterToolCall?.(context, signal);
+      const mergedResult = after ? { ...context.result, ...after } : context.result;
+      const resultWithArtifacts = await this.persistLargeToolResult(mergedResult);
+
+      if (!after && resultWithArtifacts === context.result) return undefined;
+      return resultWithArtifacts;
+    };
+  }
+
+  private async persistLargeToolResult(result: ToolExecutionResult): Promise<ToolExecutionResult> {
+    const maxChars = resolveToolResultMaxChars(this.toolResultBudget);
+    if (maxChars === null) return result;
+
+    let next = result;
+    if (result.content.length > maxChars && !result.contentArtifact) {
+      const contentArtifact = await this.sessionManager.writeToolResultArtifact({
+        sessionId: this.sessionId,
+        toolCallId: result.toolCallId,
+        toolName: result.toolName,
+        kind: 'content',
+        content: result.content,
+      });
+      next = { ...next, contentArtifact };
+    }
+
+    if (result.error !== undefined && result.error.length > maxChars && !result.errorArtifact) {
+      const errorArtifact = await this.sessionManager.writeToolResultArtifact({
+        sessionId: this.sessionId,
+        toolCallId: result.toolCallId,
+        toolName: result.toolName,
+        kind: 'error',
+        content: result.error,
+      });
+      next = { ...next, errorArtifact };
+    }
+
+    return next;
+  }
+
   private async compactIfRecommended(): Promise<void> {
     if (!this.contextManager) return;
 
@@ -329,6 +382,7 @@ export class AgentSession {
         tool_call_id: event.result.toolCallId,
         name: event.result.toolName,
       });
+      await this.appendToolResultArtifactEntry(event.result);
       return;
     }
 
@@ -361,5 +415,21 @@ export class AgentSession {
       'message_end',
       'error',
     ].includes(event.type);
+  }
+
+  private async appendToolResultArtifactEntry(result: ToolExecutionResult): Promise<void> {
+    if (!result.contentArtifact && !result.errorArtifact) return;
+
+    await this.sessionManager.appendInternalEntry({
+      sessionId: this.sessionId,
+      kind: 'tool_result_artifact',
+      metadata: {
+        toolCallId: result.toolCallId,
+        toolName: result.toolName,
+        success: result.success,
+        contentArtifact: result.contentArtifact,
+        errorArtifact: result.errorArtifact,
+      },
+    });
   }
 }

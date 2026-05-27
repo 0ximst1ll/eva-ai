@@ -40,7 +40,10 @@ export interface AfterToolCallContext {
   messages: AgentMessage[];
 }
 
-export type AfterToolCallResult = Partial<Pick<ToolExecutionResult, 'success' | 'content' | 'error'>>;
+export type AfterToolCallResult = Partial<Pick<
+  ToolExecutionResult,
+  'success' | 'content' | 'error' | 'contentArtifact' | 'errorArtifact'
+>>;
 
 export type AgentLoopEvent =
   | { type: 'agent_start' }

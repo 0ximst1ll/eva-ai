@@ -12,6 +12,7 @@ import {
   runAgentLoop,
   type ToolExecutionMode,
 } from './agent-loop.js';
+import type { ToolResultBudgetOptions } from './tool-result-budget.js';
 
 type QueueMode = 'all' | 'one-at-a-time';
 
@@ -69,6 +70,7 @@ export interface AgentOptions {
   transformContext?: TransformContext;
   convertToLlm?: ConvertToLlm;
   maxSteps?: number | null;
+  toolResultBudget?: ToolResultBudgetOptions;
   steeringMode?: QueueMode;
   followUpMode?: QueueMode;
   toolExecution?: ToolExecutionMode;
@@ -86,6 +88,7 @@ export class Agent {
   private activeRun?: ActiveRun;
   private _state: AgentState;
   private maxSteps?: number | null;
+  private toolResultBudget?: ToolResultBudgetOptions;
   private toolExecution?: ToolExecutionMode;
   private contextBuilder?: ContextBuilder;
   private transformContext?: TransformContext;
@@ -98,6 +101,7 @@ export class Agent {
   constructor(options: AgentOptions) {
     this.llmClient = options.llmClient;
     this.maxSteps = options.maxSteps;
+    this.toolResultBudget = options.toolResultBudget;
     this.steeringQueue = new PendingMessageQueue(options.steeringMode ?? 'one-at-a-time');
     this.followUpQueue = new PendingMessageQueue(options.followUpMode ?? 'one-at-a-time');
     this.toolExecution = options.toolExecution;
@@ -153,6 +157,10 @@ export class Agent {
 
   setMaxSteps(maxSteps?: number | null): void {
     this.maxSteps = maxSteps;
+  }
+
+  setToolResultBudget(toolResultBudget: ToolResultBudgetOptions | undefined): void {
+    this.toolResultBudget = toolResultBudget;
   }
 
   subscribe(listener: (event: AgentLoopEvent, signal: AbortSignal) => void | Promise<void>): () => void {
@@ -239,6 +247,7 @@ export class Agent {
       llmClient: this.llmClient,
       tools: this._state.tools,
       maxSteps: this.maxSteps,
+      toolResultBudget: this.toolResultBudget,
       systemPrompt: this._state.systemPrompt,
       messages: this._state.messages,
       contextBuilder: this.contextBuilder,
