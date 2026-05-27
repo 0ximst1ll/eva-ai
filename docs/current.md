@@ -36,16 +36,17 @@
 - M5 Tool Result Budget 最小闭环已实现：tool result 在 agent-loop 统一写回边界应用默认字符预算，超预算结果会截断并携带原始长度/预算 metadata，进入下一次 provider request 和 session tool message 的内容保持一致。
 - M5 超大工具输出持久化引用最小闭环已实现：AgentSession 会在预算截断前把超大 tool content/error 写入 session sidecar artifact，tool result 和 durable internal entry 保存 artifact reference，provider request/session tool message 只保留 preview。
 - M5 Tool Execution Orchestration 最小闭环已实现：agent-loop 会把连续 read-only/concurrency-safe/read category tool calls 作为并发 batch 执行，write/bash/high-risk/unknown tool calls 保持串行，tool result 仍按模型 tool call 原始顺序写回。
+- M5 三模式 permission rule/mode 最小闭环已实现：`default` 允许 workspace 内读写和本地命令、workspace 外文件访问和疑似网络命令 ask；`read-only` 只允许只读工具；`full-access` 在 Eva 层 allow all，并可向 file tools 传递 outside-workspace 访问上下文。
 
 ## 进行中
 
-- M5 Tool / Permission Governance 已开始；下一步进入三模式 permission rule/mode 边界收敛：`default`、`read-only`、`full-access`。
+- M5 Tool / Permission Governance 已开始；当前三模式 permission rule/mode 已有最小闭环，后续继续补强权限诊断、sandbox policy integration 和工具执行治理。
 
 ## 下一步
 
 - 优先保持现有 session tree 行为稳定，不在当前阶段继续拆 `SessionRepo`。
-- 继续推进权限治理：`default` 允许 workspace 内读写和本地命令、workspace 外写入/网络访问 ask；`read-only` 只允许只读工具；`full-access` 在 Eva 层 allow all。
-- 收敛 headless/RPC 无确认通道时的 fail-closed / pending 表达。
+- 继续推进权限治理：补更细的网络/危险命令识别、sandbox policy integration 和 permission diagnostics 展示。
+- 收敛 headless/RPC 三模式参数表达，以及无确认通道时的 fail-closed / pending 用户可见行为。
 - 继续补强工具执行治理：abort 下的工具执行生命周期、tool operation injection 和更细的 tool execution diagnostics。
 - 后续再补 tool artifact lifecycle：list/read UI、import/export 关联、cleanup 和更完整 artifact repo。
 - branch summarization pipeline、更完整 tree navigation 交互保留为后续 Session / Recovery 增强项，不阻塞 M4 阶段完成。
@@ -66,5 +67,5 @@
 - RPC mode 仍是最小闭环，尚未支持完整 ACP 兼容层。
 - tool result budget 和超大输出 artifact reference 已有最小闭环，但尚未支持 artifact list/read UI、import/export 关联、cleanup 或工具结果 micro-compaction。
 - tool execution orchestration 已支持安全 read-only batch 并发和不安全工具串行，但尚未支持更完整的 operation injection 或工具执行耗时/队列 diagnostics。
-- 完整 permission pipeline 尚未实现；三模式策略尚未落地到 runtime/tool governance。
+- 三模式 permission rule/mode 已落地到 runtime/tool governance，但网络命令识别仍是最小启发式，尚未接入底层 sandbox policy。
 - TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。

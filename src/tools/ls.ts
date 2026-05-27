@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import type { Tool, ToolResult } from './base.js';
+import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
 import { resolveWorkspacePath } from './path-utils.js';
 
 const DEFAULT_IGNORES = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache']);
@@ -20,9 +20,11 @@ export class LsTool implements Tool<LsToolInput> {
 
   constructor(private readonly workspaceDir: string = '.') {}
 
-  async execute({ path: targetPath = '.' }: LsToolInput): Promise<ToolResult> {
+  async execute({ path: targetPath = '.' }: LsToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
     try {
-      const resolved = resolveWorkspacePath(this.workspaceDir, targetPath);
+      const resolved = resolveWorkspacePath(this.workspaceDir, targetPath, {
+        allowOutsideWorkspace: context?.allowOutsideWorkspace,
+      });
       if (!fs.existsSync(resolved)) return { success: false, content: '', error: `Path not found: ${targetPath}` };
       if (!fs.statSync(resolved).isDirectory()) return { success: false, content: '', error: `Not a directory: ${targetPath}` };
 

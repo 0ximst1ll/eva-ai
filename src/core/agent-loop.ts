@@ -2,7 +2,7 @@ import type { LLMClient } from '../llm/llm-client.js';
 import { formatProviderError } from '../llm/provider-errors.js';
 import { RetryExhaustedError } from '../retry.js';
 import type { AgentMessage, LLMResponse, LlmMessage, ToolCall, ToolExecutionResult } from '../schema.js';
-import type { Tool } from '../tools/base.js';
+import type { Tool, ToolExecutionContext } from '../tools/base.js';
 import {
   createInternalAgentMessage,
   defaultConvertToLlm,
@@ -34,6 +34,7 @@ export interface BeforeToolCallContext {
 export interface BeforeToolCallResult {
   block?: boolean;
   reason?: string;
+  toolExecutionContext?: Partial<ToolExecutionContext>;
 }
 
 export interface AfterToolCallContext {
@@ -207,7 +208,11 @@ async function executeToolCall(
       return result;
     }
 
-    const output = await tool.execute(args, { toolCallId, signal: config.signal });
+    const output = await tool.execute(args, {
+      ...before?.toolExecutionContext,
+      toolCallId,
+      signal: config.signal,
+    });
     let result: ToolExecutionResult = {
       toolCallId,
       toolName,

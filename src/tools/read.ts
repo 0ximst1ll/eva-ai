@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import type { Tool, ToolResult } from './base.js';
+import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
 import { resolveWorkspacePath } from './path-utils.js';
 import { truncateTextByTokens } from './truncate.js';
 
@@ -27,9 +27,11 @@ export class ReadTool implements Tool<ReadToolInput> {
 
   constructor(private readonly workspaceDir: string = '.') {}
 
-  async execute({ path: filePath, offset, limit }: ReadToolInput): Promise<ToolResult> {
+  async execute({ path: filePath, offset, limit }: ReadToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
     try {
-      const resolved = resolveWorkspacePath(this.workspaceDir, filePath);
+      const resolved = resolveWorkspacePath(this.workspaceDir, filePath, {
+        allowOutsideWorkspace: context?.allowOutsideWorkspace,
+      });
       if (!fs.existsSync(resolved)) return { success: false, content: '', error: `File not found: ${filePath}` };
 
       const lines = fs.readFileSync(resolved, 'utf-8').split('\n');

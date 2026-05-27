@@ -10,7 +10,7 @@
 
 ## Snapshot
 
-当前日期：2026-05-26
+当前日期：2026-05-27
 
 Eva AI 是一个 TypeScript CLI 编码 Agent Harness。当前核心架构围绕以下边界组织：
 
@@ -128,9 +128,11 @@ manual `/compact`、auto compaction、prompt-too-long compact-and-retry、post-c
 
 工具治理当前采用统一 decision 语义：`allow`、`deny`、`ask`。
 
-interactive mode 可以询问用户。无确认通道时默认 fail-closed，并可写入 durable `permission_pending` internal entry。RPC mode 已有 pending permission approval 最小闭环，可输出 pending event 并接受 approve/deny。
+当前 permission mode 包含 `default`、`read-only`、`full-access`。`default` 允许 workspace 内读写和本地命令，对 workspace 外文件访问和疑似网络命令请求权限；`read-only` 只允许只读工具；`full-access` 在 Eva 层放行工具调用，但仍受底层 sandbox 和系统权限限制。
 
-完整 permission modes、rule engine、classifier slot 和 sandbox policy integration 尚未完成。
+interactive/TUI mode 可以询问用户。无确认通道时默认 fail-closed，并可写入 durable `permission_pending` internal entry。RPC mode 已有 pending permission approval 最小闭环，可输出 pending event 并接受 approve/deny。
+
+完整 classifier slot、sandbox policy integration 和更细的网络/危险命令识别尚未完成。
 
 ## Resources / MCP / Skills / Extensions
 

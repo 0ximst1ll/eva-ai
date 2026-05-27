@@ -41,6 +41,7 @@ function createConfig({
       },
     },
     tools: {
+      permissionMode: 'default',
       enableFileTools: false,
       enableBash: false,
       enableSkills,

@@ -29,6 +29,7 @@ export interface ToolMetadata {
 export interface ToolExecutionContext {
   readonly toolCallId?: string;
   readonly signal?: AbortSignal;
+  readonly allowOutsideWorkspace?: boolean;
   readonly onUpdate?: (update: { content?: string; details?: Record<string, unknown> }) => void;
 }
 

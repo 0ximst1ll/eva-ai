@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Tool, ToolResult } from './base.js';
+import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
 import { resolveWorkspacePath } from './path-utils.js';
 
 const DEFAULT_IGNORES = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache']);
@@ -48,9 +48,14 @@ export class FindTool implements Tool<FindToolInput> {
 
   constructor(private readonly workspaceDir: string = '.') {}
 
-  async execute({ pattern, path: targetPath = '.', max_results = MAX_RESULTS }: FindToolInput): Promise<ToolResult> {
+  async execute(
+    { pattern, path: targetPath = '.', max_results = MAX_RESULTS }: FindToolInput,
+    context?: ToolExecutionContext,
+  ): Promise<ToolResult> {
     try {
-      const resolved = resolveWorkspacePath(this.workspaceDir, targetPath);
+      const resolved = resolveWorkspacePath(this.workspaceDir, targetPath, {
+        allowOutsideWorkspace: context?.allowOutsideWorkspace,
+      });
       const limit = Math.max(1, Math.min(Number(max_results) || MAX_RESULTS, 1000));
       let matcher: (file: string) => boolean;
       try {

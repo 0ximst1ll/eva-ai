@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import type { Tool, ToolResult } from './base.js';
+import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
 import { fileMutationQueue } from './file-mutation-queue.js';
 import { resolveWorkspacePath } from './path-utils.js';
 
@@ -25,9 +25,11 @@ export class EditTool implements Tool<EditToolInput> {
 
   constructor(private readonly workspaceDir: string = '.') {}
 
-  async execute({ path: filePath, old_str, new_str }: EditToolInput): Promise<ToolResult> {
+  async execute({ path: filePath, old_str, new_str }: EditToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
     try {
-      const resolved = resolveWorkspacePath(this.workspaceDir, filePath);
+      const resolved = resolveWorkspacePath(this.workspaceDir, filePath, {
+        allowOutsideWorkspace: context?.allowOutsideWorkspace,
+      });
       return await fileMutationQueue.run(resolved, async () => {
         if (!fs.existsSync(resolved)) return { success: false, content: '', error: `File not found: ${filePath}` };
 

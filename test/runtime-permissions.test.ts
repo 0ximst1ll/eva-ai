@@ -1,16 +1,22 @@
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import test from 'node:test';
 import {
   createToolGovernanceHook,
   normalizeToolPermissionDecision,
+  resolveToolPermission,
   type CreateRuntimeOptions,
+  type PermissionMode,
 } from '../src/core/runtime.js';
 import type { ConfigData } from '../src/config.js';
 import type { BeforeToolCallContext } from '../src/core/agent-loop.js';
 import { SessionManager } from '../src/core/session-manager.js';
 import type { Tool } from '../src/tools/base.js';
+import { WriteTool } from '../src/tools/write.js';
 
-const confirmingTool: Tool = {
+const writeTool: Tool = {
   name: 'write_file',
   description: 'Write file',
   parameters: { type: 'object' },
@@ -27,8 +33,8 @@ const confirmingTool: Tool = {
   },
 };
 
-const lowRiskTool: Tool = {
-  ...confirmingTool,
+const readTool: Tool = {
+  ...writeTool,
   name: 'read_file',
   metadata: {
     category: 'read',
@@ -39,26 +45,40 @@ const lowRiskTool: Tool = {
   },
 };
 
-function createConfig(requireConfirmation = true): ConfigData {
+const bashTool: Tool = {
+  ...writeTool,
+  name: 'bash',
+  metadata: {
+    category: 'bash',
+    riskLevel: 'high',
+    source: 'builtin',
+    isReadOnly: false,
+    isConcurrencySafe: false,
+    requiresConfirmation: true,
+  },
+};
+
+function createConfig(permissionMode: PermissionMode = 'default'): ConfigData {
   return {
     tools: {
-      requireConfirmation,
+      permissionMode,
+      requireConfirmation: true,
       confirmRiskLevels: ['high'],
     },
   } as ConfigData;
 }
 
-function createContext(tool: Tool): BeforeToolCallContext {
+function createContext(tool: Tool, args: Record<string, unknown> = { path: 'file.txt' }): BeforeToolCallContext {
   return {
     tool,
-    args: { path: 'file.txt' },
+    args,
     messages: [],
     toolCall: {
       id: 'call-1',
       type: 'function',
       function: {
         name: tool.name,
-        arguments: { path: 'file.txt' },
+        arguments: args,
       },
     },
   };
@@ -79,13 +99,77 @@ test('normalizeToolPermissionDecision keeps boolean confirmation handlers compat
   assert.equal(normalizeToolPermissionDecision('ask'), 'ask');
 });
 
-test('tool governance allows explicitly approved tool calls', async () => {
+test('permission rule allows workspace writes in default mode', () => {
+  const result = resolveToolPermission({
+    context: createContext(writeTool, { path: 'file.txt' }),
+    mode: 'default',
+    workspaceDir: '/workspace',
+  });
+
+  assert.equal(result.decision, 'allow');
+});
+
+test('permission rule asks for outside-workspace file access in default mode', () => {
+  const result = resolveToolPermission({
+    context: createContext(writeTool, { path: '../outside.txt' }),
+    mode: 'default',
+    workspaceDir: '/workspace',
+  });
+
+  assert.equal(result.decision, 'ask');
+  assert.equal(result.toolExecutionContext?.allowOutsideWorkspace, true);
+  assert.match(result.reason ?? '', /outside workspace/);
+});
+
+test('permission rule asks for likely network bash commands in default mode', () => {
+  const result = resolveToolPermission({
+    context: createContext(bashTool, { command: 'curl https://example.com' }),
+    mode: 'default',
+    workspaceDir: '/workspace',
+  });
+
+  assert.equal(result.decision, 'ask');
+  assert.match(result.reason ?? '', /network/);
+});
+
+test('permission rule denies writes in read-only mode', () => {
+  const result = resolveToolPermission({
+    context: createContext(writeTool, { path: 'file.txt' }),
+    mode: 'read-only',
+    workspaceDir: '/workspace',
+  });
+
+  assert.equal(result.decision, 'deny');
+});
+
+test('permission rule allows read-only tools in read-only mode', () => {
+  const result = resolveToolPermission({
+    context: createContext(readTool, { path: 'file.txt' }),
+    mode: 'read-only',
+    workspaceDir: '/workspace',
+  });
+
+  assert.equal(result.decision, 'allow');
+});
+
+test('permission rule allows all Eva-level tool calls in full-access mode', () => {
+  const result = resolveToolPermission({
+    context: createContext(writeTool, { path: '../outside.txt' }),
+    mode: 'full-access',
+    workspaceDir: '/workspace',
+  });
+
+  assert.equal(result.decision, 'allow');
+  assert.equal(result.toolExecutionContext?.allowOutsideWorkspace, true);
+});
+
+test('tool governance allows default workspace writes without confirmation', async () => {
   const hook = createToolGovernanceHook(
     createConfig(),
-    createOptions(() => 'allow'),
+    createOptions(() => 'deny'),
   );
 
-  assert.equal(await hook(createContext(confirmingTool)), undefined);
+  assert.equal(await hook(createContext(writeTool, { path: 'file.txt' })), undefined);
 });
 
 test('tool governance fails closed for pending permissions', async () => {
@@ -94,10 +178,10 @@ test('tool governance fails closed for pending permissions', async () => {
     createOptions(() => 'ask'),
   );
 
-  const result = await hook(createContext(confirmingTool));
+  const result = await hook(createContext(writeTool, { path: '../outside.txt' }));
 
   assert.equal(result?.block, true);
-  assert.match(result?.reason ?? '', /Tool permission pending/);
+  assert.match(result?.reason ?? '', /approval required/);
 });
 
 test('tool governance records pending permissions as durable internal entries', async () => {
@@ -109,7 +193,7 @@ test('tool governance records pending permissions as durable internal entries', 
     { sessionManager, sessionId },
   );
 
-  const result = await hook(createContext(confirmingTool));
+  const result = await hook(createContext(writeTool, { path: '../outside.txt' }));
 
   assert.equal(result?.block, true);
   const entries = sessionManager.getInternalEntries(sessionId, 'permission_pending');
@@ -123,7 +207,7 @@ test('tool governance records pending permissions as durable internal entries', 
 test('tool governance fails closed when no confirmation handler is available', async () => {
   const hook = createToolGovernanceHook(createConfig(), createOptions());
 
-  const result = await hook(createContext(confirmingTool));
+  const result = await hook(createContext(writeTool, { path: '../outside.txt' }));
 
   assert.equal(result?.block, true);
   assert.match(result?.reason ?? '', /no confirmation handler/);
@@ -138,10 +222,22 @@ test('tool governance records missing confirmation handlers as pending permissio
     { sessionManager, sessionId },
   );
 
-  const result = await hook(createContext(confirmingTool));
+  const result = await hook(createContext(writeTool, { path: '../outside.txt' }));
 
   assert.equal(result?.block, true);
   assert.equal(sessionManager.getInternalEntries(sessionId, 'permission_pending').length, 1);
+});
+
+test('tool governance passes outside-workspace execution context after approval', async () => {
+  const hook = createToolGovernanceHook(
+    createConfig(),
+    createOptions(() => 'allow'),
+  );
+
+  const result = await hook(createContext(writeTool, { path: '../outside.txt' }));
+
+  assert.equal(result?.block, undefined);
+  assert.equal(result?.toolExecutionContext?.allowOutsideWorkspace, true);
 });
 
 test('tool governance denies rejected tool calls', async () => {
@@ -150,17 +246,51 @@ test('tool governance denies rejected tool calls', async () => {
     createOptions(() => false),
   );
 
-  const result = await hook(createContext(confirmingTool));
+  const result = await hook(createContext(writeTool, { path: '../outside.txt' }));
 
   assert.equal(result?.block, true);
   assert.match(result?.reason ?? '', /Tool execution denied/);
 });
 
-test('tool governance skips tools that do not require confirmation', async () => {
+test('tool governance blocks writes in read-only mode', async () => {
   const hook = createToolGovernanceHook(
-    createConfig(),
-    createOptions(() => 'ask'),
+    createConfig('read-only'),
+    createOptions(() => 'allow'),
   );
 
-  assert.equal(await hook(createContext(lowRiskTool)), undefined);
+  const result = await hook(createContext(writeTool, { path: 'file.txt' }));
+
+  assert.equal(result?.block, true);
+  assert.match(result?.reason ?? '', /read-only permission mode/);
+});
+
+test('tool governance allows all tools in full-access mode', async () => {
+  const hook = createToolGovernanceHook(
+    createConfig('full-access'),
+    createOptions(() => 'deny'),
+  );
+
+  const result = await hook(createContext(writeTool, { path: '../outside.txt' }));
+
+  assert.equal(result?.block, undefined);
+  assert.equal(result?.toolExecutionContext?.allowOutsideWorkspace, true);
+});
+
+test('file tools require execution context to access outside-workspace paths', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-permission-tools-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  await fs.mkdir(workspaceDir);
+  const outsidePath = path.join(tempDir, 'outside.txt');
+  const tool = new WriteTool(workspaceDir);
+
+  const blocked = await tool.execute({ path: '../outside.txt', content: 'blocked' });
+  assert.equal(blocked.success, false);
+  assert.match(blocked.error ?? '', /Path escapes workspace/);
+
+  const allowed = await tool.execute(
+    { path: '../outside.txt', content: 'allowed' },
+    { allowOutsideWorkspace: true },
+  );
+  assert.equal(allowed.success, true);
+  assert.equal(await fs.readFile(outsidePath, 'utf-8'), 'allowed');
 });

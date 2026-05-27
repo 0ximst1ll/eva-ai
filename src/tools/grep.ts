@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Tool, ToolResult } from './base.js';
+import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
 import { resolveWorkspacePath } from './path-utils.js';
 
 const DEFAULT_IGNORES = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache']);
@@ -50,9 +50,14 @@ export class GrepTool implements Tool<GrepToolInput> {
 
   constructor(private readonly workspaceDir: string = '.') {}
 
-  async execute({ pattern, path: targetPath = '.', max_results = MAX_RESULTS, case_sensitive = true }: GrepToolInput): Promise<ToolResult> {
+  async execute(
+    { pattern, path: targetPath = '.', max_results = MAX_RESULTS, case_sensitive = true }: GrepToolInput,
+    context?: ToolExecutionContext,
+  ): Promise<ToolResult> {
     try {
-      const resolved = resolveWorkspacePath(this.workspaceDir, targetPath);
+      const resolved = resolveWorkspacePath(this.workspaceDir, targetPath, {
+        allowOutsideWorkspace: context?.allowOutsideWorkspace,
+      });
       const limit = Math.max(1, Math.min(Number(max_results) || MAX_RESULTS, 1000));
       const stat = fs.statSync(resolved);
       const files = stat.isDirectory() ? walkFiles(resolved) : [resolved];

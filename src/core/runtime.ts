@@ -2,8 +2,9 @@ import { createDiagnostic, type RuntimeDiagnostic } from '../diagnostics.js';
 import type { ConfigData } from '../config.js';
 import { LLMClient } from '../llm/llm-client.js';
 import { RetryConfig } from '../retry.js';
-import type { Tool, ToolMetadata } from '../tools/base.js';
+import type { Tool, ToolExecutionContext, ToolMetadata } from '../tools/base.js';
 import type { ToolRegistry } from '../tools/index.js';
+import { isWorkspacePath } from '../tools/path-utils.js';
 import { AgentSession } from './agent-session.js';
 import type { BeforeToolCallContext } from './agent-loop.js';
 import { SessionManager } from './session-manager.js';
@@ -33,6 +34,13 @@ export interface ToolConfirmationRequest {
 
 export type ToolPermissionDecision = 'allow' | 'deny' | 'ask';
 export type ToolPermissionHandlerResult = ToolPermissionDecision | boolean;
+export type PermissionMode = 'default' | 'read-only' | 'full-access';
+
+export interface ToolPermissionRuleResult {
+  decision: ToolPermissionDecision;
+  reason?: string;
+  toolExecutionContext?: Partial<ToolExecutionContext>;
+}
 
 interface ToolGovernanceSessionContext {
   sessionManager: SessionManager;
@@ -44,6 +52,7 @@ export interface CreateRuntimeOptions extends CreateRuntimeServicesOptions {
   sessionId?: string;
   createSessionIfMissing?: boolean;
   maxSteps?: number | null;
+  permissionMode?: PermissionMode;
   confirmToolCall?: (request: ToolConfirmationRequest) =>
     ToolPermissionHandlerResult | Promise<ToolPermissionHandlerResult>;
 }
@@ -77,26 +86,96 @@ export class RuntimeSessionNotFoundError extends Error {
   }
 }
 
-function shouldConfirmTool(metadata: ToolMetadata, config: ConfigData): boolean {
-  if (!config.tools.requireConfirmation) return false;
-  if (metadata.requiresConfirmation) return true;
-  return config.tools.confirmRiskLevels.includes(metadata.riskLevel);
-}
-
 export function normalizeToolPermissionDecision(result: ToolPermissionHandlerResult): ToolPermissionDecision {
   if (result === true) return 'allow';
   if (result === false) return 'deny';
   return result;
 }
 
+export function resolveToolPermission({
+  context,
+  mode,
+  workspaceDir,
+}: {
+  context: BeforeToolCallContext & { tool?: Tool & { metadata?: ToolMetadata } };
+  mode: PermissionMode;
+  workspaceDir: string;
+}): ToolPermissionRuleResult {
+  const metadata = context.tool?.metadata;
+  if (mode === 'full-access') {
+    return { decision: 'allow', toolExecutionContext: { allowOutsideWorkspace: true } };
+  }
+
+  if (!metadata) {
+    return {
+      decision: mode === 'read-only' ? 'deny' : 'ask',
+      reason: `Tool permission ${mode === 'read-only' ? 'denied' : 'required'}: missing metadata for `
+        + context.toolCall.function.name,
+    };
+  }
+
+  if (mode === 'read-only') {
+    if (metadata.isReadOnly) return { decision: 'allow' };
+    return {
+      decision: 'deny',
+      reason: `Tool execution denied by read-only permission mode: ${context.tool?.name ?? context.toolCall.function.name}`,
+    };
+  }
+
+  const fileAccess = getFileAccess(context.args);
+  if (fileAccess && !fileAccess.isInsideWorkspace) {
+    return {
+      decision: 'ask',
+      reason: `Tool permission required: ${context.tool?.name ?? context.toolCall.function.name} targets `
+        + `outside workspace (${fileAccess.targetPath})`,
+      toolExecutionContext: { allowOutsideWorkspace: true },
+    };
+  }
+
+  if (metadata.category === 'mcp' || metadata.source === 'mcp') {
+    return {
+      decision: 'ask',
+      reason: `Tool permission required: ${context.tool?.name ?? context.toolCall.function.name} may access external resources`,
+    };
+  }
+
+  if (metadata.category === 'bash' && isLikelyNetworkCommand(context.args)) {
+    return {
+      decision: 'ask',
+      reason: `Tool permission required: bash command may access the network`,
+    };
+  }
+
+  return { decision: 'allow' };
+
+  function getFileAccess(args: Record<string, unknown>): { targetPath: string; isInsideWorkspace: boolean } | null {
+    const targetPath = args['path'];
+    if (typeof targetPath !== 'string' || !targetPath.trim()) return null;
+    return {
+      targetPath,
+      isInsideWorkspace: isWorkspacePath(workspaceDir, targetPath),
+    };
+  }
+}
+
+function isLikelyNetworkCommand(args: Record<string, unknown>): boolean {
+  const command = args['command'];
+  if (typeof command !== 'string') return false;
+
+  return /\b(curl|wget|ssh|scp|rsync|git\s+(clone|pull|fetch|push)|npm\s+(install|i|add)|pnpm\s+(install|add)|yarn\s+(install|add)|pip\s+install|uv\s+(pip\s+)?install|cargo\s+install|go\s+(get|install)|docker\s+(pull|push|build)|kubectl|helm)\b/i
+    .test(command);
+}
+
 async function appendPermissionPendingEntry({
   context,
   reason,
   sessionContext,
+  mode,
 }: {
   context: BeforeToolCallContext & { tool: Tool & { metadata: ToolMetadata } };
   reason: string;
   sessionContext?: ToolGovernanceSessionContext;
+  mode?: PermissionMode;
 }): Promise<void> {
   if (!sessionContext) return;
 
@@ -113,6 +192,7 @@ async function appendPermissionPendingEntry({
         category: context.tool.metadata.category,
         isReadOnly: context.tool.metadata.isReadOnly,
         requiresConfirmation: context.tool.metadata.requiresConfirmation ?? false,
+        permissionMode: mode,
       },
     });
   } catch {
@@ -126,19 +206,34 @@ export function createToolGovernanceHook(
   sessionContext?: ToolGovernanceSessionContext,
 ) {
   return async (context: BeforeToolCallContext) => {
-    if (!context.tool?.metadata) return undefined;
+    const mode = options.permissionMode ?? config.tools.permissionMode ?? 'default';
+    const result = resolveToolPermission({
+      context,
+      mode,
+      workspaceDir: options.workspaceDir,
+    });
+    if (result.decision === 'allow') {
+      return result.toolExecutionContext ? { toolExecutionContext: result.toolExecutionContext } : undefined;
+    }
 
-    const governedContext = context as BeforeToolCallContext & { tool: Tool & { metadata: ToolMetadata } };
-    const metadata = context.tool.metadata;
-    if (!shouldConfirmTool(metadata, config)) return undefined;
-
-    if (!options.confirmToolCall) {
-      const reason = 'Tool permission pending: confirmation required but no confirmation handler is available for '
-        + context.tool.name;
-      await appendPermissionPendingEntry({ context: governedContext, reason, sessionContext });
+    if (result.decision === 'deny') {
       return {
         block: true,
-        reason,
+        reason: result.reason ?? 'Tool execution denied',
+      };
+    }
+
+    const governedContext = context as BeforeToolCallContext & { tool: Tool & { metadata: ToolMetadata } };
+    const reason = result.reason ?? 'Tool permission required: ' + context.toolCall.function.name;
+    if (!context.tool?.metadata || !options.confirmToolCall) {
+      if (context.tool?.metadata) {
+        await appendPermissionPendingEntry({ context: governedContext, reason, sessionContext, mode });
+      }
+      return {
+        block: true,
+        reason: !options.confirmToolCall
+          ? `${reason}; no confirmation handler is available`
+          : reason,
       };
     }
 
@@ -147,17 +242,16 @@ export function createToolGovernanceHook(
         toolCall: context.toolCall,
         tool: context.tool,
         args: context.args,
-        metadata,
+        metadata: context.tool.metadata,
       }),
     );
 
     if (decision === 'ask') {
-      const reason = 'Tool permission pending: approval required but current mode cannot request it for '
-        + context.tool.name;
-      await appendPermissionPendingEntry({ context: governedContext, reason, sessionContext });
+      const pendingReason = `${reason}; approval required but current mode cannot request it`;
+      await appendPermissionPendingEntry({ context: governedContext, reason: pendingReason, sessionContext, mode });
       return {
         block: true,
-        reason,
+        reason: pendingReason,
       };
     }
 
@@ -168,7 +262,7 @@ export function createToolGovernanceHook(
       };
     }
 
-    return undefined;
+    return result.toolExecutionContext ? { toolExecutionContext: result.toolExecutionContext } : undefined;
   };
 }
 

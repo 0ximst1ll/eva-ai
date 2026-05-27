@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Tool, ToolResult } from './base.js';
+import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
 import { fileMutationQueue } from './file-mutation-queue.js';
 import { resolveWorkspacePath } from './path-utils.js';
 
@@ -24,9 +24,11 @@ export class WriteTool implements Tool<WriteToolInput> {
 
   constructor(private readonly workspaceDir: string = '.') {}
 
-  async execute({ path: filePath, content }: WriteToolInput): Promise<ToolResult> {
+  async execute({ path: filePath, content }: WriteToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
     try {
-      const resolved = resolveWorkspacePath(this.workspaceDir, filePath);
+      const resolved = resolveWorkspacePath(this.workspaceDir, filePath, {
+        allowOutsideWorkspace: context?.allowOutsideWorkspace,
+      });
       return await fileMutationQueue.run(resolved, async () => {
         fs.mkdirSync(path.dirname(resolved), { recursive: true });
         fs.writeFileSync(resolved, content, 'utf-8');
