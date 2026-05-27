@@ -39,12 +39,13 @@
 
 ## 进行中
 
-- M5 Tool / Permission Governance 已开始；下一步进入 permission rule/mode 边界收敛。
+- M5 Tool / Permission Governance 已开始；下一步进入三模式 permission rule/mode 边界收敛：`default`、`read-only`、`full-access`。
 
 ## 下一步
 
 - 优先保持现有 session tree 行为稳定，不在当前阶段继续拆 `SessionRepo`。
-- 继续推进权限治理：permission rule engine、permission mode 和 headless/RPC fail-closed 策略收敛。
+- 继续推进权限治理：`default` 允许 workspace 内读写和本地命令、workspace 外写入/网络访问 ask；`read-only` 只允许只读工具；`full-access` 在 Eva 层 allow all。
+- 收敛 headless/RPC 无确认通道时的 fail-closed / pending 表达。
 - 继续补强工具执行治理：abort 下的工具执行生命周期、tool operation injection 和更细的 tool execution diagnostics。
 - 后续再补 tool artifact lifecycle：list/read UI、import/export 关联、cleanup 和更完整 artifact repo。
 - branch summarization pipeline、更完整 tree navigation 交互保留为后续 Session / Recovery 增强项，不阻塞 M4 阶段完成。
@@ -65,5 +66,5 @@
 - RPC mode 仍是最小闭环，尚未支持完整 ACP 兼容层。
 - tool result budget 和超大输出 artifact reference 已有最小闭环，但尚未支持 artifact list/read UI、import/export 关联、cleanup 或工具结果 micro-compaction。
 - tool execution orchestration 已支持安全 read-only batch 并发和不安全工具串行，但尚未支持更完整的 operation injection 或工具执行耗时/队列 diagnostics。
-- 完整 permission pipeline 尚未实现。
+- 完整 permission pipeline 尚未实现；三模式策略尚未落地到 runtime/tool governance。
 - TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。

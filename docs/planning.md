@@ -118,8 +118,11 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 长期边界：
 
 - permission decision：`allow`、`deny`、`ask`。
-- permission modes：default、plan、accept-edits、bypass、dont-ask。
-- interactive 可询问用户；headless/RPC 无确认通道时 fail-closed。
+- permission modes：`default`、`read-only`、`full-access`。
+- `default`：允许读取/编辑当前 workspace 文件和执行本地命令；编辑 workspace 外文件或访问网络时请求权限。
+- `read-only`：只允许读取文件和只读工具；写文件、状态修改、网络访问和非只读命令默认拒绝。
+- `full-access`：Eva 层不再请求权限，允许 workspace 外文件编辑和网络访问，但仍受底层 sandbox、操作系统和用户环境限制。
+- interactive/TUI 可询问用户；headless/RPC 无确认通道时按当前 mode fail-closed 或输出 pending。
 - classifier slot 只预留，不在基础规则成熟前自动审批。
 
 里程碑：
