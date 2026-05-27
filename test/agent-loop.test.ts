@@ -32,6 +32,24 @@ class ScriptedLLM {
   }
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+async function waitForCondition(predicate: () => boolean, timeoutMs = 100): Promise<void> {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error('Timed out waiting for condition');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+}
+
 test('runAgentLoop continues after tool calls and preserves tool result order', async () => {
   const llm = new ScriptedLLM([
     {
@@ -132,6 +150,133 @@ test('runAgentLoop applies tool result budget before the next provider request',
   assert.equal(
     result.messages.find((message) => message.role === 'tool')?.content,
     toolMessage?.content,
+  );
+});
+
+test('runAgentLoop runs safe read-only tool calls in parallel and preserves result order', async () => {
+  const first = createDeferred<string>();
+  const second = createDeferred<string>();
+  const starts: string[] = [];
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-first', 'read_first'), toolCall('call-second', 'read_second')],
+    },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const createReadTool = (name: string, deferred: ReturnType<typeof createDeferred<string>>): Tool => ({
+    name,
+    description: `Read ${name}`,
+    parameters: { type: 'object' },
+    metadata: {
+      category: 'read',
+      riskLevel: 'low',
+      source: 'builtin',
+      isReadOnly: true,
+      isConcurrencySafe: true,
+    },
+    async execute() {
+      starts.push(name);
+      return { success: true, content: await deferred.promise };
+    },
+  });
+  const events: AgentLoopEvent[] = [];
+
+  const run = runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [createReadTool('read_first', first), createReadTool('read_second', second)],
+    maxSteps: 3,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+    emit: (event) => {
+      events.push(event);
+    },
+  });
+
+  await waitForCondition(() => starts.length === 2);
+  second.resolve('second-result');
+  first.resolve('first-result');
+  const result = await run;
+
+  assert.equal(result.finalContent, 'done');
+  assert.deepEqual(starts, ['read_first', 'read_second']);
+  assert.deepEqual(
+    events.filter((event) => event.type === 'tool_result').map((event) => event.result.toolCallId),
+    ['call-first', 'call-second'],
+  );
+  assert.deepEqual(
+    llm.calls[1]?.slice(-2).map((message) => message.content),
+    ['first-result', 'second-result'],
+  );
+});
+
+test('runAgentLoop keeps unsafe tool calls serial even when parallel mode is enabled', async () => {
+  const write = createDeferred<string>();
+  const read = createDeferred<string>();
+  const starts: string[] = [];
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-write', 'write_file'), toolCall('call-read', 'read_file')],
+    },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const writeTool: Tool = {
+    name: 'write_file',
+    description: 'Write file',
+    parameters: { type: 'object' },
+    metadata: {
+      category: 'write',
+      riskLevel: 'high',
+      source: 'builtin',
+      isReadOnly: false,
+      isConcurrencySafe: false,
+    },
+    async execute() {
+      starts.push('write_file');
+      return { success: true, content: await write.promise };
+    },
+  };
+  const readTool: Tool = {
+    name: 'read_file',
+    description: 'Read file',
+    parameters: { type: 'object' },
+    metadata: {
+      category: 'read',
+      riskLevel: 'low',
+      source: 'builtin',
+      isReadOnly: true,
+      isConcurrencySafe: true,
+    },
+    async execute() {
+      starts.push('read_file');
+      return { success: true, content: await read.promise };
+    },
+  };
+
+  const run = runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [writeTool, readTool],
+    maxSteps: 3,
+    toolExecution: 'parallel',
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+  });
+
+  await waitForCondition(() => starts.length === 1);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(starts, ['write_file']);
+
+  write.resolve('write-result');
+  await waitForCondition(() => starts.length === 2);
+  read.resolve('read-result');
+  const result = await run;
+
+  assert.equal(result.finalContent, 'done');
+  assert.deepEqual(starts, ['write_file', 'read_file']);
+  assert.deepEqual(
+    llm.calls[1]?.slice(-2).map((message) => message.content),
+    ['write-result', 'read-result'],
   );
 });
 

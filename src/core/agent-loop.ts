@@ -19,6 +19,10 @@ import {
 } from './tool-result-budget.js';
 
 export type ToolExecutionMode = 'parallel' | 'sequential';
+type ToolExecutionBatch = {
+  mode: ToolExecutionMode;
+  toolCalls: ToolCall[];
+};
 
 export interface BeforeToolCallContext {
   toolCall: ToolCall;
@@ -235,13 +239,47 @@ async function executeToolCall(
   }
 }
 
-function shouldRunSequential(toolCalls: ToolCall[], toolMap: Map<string, Tool>, mode?: ToolExecutionMode): boolean {
-  if (mode === 'sequential') return true;
-  if (mode === 'parallel') return false;
-  return toolCalls.some((toolCall) => {
-    const tool = toolMap.get(toolCall.function.name);
-    return tool?.metadata?.isConcurrencySafe === false;
-  });
+function canRunToolCallInParallel(toolCall: ToolCall, toolMap: Map<string, Tool>): boolean {
+  const tool = toolMap.get(toolCall.function.name);
+  const metadata = tool?.metadata;
+  if (!metadata) return false;
+
+  return metadata.category === 'read'
+    && metadata.riskLevel !== 'high'
+    && metadata.isReadOnly
+    && metadata.isConcurrencySafe;
+}
+
+function createToolExecutionBatches(
+  toolCalls: ToolCall[],
+  toolMap: Map<string, Tool>,
+  mode?: ToolExecutionMode,
+): ToolExecutionBatch[] {
+  if (mode === 'sequential') {
+    return [{ mode: 'sequential', toolCalls }];
+  }
+
+  const batches: ToolExecutionBatch[] = [];
+  let parallelBatch: ToolCall[] = [];
+
+  const flushParallelBatch = () => {
+    if (parallelBatch.length === 0) return;
+    batches.push({ mode: 'parallel', toolCalls: parallelBatch });
+    parallelBatch = [];
+  };
+
+  for (const toolCall of toolCalls) {
+    if (canRunToolCallInParallel(toolCall, toolMap)) {
+      parallelBatch.push(toolCall);
+      continue;
+    }
+
+    flushParallelBatch();
+    batches.push({ mode: 'sequential', toolCalls: [toolCall] });
+  }
+
+  flushParallelBatch();
+  return batches;
 }
 
 async function executeToolCalls(
@@ -250,15 +288,23 @@ async function executeToolCalls(
   messages: AgentMessage[],
   config: AgentLoopConfig,
 ): Promise<ToolExecutionResult[]> {
-  if (shouldRunSequential(toolCalls, toolMap, config.toolExecution)) {
-    const results: ToolExecutionResult[] = [];
-    for (const toolCall of toolCalls) {
+  const results: ToolExecutionResult[] = [];
+  const batches = createToolExecutionBatches(toolCalls, toolMap, config.toolExecution);
+
+  for (const batch of batches) {
+    if (batch.mode === 'parallel') {
+      results.push(...(await Promise.all(
+        batch.toolCalls.map((toolCall) => executeToolCall(toolCall, toolMap, messages, config)),
+      )));
+      continue;
+    }
+
+    for (const toolCall of batch.toolCalls) {
       results.push(await executeToolCall(toolCall, toolMap, messages, config));
     }
-    return results;
   }
 
-  return Promise.all(toolCalls.map((toolCall) => executeToolCall(toolCall, toolMap, messages, config)));
+  return results;
 }
 
 async function appendInputMessages(

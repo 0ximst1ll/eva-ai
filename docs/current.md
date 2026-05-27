@@ -35,16 +35,17 @@
 - interactive/TUI slash command 已支持 `/fork [id] [--entry <entryId>]`、`/clone [id] [--entry <entryId>]`、`/branch <entryId>`、`/entries`、`/path`、`/sessions`、`/parent`、`/children`、`/child [id]`、`/export [path]`、`/import <path>`。
 - M5 Tool Result Budget 最小闭环已实现：tool result 在 agent-loop 统一写回边界应用默认字符预算，超预算结果会截断并携带原始长度/预算 metadata，进入下一次 provider request 和 session tool message 的内容保持一致。
 - M5 超大工具输出持久化引用最小闭环已实现：AgentSession 会在预算截断前把超大 tool content/error 写入 session sidecar artifact，tool result 和 durable internal entry 保存 artifact reference，provider request/session tool message 只保留 preview。
+- M5 Tool Execution Orchestration 最小闭环已实现：agent-loop 会把连续 read-only/concurrency-safe/read category tool calls 作为并发 batch 执行，write/bash/high-risk/unknown tool calls 保持串行，tool result 仍按模型 tool call 原始顺序写回。
 
 ## 进行中
 
-- M5 Tool / Permission Governance 已开始；当前阶段继续收敛工具执行编排和权限 rule/mode 边界。
+- M5 Tool / Permission Governance 已开始；下一步进入 permission rule/mode 边界收敛。
 
 ## 下一步
 
 - 优先保持现有 session tree 行为稳定，不在当前阶段继续拆 `SessionRepo`。
-- 继续推进工具执行编排：read-only 并发、write/bash 串行和 tool result ordering。
 - 继续推进权限治理：permission rule engine、permission mode 和 headless/RPC fail-closed 策略收敛。
+- 继续补强工具执行治理：abort 下的工具执行生命周期、tool operation injection 和更细的 tool execution diagnostics。
 - 后续再补 tool artifact lifecycle：list/read UI、import/export 关联、cleanup 和更完整 artifact repo。
 - branch summarization pipeline、更完整 tree navigation 交互保留为后续 Session / Recovery 增强项，不阻塞 M4 阶段完成。
 - import/export lifecycle 目前保留在 `SessionManager` facade 中，等出现 schema migration、sidecar store 或 repo-level delete/list 需求时再拆。
@@ -63,5 +64,6 @@
 - 当前 `max_steps` 字段名仍偏模糊，后续应迁移为 `max_steps_per_run` 或同类命名。
 - RPC mode 仍是最小闭环，尚未支持完整 ACP 兼容层。
 - tool result budget 和超大输出 artifact reference 已有最小闭环，但尚未支持 artifact list/read UI、import/export 关联、cleanup 或工具结果 micro-compaction。
+- tool execution orchestration 已支持安全 read-only batch 并发和不安全工具串行，但尚未支持更完整的 operation injection 或工具执行耗时/队列 diagnostics。
 - 完整 permission pipeline 尚未实现。
 - TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。
