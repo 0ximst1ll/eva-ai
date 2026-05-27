@@ -1002,6 +1002,55 @@ test('SessionManager lists sessions as a lineage tree', async () => {
   }
 });
 
+test('SessionManager listSessionTree skips unloadable session logs', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-tree-list-bad-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+  const workspaceKey = encodeURIComponent(path.resolve(workspaceDir));
+  const workspaceDataDir = path.join(baseDir, workspaceKey);
+
+  try {
+    const manager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    const sessionId = await manager.createSession('system', 'good-session');
+    await manager.appendMessage(sessionId, { role: 'user', content: 'good task' });
+    await fs.writeFile(
+      path.join(workspaceDataDir, 'bad-session.jsonl'),
+      [
+        JSON.stringify({
+          type: 'session_start',
+          sessionId: 'bad-session',
+          workspaceDir: path.resolve(workspaceDir),
+          createdAt: 123,
+          schemaVersion: CURRENT_SESSION_SCHEMA_VERSION + 1,
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'bad-session',
+          timestamp: 124,
+          entryId: 'entry-system',
+          parentEntryId: null,
+          message: { role: 'system', content: 'system' },
+        }),
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const sessions = await manager.listSessions();
+    const tree = await manager.listSessionTree();
+
+    assert.deepEqual(sessions.map((session) => session.sessionId), ['good-session']);
+    assert.deepEqual(tree.map((node) => node.session.sessionId), ['good-session']);
+    assert.ok(manager.getDiagnostics().some((diagnostic) => (
+      diagnostic.code === 'session_log_unsupported_schema'
+      && diagnostic.details?.['operation'] === 'list'
+      && diagnostic.details?.['sessionId'] === 'bad-session'
+    )));
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('SessionManager exports and imports JSONL sessions', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-import-export-'));
   const sourceWorkspaceDir = path.join(tempDir, 'source-workspace');

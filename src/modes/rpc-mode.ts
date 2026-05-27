@@ -1,5 +1,10 @@
 import { createInterface } from 'node:readline/promises';
-import type { ToolConfirmationRequest, ToolPermissionDecision } from '../core/runtime.js';
+import {
+  RuntimeSessionNotFoundError,
+  type RuntimeDiagnostic,
+  type ToolConfirmationRequest,
+  type ToolPermissionDecision,
+} from '../core/runtime.js';
 import type { RuntimeHost } from '../core/runtime-host.js';
 import type { AgentSessionEvent } from '../schema.js';
 
@@ -203,8 +208,48 @@ export async function handleRpcRequest({
         writeRpcError(output, id, 'unknown_method', `Unknown RPC method: ${method}`);
     }
   } catch (e) {
+    if (e instanceof RuntimeSessionNotFoundError) {
+      writeRpcError(output, id, getSessionResumeErrorCode(e), formatSessionResumeError(e));
+      return;
+    }
     writeRpcError(output, id, 'internal_error', (e as Error).message);
   }
+}
+
+function getSessionResumeErrorCode(error: RuntimeSessionNotFoundError): string {
+  return getSessionLoadDiagnostic(error.diagnostics, error.sessionId)
+    ? 'session_load_failed'
+    : 'session_not_found';
+}
+
+function formatSessionResumeError(error: RuntimeSessionNotFoundError): string {
+  const diagnostic = getSessionLoadDiagnostic(error.diagnostics, error.sessionId);
+  if (!diagnostic) return `Session not found: ${error.sessionId}`;
+  return `Session could not be loaded: ${error.sessionId}. ${diagnostic.message}`;
+}
+
+function getSessionLoadDiagnostic(diagnostics: RuntimeDiagnostic[], sessionId: string): RuntimeDiagnostic | undefined {
+  const loadCodes = new Set([
+    'session_load_invalid_log',
+    'session_load_no_messages',
+    'session_load_failed',
+    'session_log_unsupported_schema',
+    'session_log_missing_session_start',
+    'session_log_missing_entry_metadata',
+    'session_log_active_leaf_missing',
+    'session_log_broken_parent_chain',
+  ]);
+  let latest: RuntimeDiagnostic | undefined;
+  for (const diagnostic of diagnostics) {
+    if (
+      diagnostic.source === 'session'
+      && diagnostic.details?.['sessionId'] === sessionId
+      && loadCodes.has(diagnostic.code)
+    ) {
+      latest = diagnostic;
+    }
+  }
+  return latest;
 }
 
 async function handleResumeSession({

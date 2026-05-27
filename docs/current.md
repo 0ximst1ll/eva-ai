@@ -30,25 +30,26 @@
 - session load/import recovery 策略最小闭环已实现：unsupported schema、缺失有效 `session_start`、broken active path、无 active context 的缺 entry metadata 会阻断 load/import；trailing invalid JSONL、单条 invalid payload 和 unknown entry type 保持可诊断降级；`/resume` 会展示 unloadable session 的简短原因。
 - latest session manifest fallback 最小闭环已实现：`manifest.latestSessionId` 指向缺失或不可加载 session 时，会记录 latest load failure，从可加载 session 列表中选择最近的 fallback session，并更新 manifest；没有 fallback 时保留返回 `null` 让 runtime 创建新 session。
 - unsupported session schema 提示已收敛：load/import 阻断错误会明确 session 文件 schema version、当前 Eva 支持的 schema version，并提示升级 Eva 或执行未来 migration。
+- session recovery smoke cases 已补齐：runtime latest 恢复、session list/tree 跳过坏文件、import 失败隔离和 RPC resume 失败行为已有覆盖。
 - M4.x session semantic split 已基本收口：`SessionManager` 当前主要保留 public lifecycle facade、memory/jsonl 分发、manifest/latest session、list/import/export 编排。
 - interactive/TUI slash command 已支持 `/fork [id] [--entry <entryId>]`、`/clone [id] [--entry <entryId>]`、`/branch <entryId>`、`/entries`、`/path`、`/sessions`、`/parent`、`/children`、`/child [id]`、`/export [path]`、`/import <path>`。
 
 ## 进行中
 
-- M4.x session reliability 仍处于收尾阶段；当前已完成 parse/load diagnostics、最小 schema validation、active path 不变量测试、load/import fatal vs recoverable 策略、latest manifest fallback 和 unsupported schema 用户可理解提示。
+- M4 Session / Recovery 阶段已完成当前计划内的核心架构和 reliability 收口；下一步准备进入 M5 Tool / Permission Governance。
 
 ## 下一步
 
 - 优先保持现有 session tree 行为稳定，不在当前阶段继续拆 `SessionRepo`。
-- 下一步继续补更完整的 session recovery smoke case。
-- 之后再评估是否进入 branch summarization pipeline、更完整的 tree navigation 交互，或按阶段规划切到下一块能力。
+- 下一步进入 M5 Tool / Permission Governance，优先评估 tool result budget、大输出持久化、权限 rule/mode 边界。
+- branch summarization pipeline、更完整 tree navigation 交互保留为后续 Session / Recovery 增强项，不阻塞 M4 阶段完成。
 - import/export lifecycle 目前保留在 `SessionManager` facade 中，等出现 schema migration、sidecar store 或 repo-level delete/list 需求时再拆。
 
 ## 已知问题
 
 - `SessionManager` 仍是 public facade，负责 session lifecycle、load/import/export 和 manifest/latest session 编排；workspace JSONL 文件 IO、session storage backend、session log parser、单 session entry store、最小 session model、append/branch semantic operation、fork/clone model helper、create/reset model helper 与 parsed session model application 已拆出。当前有意暂不拆完整 `SessionRepo`。
 - 当前 `SessionModel` 仍保留 active state cache 作为运行期派生缓存，尚未完全收敛为只保存 entry tree + active leaf。
-- session load/import 的 structured diagnostics、最小 schema validation、active path 不变量测试、fatal vs recoverable 策略、latest manifest fallback 和 unsupported schema 提示已有最小闭环；更完整 recovery smoke case 仍需继续补齐。
+- session load/import 的 structured diagnostics、最小 schema validation、active path 不变量测试、fatal vs recoverable 策略、latest manifest fallback、unsupported schema 提示和 recovery smoke cases 已有当前阶段闭环。
 - 当前只支持当前 session 文件内的指定 leaf entry path fork/clone、最小 entry-level branch、durable leaf entry、durable branch summary、branch operation summary、entry tree active path 展示、TUI entry selector、session-level parent navigation 和 direct child navigation；跨 session parent/child entry graph、完整 child branch navigation、完整 tree navigation 交互和 branch summarization pipeline 仍未实现。
 - 运行期 `resource_context` / `compaction_summary` internal marker 仍默认不持久化；只有明确需要跨 resume 恢复的 harness metadata 才写入 durable `internal` entry。
 - `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。

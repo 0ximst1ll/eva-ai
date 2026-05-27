@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { handleRpcLine, handleRpcRequest } from '../src/modes/rpc-mode.js';
-import type { ToolConfirmationRequest, ToolPermissionDecision } from '../src/core/runtime.js';
+import {
+  RuntimeSessionNotFoundError,
+  type ToolConfirmationRequest,
+  type ToolPermissionDecision,
+} from '../src/core/runtime.js';
 import type { RuntimeHost } from '../src/core/runtime-host.js';
 import type { AgentSessionEvent, Message } from '../src/schema.js';
 
@@ -327,6 +331,38 @@ test('RPC branch_session requires leaf_entry_id', async () => {
   assert.equal(envelope['type'], 'error');
   assert.equal((envelope['error'] as Record<string, unknown>)['code'], 'invalid_request');
   assert.deepEqual(stats.branchCalls, []);
+});
+
+test('RPC resume_session reports unloadable sessions as session errors', async () => {
+  const { host } = createHost();
+  const output = new JsonlOutput();
+  (host as unknown as { switchSession: (sessionId: string) => Promise<void> }).switchSession = async () => {
+    throw new RuntimeSessionNotFoundError('bad-session', [{
+      source: 'session',
+      level: 'error',
+      type: 'error',
+      code: 'session_load_invalid_log',
+      message: 'Session is not loadable: active entry path is broken',
+      details: {
+        sessionId: 'bad-session',
+        diagnosticCode: 'session_log_broken_parent_chain',
+      },
+    }]);
+  };
+
+  await handleRpcRequest({
+    host,
+    state: createState(),
+    request: { id: 'resume-bad', method: 'resume_session', params: { session_id: 'bad-session' } },
+    output: output as unknown as NodeJS.WritableStream,
+  });
+
+  const envelope = output.envelopes()[0]!;
+  const error = envelope['error'] as Record<string, unknown>;
+  assert.equal(envelope['type'], 'error');
+  assert.equal(error['code'], 'session_load_failed');
+  assert.match(String(error['message']), /Session could not be loaded: bad-session/);
+  assert.match(String(error['message']), /active entry path is broken/);
 });
 
 test('RPC abort reports whether an active run exists', async () => {

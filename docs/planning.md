@@ -72,7 +72,7 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 - 已完成：entry-tree-first session model、active leaf、entry path rebuild、fork/clone/branch/import/export。
 - 已完成：`SessionStorage`、`SessionEntryStore`、`SessionModel`、session parser 和 model helper 的第一层拆分。
 - 已完成：session recovery diagnostics、schema validation、latest fallback 和用户可理解失败提示的最小闭环。
-- 收尾中：补更完整 recovery smoke cases，确认 M4.x session reliability 阶段完成。
+- 已完成：M4.x session reliability 收口，包括 recovery smoke cases。
 - 后续：只有在出现 migration、repo-level delete/list/index、sidecar store 或跨 session entry graph 需求时，再拆完整 `SessionRepo`。
 - 后续：branch summarization pipeline、sidecar metadata、schema migration framework。
 
@@ -214,7 +214,7 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 
 目标：把 session 从 message-snapshot-first 收敛到 entry-tree-first，并完成可靠恢复。
 
-状态：核心架构已完成，当前只剩 recovery smoke cases 收尾。
+状态：当前计划内核心架构和 reliability 收口已完成；后续 session 工作作为增强项推进。
 
 ### M5 Tool And Permission Governance
 
