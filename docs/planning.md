@@ -30,6 +30,7 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 
 - 架构层优先参考 `pi-mono`：runtime/session/mode 分层、append-only session tree、message/context 边界。
 - 执行层选择性吸收 `claude-code`：工具编排、权限治理、恢复策略、MCP/Extensions、上下文预算。
+- 工具大输出处理优先参考 `pi-mono`：临时展示物默认不作为 durable session artifact 保存，只有明确需要长期恢复的资产才进入持久化边界。
 - 治理层优先可解释、可测试、fail-closed。
 - 节奏上遵循“先骨架、后能力、再治理”。
 
@@ -65,7 +66,7 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 - append-only entry tree 是 session 事实源。
 - derived context 从 active leaf path 派生 provider/session view。
 - runtime state 保存短生命周期 run/abort/permission/queue。
-- sidecar store 后续保存大对象、artifact、file history、todo/memory/subagent metadata。
+- sidecar store 只用于明确需要跨 session 恢复的 durable metadata 或资产；普通大工具输出默认不进入 session sidecar。
 
 里程碑：
 
@@ -85,7 +86,7 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 - `ContextBuilder`：无状态 provider request view builder。
 - `ContextManager`：token budget、compaction、summary、prompt-too-long recovery、diagnostics。
 - `TokenCounter`：provider/local countTokens 边界。
-- project context、skills、tool results 都以 request-time context 进入 provider request，不默认写回 durable session history。
+- project context、skills 和临时大工具输出都以 request-time context 或 preview 进入 provider request，不默认写回 durable session history。
 
 里程碑：
 
@@ -103,12 +104,13 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 - tool registry 管理 builtin、MCP 和 custom tools。
 - tool metadata 承载 source、category、risk、read-only、confirmation 等信息。
 - read-only tools 可并发；write/bash tools 应串行。
-- tool result ordering、预算和大输出持久化应由统一 orchestration 管理。
+- tool result ordering 和预算由统一 orchestration 管理。
+- 大工具输出默认在工具层或 request view 层截断；bash 等流式输出可写临时文件供当前运行查看，但不作为通用 session artifact 长期保存。
 
 里程碑：
 
 - 已完成：builtin tool registry、metadata 和 governance hook。
-- 后续：read-only 并发、write/bash 串行、result budget、大输出持久化、operations injection。
+- 后续：read-only 并发、write/bash 串行、轻量 tool result budget、临时大输出处理、operations injection。
 - 后续：MCP/custom tools 接入同一 registry 和 metadata 模型。
 
 ### 5. Permission / Safety
@@ -205,7 +207,7 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 
 目标：建立 provider request view、token counting、manual/auto compaction 和 prompt-too-long recovery。
 
-状态：核心路径已完成，后续进入完整 budget engine 和 tool result budget。
+状态：核心路径已完成，后续进入完整 budget engine 和轻量 tool result budget。
 
 ### M3 Modes / RPC / TUI
 
@@ -221,9 +223,9 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 
 ### M5 Tool And Permission Governance
 
-目标：完善工具编排、结果预算和权限规则。
+目标：完善工具编排、轻量结果预算和权限规则。
 
-状态：已有基础 metadata/governance/pending approval，后续进入更完整 rule/mode/budget。
+状态：已有基础 metadata/governance/pending approval，后续进入更完整 rule/mode/budget，并将超大工具输出从 durable artifact 设计收敛为 `pi-mono` 风格的 preview/临时输出。
 
 ### M6 Resources / MCP / Extensions
 
