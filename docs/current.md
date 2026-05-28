@@ -19,26 +19,23 @@
 - M5 Tool Execution Orchestration 最小闭环已实现：安全 read-only batch 并发，write/bash/high-risk/unknown 工具串行，tool result 按模型 tool call 原始顺序写回。
 - M5 三模式 permission rule/mode 最小闭环已实现：`default`、`read-only`、`full-access` 已落地到 runtime/tool governance。
 - M5 Tool Result Budget 当前已有最小实现：agent-loop 写回边界会对超预算 tool result 做 preview 截断，并保留原始长度/预算 metadata。
-- 当前代码仍存在超大工具输出 session sidecar artifact 最小实现：AgentSession 会在预算截断前写入 tool content/error artifact，并记录 artifact reference。
+- 超大工具输出 session sidecar artifact 路径已拆除：tool result 不再保存 artifact reference、不再写 `tool_result_artifact` internal entry，session storage 不再暴露 tool result artifact API。
 
 ## 进行中
 
 - M5 Tool / Permission Governance 继续推进。
-- 当前重点调整为 tool result 大输出策略收敛：从 Claude Code 风格的 durable session artifact，改为更接近 `pi-mono` 的轻量 preview / 工具层截断 / 临时输出模型。
+- 当前重点调整为 tool result 大输出策略收敛：durable session artifact 已拆除，后续继续补更接近 `pi-mono` 的工具层截断 / 临时输出模型。
 
 ## 下一步
 
-- 移除通用 tool result durable artifact 路径，包括 artifact reference、session storage artifact API、`tool_result_artifact` internal entry 和相关测试假设。
-- 保留 tool result budget 的 inline preview 截断能力，确保 provider request 与 session tool message 看到一致的截断内容。
 - 将大输出处理边界前移到工具层或 request view 层：文件类工具通过 offset/limit/缩小查询继续读取，bash 类流式输出后续可按需使用临时文件提示，但不作为 session sidecar 长期保存。
-- 更新相关测试，验证大输出不会写入 session sidecar，截断 metadata 仍可用于 UI/diagnostics/compaction。
+- 按工具类型细化截断策略：文件类工具优先 head/continuation，bash 类工具优先 tail/临时输出提示。
 - 继续推进权限治理：补更细的网络/危险命令识别、sandbox policy integration 和 permission diagnostics 展示。
 - 继续补强工具执行治理：abort 下的工具执行生命周期、tool operation injection 和更细的 tool execution diagnostics。
 
 ## 已知问题
 
-- tool result artifact 持久化已经实现但设计过重，会放大 session 存储并把临时展示物误当成长期资产；接下来应优先拆除。
-- 当前工具大输出截断是统一字符预算，尚未按工具类型区分 head/tail 策略，也没有 `pi-mono` 式的 read offset continuation 或 bash tail/temp output 细化。
+- 当前工具大输出截断仍是统一字符预算，尚未按工具类型区分 head/tail 策略，也没有 `pi-mono` 式的 read offset continuation 或 bash tail/temp output 细化。
 - `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。
 - manual `/compact` 仍是最小版：没有工具结果 micro-compaction。
 - skills 已有 resource discovery、source metadata、metadata system prompt 注入和 `/skill:name` 全文按需展开；尚未支持 package/extension source discovery。

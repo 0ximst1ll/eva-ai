@@ -142,7 +142,7 @@ test('AgentSession forwards agent lifecycle events to the UI boundary', async ()
   assert.equal(events.at(-1), 'agent_end');
 });
 
-test('AgentSession persists large tool results as artifacts before budget truncation', async () => {
+test('AgentSession keeps large tool results as truncated preview without artifacts', async () => {
   const sessionManager = new SessionManager({
     workspaceDir: '/workspace',
     mode: 'memory',
@@ -188,22 +188,19 @@ test('AgentSession persists large tool results as artifacts before budget trunca
 
   const toolEvent = events.find((event) => event.type === 'tool_result');
   assert.equal(toolEvent?.type, 'tool_result');
-  const artifact = toolEvent?.result.contentArtifact;
-  assert.ok(artifact);
-  assert.equal(await sessionManager.readToolResultArtifact(sessionId, artifact.artifactId), largeOutput);
-  assert.equal(artifact.charLength, largeOutput.length);
+  assert.equal(toolEvent.result.contentTruncated, true);
+  assert.equal(toolEvent.result.originalContentLength, largeOutput.length);
+  assert.equal(toolEvent.result.maxContentLength, 120);
 
   const providerToolMessage = llm.calls[1]?.at(-1);
   assert.equal(providerToolMessage?.role, 'tool');
   assert.ok((providerToolMessage?.content ?? '').length <= 120);
-  assert.match(providerToolMessage?.content ?? '', new RegExp(artifact.artifactId));
+  assert.match(providerToolMessage?.content ?? '', /Tool result truncated/);
+  assert.doesNotMatch(providerToolMessage?.content ?? '', /artifact=/);
   assert.notEqual(providerToolMessage?.content, largeOutput);
 
   const internalEntries = sessionManager.getInternalEntries(sessionId, 'tool_result_artifact');
-  assert.equal(internalEntries.length, 1);
-  const metadata = internalEntries[0]?.metadata as Record<string, unknown>;
-  assert.equal(metadata['toolCallId'], 'call-large');
-  assert.deepEqual(metadata['contentArtifact'], artifact);
+  assert.equal(internalEntries.length, 0);
 });
 
 test('AgentSession compacts history into a summary message and keeps recent context', async () => {

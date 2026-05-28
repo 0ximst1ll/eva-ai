@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createDiagnostic, type RuntimeDiagnostic } from '../diagnostics.js';
-import type { Message, TokenUsage, ToolResultArtifactReference } from '../schema.js';
+import type { Message, TokenUsage } from '../schema.js';
 import type { CompactionResult } from './compaction.js';
 import { copySessionPathEntry } from './session-entry-store.js';
 import {
@@ -547,36 +547,6 @@ export class SessionManager {
     return entries
       .filter((entry) => !kind || entry.kind === kind)
       .map(copyInternalEntry);
-  }
-
-  async writeToolResultArtifact({
-    sessionId,
-    toolCallId,
-    toolName,
-    kind,
-    content,
-  }: {
-    sessionId: string;
-    toolCallId: string;
-    toolName: string;
-    kind: 'content' | 'error';
-    content: string;
-  }): Promise<ToolResultArtifactReference> {
-    this.requireSessionModel(sessionId);
-    return this.storage.writeToolResultArtifact({
-      artifactId: randomUUID(),
-      sessionId,
-      toolCallId,
-      toolName,
-      kind,
-      content,
-      createdAt: Date.now(),
-    });
-  }
-
-  async readToolResultArtifact(sessionId: string, artifactId: string): Promise<string> {
-    this.requireSessionModel(sessionId);
-    return this.storage.readToolResultArtifact(sessionId, artifactId);
   }
 
   getLineageInfo(sessionId: string): SessionLineageInfo {

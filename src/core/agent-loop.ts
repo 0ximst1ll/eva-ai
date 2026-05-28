@@ -47,7 +47,7 @@ export interface AfterToolCallContext {
 
 export type AfterToolCallResult = Partial<Pick<
   ToolExecutionResult,
-  'success' | 'content' | 'error' | 'contentArtifact' | 'errorArtifact'
+  'success' | 'content' | 'error'
 >>;
 
 export type AgentLoopEvent =

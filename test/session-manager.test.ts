@@ -99,36 +99,6 @@ test('SessionManager can share a memory storage backend across managers', async 
   );
 });
 
-test('SessionManager persists tool result artifacts in jsonl workspace sidecar storage', async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-artifact-'));
-  const baseDir = path.join(tempDir, 'sessions');
-  const workspaceDir = path.join(tempDir, 'workspace');
-  const workspaceKey = encodeURIComponent(path.resolve(workspaceDir));
-  const manager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
-  const sessionId = await manager.createSession('system', 'session-artifact');
-  const content = 'large output'.repeat(30);
-
-  const artifact = await manager.writeToolResultArtifact({
-    sessionId,
-    toolCallId: 'call-1',
-    toolName: 'large_output',
-    kind: 'content',
-    content,
-  });
-
-  assert.equal(await manager.readToolResultArtifact(sessionId, artifact.artifactId), content);
-  assert.equal(artifact.sessionId, sessionId);
-  assert.equal(artifact.toolCallId, 'call-1');
-  assert.equal(artifact.toolName, 'large_output');
-  assert.equal(artifact.kind, 'content');
-  assert.equal(artifact.charLength, content.length);
-  assert.ok(artifact.path?.startsWith(`artifacts/${sessionId}/`));
-  assert.equal(
-    await fs.readFile(path.join(baseDir, workspaceKey, artifact.path ?? ''), 'utf-8'),
-    content,
-  );
-});
-
 test('SessionManager preserves active path parent invariants across append, branch, and reset', async () => {
   const manager = new SessionManager({ workspaceDir: '/workspace', mode: 'memory' });
   const sessionId = await manager.createSession('system');

@@ -78,26 +78,12 @@ export interface ToolExecutionResult {
     success: boolean;
     content: string;
     error?: string;
-    contentArtifact?: ToolResultArtifactReference;
     contentTruncated?: boolean;
     originalContentLength?: number;
     maxContentLength?: number;
-    errorArtifact?: ToolResultArtifactReference;
     errorTruncated?: boolean;
     originalErrorLength?: number;
     maxErrorLength?: number;
-}
-
-export interface ToolResultArtifactReference {
-    artifactId: string;
-    sessionId: string;
-    toolCallId: string;
-    toolName: string;
-    kind: 'content' | 'error';
-    path?: string;
-    byteLength: number;
-    charLength: number;
-    createdAt: number;
 }
 
 export type AgentSessionEvent =
