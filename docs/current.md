@@ -20,22 +20,22 @@
 - M5 三模式 permission rule/mode 最小闭环已实现：`default`、`read-only`、`full-access` 已落地到 runtime/tool governance。
 - M5 Tool Result Budget 当前已有最小实现：agent-loop 写回边界会对超预算 tool result 做 preview 截断，并保留原始长度/预算 metadata。
 - 超大工具输出 session sidecar artifact 路径已拆除：tool result 不再保存 artifact reference、不再写 `tool_result_artifact` internal entry，session storage 不再暴露 tool result artifact API。
+- 工具层大输出截断已开始按工具类型收敛：`read_file` 保留 head 并提示 offset continuation，`bash` 保留 tail 并只在截断/中断时写系统临时 log，`grep_files` / `find_files` / `list_files` 保留 head 并提示缩小范围。
 
 ## 进行中
 
 - M5 Tool / Permission Governance 继续推进。
-- 当前重点调整为 tool result 大输出策略收敛：durable session artifact 已拆除，后续继续补更接近 `pi-mono` 的工具层截断 / 临时输出模型。
+- 当前重点仍是 M5 Tool / Permission Governance 收口，下一步转向工具执行 lifecycle、operation injection 和权限诊断。
 
 ## 下一步
 
-- 将大输出处理边界前移到工具层或 request view 层：文件类工具通过 offset/limit/缩小查询继续读取，bash 类流式输出后续可按需使用临时文件提示，但不作为 session sidecar 长期保存。
-- 按工具类型细化截断策略：文件类工具优先 head/continuation，bash 类工具优先 tail/临时输出提示。
 - 继续推进权限治理：补更细的网络/危险命令识别、sandbox policy integration 和 permission diagnostics 展示。
 - 继续补强工具执行治理：abort 下的工具执行生命周期、tool operation injection 和更细的 tool execution diagnostics。
+- 后续可继续细化工具输出体验：更准确的行/字节统计、bash streaming accumulator、背景任务输出滚动窗口和 compaction-time tool result micro-compaction。
 
 ## 已知问题
 
-- 当前工具大输出截断仍是统一字符预算，尚未按工具类型区分 head/tail 策略，也没有 `pi-mono` 式的 read offset continuation 或 bash tail/temp output 细化。
+- 工具层大输出已具备 head/tail 基础策略，但仍缺更完整的行/字节统计、streaming accumulator 和 compaction-time tool result micro-compaction。
 - `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。
 - manual `/compact` 仍是最小版：没有工具结果 micro-compaction。
 - skills 已有 resource discovery、source metadata、metadata system prompt 注入和 `/skill:name` 全文按需展开；尚未支持 package/extension source discovery。

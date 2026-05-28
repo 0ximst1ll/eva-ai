@@ -1,7 +1,9 @@
 import * as fs from 'node:fs';
 import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
 import { resolveWorkspacePath } from './path-utils.js';
-import { truncateTextByTokens } from './truncate.js';
+import { DEFAULT_TOOL_OUTPUT_MAX_CHARS } from './truncate.js';
+
+const READ_OUTPUT_MAX_CHARS = DEFAULT_TOOL_OUTPUT_MAX_CHARS;
 
 export interface ReadToolInput extends Record<string, unknown> {
   path: string;
@@ -36,11 +38,52 @@ export class ReadTool implements Tool<ReadToolInput> {
 
       const lines = fs.readFileSync(resolved, 'utf-8').split('\n');
       const start = offset ? Math.max(0, offset - 1) : 0;
+      if (start >= lines.length) {
+        return { success: false, content: '', error: `Offset ${offset} is beyond end of file (${lines.length} lines total)` };
+      }
       const end = limit ? Math.min(start + limit, lines.length) : lines.length;
       const numbered = lines.slice(start, end).map((line, i) => `${String(start + i + 1).padStart(6, ' ')}|${line}`);
-      return { success: true, content: truncateTextByTokens(numbered.join('\n'), 32000).content };
+      return { success: true, content: formatReadOutput(numbered, start, end, lines.length, Boolean(limit)) };
     } catch (err) {
       return { success: false, content: '', error: String(err) };
     }
   }
+}
+
+function formatReadOutput(
+  numberedLines: string[],
+  start: number,
+  selectedEnd: number,
+  totalLines: number,
+  userLimited: boolean,
+): string {
+  const fullOutput = numberedLines.join('\n');
+  const nextOffset = selectedEnd + 1;
+  if (fullOutput.length <= READ_OUTPUT_MAX_CHARS) {
+    if (userLimited && selectedEnd < totalLines) {
+      return `${fullOutput}\n\n[${totalLines - selectedEnd} more lines in file. Use offset=${nextOffset} to continue.]`;
+    }
+    return fullOutput;
+  }
+
+  const markerReserve = 220;
+  const contentLimit = Math.max(0, READ_OUTPUT_MAX_CHARS - markerReserve);
+  const outputLines: string[] = [];
+  let outputLength = 0;
+  for (const line of numberedLines) {
+    const lineLength = line.length + (outputLines.length ? 1 : 0);
+    if (outputLength + lineLength > contentLimit) break;
+    outputLines.push(line);
+    outputLength += lineLength;
+  }
+
+  if (outputLines.length === 0 && numberedLines.length > 0) {
+    outputLines.push(numberedLines[0].slice(0, contentLimit));
+  }
+
+  const endLine = start + outputLines.length;
+  return [
+    outputLines.join('\n'),
+    `[Showing lines ${start + 1}-${endLine} of ${totalLines}. Use offset=${endLine + 1} to continue.]`,
+  ].join('\n\n');
 }

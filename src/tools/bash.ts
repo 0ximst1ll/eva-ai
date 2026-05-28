@@ -7,8 +7,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
+import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateTailByChars } from './truncate.js';
 
-const MAX_INLINE_OUTPUT_CHARS = 24000;
+const MAX_INLINE_OUTPUT_CHARS = DEFAULT_TOOL_OUTPUT_MAX_CHARS;
 
 export interface BashOutputResult extends ToolResult {
   stdout: string;
@@ -18,15 +19,15 @@ export interface BashOutputResult extends ToolResult {
   fullOutputPath?: string;
 }
 
-function ensureLogDir(workspaceDir?: string): string {
-  const base = workspaceDir ? path.join(workspaceDir, '.eva-ai', 'bash-logs') : path.join(os.tmpdir(), 'eva-ai-bash-logs');
+function ensureLogDir(): string {
+  const base = path.join(os.tmpdir(), 'eva-ai-bash-logs');
   fs.mkdirSync(base, { recursive: true });
   return base;
 }
 
-function writeFullOutput(workspaceDir: string | undefined, command: string, stdout: string, stderr: string): string | undefined {
+function writeFullOutput(command: string, stdout: string, stderr: string): string | undefined {
   try {
-    const filePath = path.join(ensureLogDir(workspaceDir), `${Date.now()}-${randomUUID().slice(0, 8)}.log`);
+    const filePath = path.join(ensureLogDir(), `${Date.now()}-${randomUUID().slice(0, 8)}.log`);
     fs.writeFileSync(filePath, `$ ${command}\n\n[stdout]\n${stdout}\n\n[stderr]\n${stderr}\n`, 'utf-8');
     return filePath;
   } catch {
@@ -36,12 +37,11 @@ function writeFullOutput(workspaceDir: string | undefined, command: string, stdo
 
 function truncateOutput(content: string, fullOutputPath?: string): string {
   if (content.length <= MAX_INLINE_OUTPUT_CHARS) return content || '(no output)';
-  const keep = Math.floor(MAX_INLINE_OUTPUT_CHARS / 2);
-  return (
-    content.slice(0, keep) +
-    `\n\n... [output truncated: ${content.length} chars; full output: ${fullOutputPath ?? 'unavailable'}] ...\n\n` +
-    content.slice(-keep)
-  );
+  return truncateTailByChars(
+    content,
+    MAX_INLINE_OUTPUT_CHARS,
+    `[Showing last output. Output truncated: original=${content.length} chars; full output: ${fullOutputPath ?? 'unavailable'}]`,
+  ).content;
 }
 
 function killProcessTree(proc: cp.ChildProcess, isWindows: boolean): void {
@@ -303,8 +303,10 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
       proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString('utf-8'); });
       proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString('utf-8'); });
 
-      proc.once('exit', (code) => {
-        const fullOutputPath = writeFullOutput(this.workspaceDir, command, stdout, stderr);
+      proc.once('close', (code) => {
+        const rawOutput = formatBashOutput(stdout, stderr, code ?? 0);
+        const shouldWriteFullOutput = rawOutput.length > MAX_INLINE_OUTPUT_CHARS || aborted || timedOut;
+        const fullOutputPath = shouldWriteFullOutput ? writeFullOutput(command, stdout, stderr) : undefined;
         if (aborted) {
           finish({
             success: false,
@@ -338,10 +340,7 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
           if (stderr.trim()) error += `\n${stderr.trim()}`;
         }
 
-        let rawContent = stdout;
-        if (stderr) rawContent += `\n[stderr]:\n${stderr}`;
-        if (exitCode) rawContent += `\n[exit_code]:\n${exitCode}`;
-        const content = truncateOutput(rawContent, fullOutputPath);
+        const content = truncateOutput(rawOutput, fullOutputPath);
         finish({ success, content, error, stdout, stderr, exitCode, fullOutputPath });
       });
 
@@ -357,6 +356,13 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
       });
     });
   }
+}
+
+function formatBashOutput(stdout: string, stderr: string, exitCode: number): string {
+  let rawContent = stdout;
+  if (stderr) rawContent += `\n[stderr]:\n${stderr}`;
+  if (exitCode) rawContent += `\n[exit_code]:\n${exitCode}`;
+  return rawContent;
 }
 
 interface BashOutputInput extends Record<string, unknown> {
@@ -392,7 +398,7 @@ export class BashOutputTool implements Tool<BashOutputInput> {
 
     const newLines = shell.getNewOutput(filter_str);
     const stdout = newLines.join('\n');
-    let content = stdout;
+    let content = truncateOutput(stdout);
     content += `\n[status]:\n${shell.status}`;
     content += `\n[bash_id]:\n${shell.bashId}`;
 

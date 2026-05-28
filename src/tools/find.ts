@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
 import { resolveWorkspacePath } from './path-utils.js';
+import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars } from './truncate.js';
 
 const DEFAULT_IGNORES = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache']);
 const MAX_RESULTS = 200;
@@ -66,8 +67,23 @@ export class FindTool implements Tool<FindToolInput> {
       }
 
       const matches = walkFiles(resolved).filter(matcher).slice(0, limit);
-      const content = matches.map((file) => path.relative(this.workspaceDir, file)).sort().join('\n');
-      return { success: true, content: content || 'No matching files found.' };
+      const output = matches.map((file) => path.relative(this.workspaceDir, file)).sort().join('\n');
+      if (!output) return { success: true, content: 'No matching files found.' };
+
+      const limitedByMaxResults = matches.length >= limit;
+      const markerParts = [
+        `Find output truncated: original=${output.length} chars.`,
+        'Narrow path/pattern or lower max_results to reduce output.',
+      ];
+      if (limitedByMaxResults) markerParts.push(`Stopped after max_results=${limit}.`);
+      const truncated = truncateHeadByChars(output, DEFAULT_TOOL_OUTPUT_MAX_CHARS, `[${markerParts.join(' ')}]`);
+      if (!truncated.truncated && limitedByMaxResults) {
+        return {
+          success: true,
+          content: `${output}\n\n[Stopped after max_results=${limit}. Narrow path/pattern to find more specific matches.]`,
+        };
+      }
+      return { success: true, content: truncated.content };
     } catch (err) {
       return { success: false, content: '', error: String(err) };
     }

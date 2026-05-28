@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
 import { resolveWorkspacePath } from './path-utils.js';
+import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars } from './truncate.js';
 
 const DEFAULT_IGNORES = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache']);
 
@@ -32,7 +33,16 @@ export class LsTool implements Tool<LsToolInput> {
         .filter((entry) => !DEFAULT_IGNORES.has(entry.name))
         .map((entry) => `${entry.isDirectory() ? '[dir] ' : '[file]'} ${entry.name}`)
         .sort();
-      return { success: true, content: entries.length ? entries.join('\n') : '(empty directory)' };
+      if (!entries.length) return { success: true, content: '(empty directory)' };
+      const output = entries.join('\n');
+      return {
+        success: true,
+        content: truncateHeadByChars(
+          output,
+          DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+          `[Directory listing truncated: original=${output.length} chars. Use a narrower path.]`,
+        ).content,
+      };
     } catch (err) {
       return { success: false, content: '', error: String(err) };
     }
