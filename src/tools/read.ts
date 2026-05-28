@@ -1,5 +1,5 @@
-import * as fs from 'node:fs';
 import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
+import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
 import { DEFAULT_TOOL_OUTPUT_MAX_CHARS } from './truncate.js';
 
@@ -27,7 +27,10 @@ export class ReadTool implements Tool<ReadToolInput> {
     required: ['path'],
   };
 
-  constructor(private readonly workspaceDir: string = '.') {}
+  constructor(
+    private readonly workspaceDir: string = '.',
+    private readonly operations: FileToolOperations = localFileToolOperations,
+  ) {}
 
   async execute({ path: filePath, offset, limit }: ReadToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
     try {
@@ -35,9 +38,9 @@ export class ReadTool implements Tool<ReadToolInput> {
       const resolved = resolveWorkspacePath(this.workspaceDir, filePath, {
         allowOutsideWorkspace: context?.allowOutsideWorkspace,
       });
-      if (!fs.existsSync(resolved)) return { success: false, content: '', error: `File not found: ${filePath}` };
+      if (!this.operations.exists(resolved)) return { success: false, content: '', error: `File not found: ${filePath}` };
 
-      const lines = fs.readFileSync(resolved, 'utf-8').split('\n');
+      const lines = this.operations.readFile(resolved).split('\n');
       const start = offset ? Math.max(0, offset - 1) : 0;
       if (start >= lines.length) {
         return { success: false, content: '', error: `Offset ${offset} is beyond end of file (${lines.length} lines total)` };

@@ -19,6 +19,21 @@ export interface BashOutputResult extends ToolResult {
   fullOutputPath?: string;
 }
 
+export interface BashExecOptions {
+  signal?: AbortSignal;
+  timeoutSecs: number;
+}
+
+export interface BashSpawnOptions {
+  cwd?: string;
+  isWindows: boolean;
+}
+
+export interface BashOperations {
+  exec?: (command: string, cwd: string | undefined, isWindows: boolean, options: BashExecOptions) => Promise<BashOutputResult>;
+  spawn?: (command: string, options: BashSpawnOptions) => cp.ChildProcess;
+}
+
 function abortedBashResult(): BashOutputResult {
   const result = createAbortedToolResult();
   return {
@@ -194,7 +209,10 @@ interface BashInput extends Record<string, unknown> {
 export class BashTool implements Tool<BashInput> {
   private readonly isWindows: boolean;
 
-  constructor(private readonly workspaceDir?: string) {
+  constructor(
+    private readonly workspaceDir?: string,
+    private readonly operations: BashOperations = {},
+  ) {
     this.isWindows = os.platform() === 'win32';
   }
 
@@ -253,6 +271,9 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
   }
 
   private _spawn(command: string): cp.ChildProcess {
+    if (this.operations.spawn) {
+      return this.operations.spawn(command, { cwd: this.workspaceDir, isWindows: this.isWindows });
+    }
     return this.isWindows
       ? cp.spawn('powershell.exe', ['-NoProfile', '-Command', command], {
           cwd: this.workspaceDir,
@@ -285,6 +306,10 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
   }
 
   private _runForeground(command: string, timeoutSecs: number, signal?: AbortSignal): Promise<BashOutputResult> {
+    if (this.operations.exec) {
+      return this.operations.exec(command, this.workspaceDir, this.isWindows, { signal, timeoutSecs });
+    }
+
     return new Promise((resolve) => {
       const proc = this._spawn(command);
       let stdout = '';

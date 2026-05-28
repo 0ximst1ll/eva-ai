@@ -1,6 +1,6 @@
-import * as fs from 'node:fs';
 import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
 import { fileMutationQueue } from './file-mutation-queue.js';
+import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
 
 export interface EditToolInput extends Record<string, unknown> {
@@ -23,7 +23,10 @@ export class EditTool implements Tool<EditToolInput> {
     required: ['path', 'old_str', 'new_str'],
   };
 
-  constructor(private readonly workspaceDir: string = '.') {}
+  constructor(
+    private readonly workspaceDir: string = '.',
+    private readonly operations: FileToolOperations = localFileToolOperations,
+  ) {}
 
   async execute({ path: filePath, old_str, new_str }: EditToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
     try {
@@ -33,9 +36,9 @@ export class EditTool implements Tool<EditToolInput> {
       });
       return await fileMutationQueue.run(resolved, async () => {
         if (isToolExecutionAborted(context)) return createAbortedToolResult();
-        if (!fs.existsSync(resolved)) return { success: false, content: '', error: `File not found: ${filePath}` };
+        if (!this.operations.exists(resolved)) return { success: false, content: '', error: `File not found: ${filePath}` };
 
-        const content = fs.readFileSync(resolved, 'utf-8');
+        const content = this.operations.readFile(resolved);
         const firstMatch = content.indexOf(old_str);
         if (firstMatch === -1) return { success: false, content: '', error: `Text not found in file: ${old_str}` };
         if (content.indexOf(old_str, firstMatch + old_str.length) !== -1) {
@@ -46,10 +49,9 @@ export class EditTool implements Tool<EditToolInput> {
           };
         }
 
-        fs.writeFileSync(
+        this.operations.writeFile(
           resolved,
           content.slice(0, firstMatch) + new_str + content.slice(firstMatch + old_str.length),
-          'utf-8',
         );
         return { success: true, content: `Successfully edited ${resolved}` };
       });

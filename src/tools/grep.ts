@@ -1,20 +1,20 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
+import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
 import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars } from './truncate.js';
 
 const DEFAULT_IGNORES = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache']);
 const MAX_RESULTS = 200;
 
-function walkFiles(root: string): string[] {
+function walkFiles(root: string, operations: FileToolOperations): string[] {
   const results: string[] = [];
   const stack = [root];
   while (stack.length) {
     const current = stack.pop()!;
-    let entries: fs.Dirent[];
+    let entries;
     try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
+      entries = operations.readdir(current);
     } catch {
       continue;
     }
@@ -49,7 +49,10 @@ export class GrepTool implements Tool<GrepToolInput> {
     required: ['pattern'],
   };
 
-  constructor(private readonly workspaceDir: string = '.') {}
+  constructor(
+    private readonly workspaceDir: string = '.',
+    private readonly operations: FileToolOperations = localFileToolOperations,
+  ) {}
 
   async execute(
     { pattern, path: targetPath = '.', max_results = MAX_RESULTS, case_sensitive = true }: GrepToolInput,
@@ -61,8 +64,8 @@ export class GrepTool implements Tool<GrepToolInput> {
         allowOutsideWorkspace: context?.allowOutsideWorkspace,
       });
       const limit = Math.max(1, Math.min(Number(max_results) || MAX_RESULTS, 1000));
-      const stat = fs.statSync(resolved);
-      const files = stat.isDirectory() ? walkFiles(resolved) : [resolved];
+      const stat = this.operations.stat(resolved);
+      const files = stat.isDirectory() ? walkFiles(resolved, this.operations) : [resolved];
       let matcher: (line: string) => boolean;
       try {
         const re = new RegExp(pattern, case_sensitive ? '' : 'i');
@@ -78,7 +81,7 @@ export class GrepTool implements Tool<GrepToolInput> {
         if (matches.length >= limit) break;
         let content: string;
         try {
-          content = fs.readFileSync(file, 'utf-8');
+          content = this.operations.readFile(file);
         } catch {
           continue;
         }

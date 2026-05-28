@@ -1,7 +1,7 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
 import { fileMutationQueue } from './file-mutation-queue.js';
+import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
 
 export interface WriteToolInput extends Record<string, unknown> {
@@ -22,7 +22,10 @@ export class WriteTool implements Tool<WriteToolInput> {
     required: ['path', 'content'],
   };
 
-  constructor(private readonly workspaceDir: string = '.') {}
+  constructor(
+    private readonly workspaceDir: string = '.',
+    private readonly operations: FileToolOperations = localFileToolOperations,
+  ) {}
 
   async execute({ path: filePath, content }: WriteToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
     try {
@@ -32,8 +35,8 @@ export class WriteTool implements Tool<WriteToolInput> {
       });
       return await fileMutationQueue.run(resolved, async () => {
         if (isToolExecutionAborted(context)) return createAbortedToolResult();
-        fs.mkdirSync(path.dirname(resolved), { recursive: true });
-        fs.writeFileSync(resolved, content, 'utf-8');
+        this.operations.mkdir(path.dirname(resolved));
+        this.operations.writeFile(resolved, content);
         return { success: true, content: `Successfully wrote to ${resolved}` };
       });
     } catch (err) {

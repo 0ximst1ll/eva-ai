@@ -10,8 +10,9 @@ export type {
   ToolSource,
 } from './base.js';
 export { createToolDefinition, toAnthropicSchema, toOpenAISchema, toolFromDefinition, withToolMetadata } from './base.js';
-export { BashKillTool, BashOutputTool, BashTool, type BashOutputResult } from './bash.js';
+export { BashKillTool, BashOutputTool, BashTool, type BashExecOptions, type BashOperations, type BashOutputResult, type BashSpawnOptions } from './bash.js';
 export { EditTool, type EditToolInput } from './edit.js';
+export { localFileToolOperations, type FileToolDirent, type FileToolOperations, type FileToolStats } from './file-operations.js';
 export { fileMutationQueue, FileMutationQueue } from './file-mutation-queue.js';
 export { FindTool, type FindToolInput } from './find.js';
 export { GrepTool, type GrepToolInput } from './grep.js';

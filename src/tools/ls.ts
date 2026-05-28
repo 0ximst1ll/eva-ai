@@ -1,5 +1,5 @@
-import * as fs from 'node:fs';
 import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
+import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
 import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars } from './truncate.js';
 
@@ -19,7 +19,10 @@ export class LsTool implements Tool<LsToolInput> {
     },
   };
 
-  constructor(private readonly workspaceDir: string = '.') {}
+  constructor(
+    private readonly workspaceDir: string = '.',
+    private readonly operations: FileToolOperations = localFileToolOperations,
+  ) {}
 
   async execute({ path: targetPath = '.' }: LsToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
     try {
@@ -27,10 +30,10 @@ export class LsTool implements Tool<LsToolInput> {
       const resolved = resolveWorkspacePath(this.workspaceDir, targetPath, {
         allowOutsideWorkspace: context?.allowOutsideWorkspace,
       });
-      if (!fs.existsSync(resolved)) return { success: false, content: '', error: `Path not found: ${targetPath}` };
-      if (!fs.statSync(resolved).isDirectory()) return { success: false, content: '', error: `Not a directory: ${targetPath}` };
+      if (!this.operations.exists(resolved)) return { success: false, content: '', error: `Path not found: ${targetPath}` };
+      if (!this.operations.stat(resolved).isDirectory()) return { success: false, content: '', error: `Not a directory: ${targetPath}` };
 
-      const entries = fs.readdirSync(resolved, { withFileTypes: true })
+      const entries = this.operations.readdir(resolved)
         .filter((entry) => !DEFAULT_IGNORES.has(entry.name))
         .map((entry) => `${entry.isDirectory() ? '[dir] ' : '[file]'} ${entry.name}`)
         .sort();

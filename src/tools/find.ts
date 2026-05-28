@@ -1,20 +1,20 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
+import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
 import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars } from './truncate.js';
 
 const DEFAULT_IGNORES = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache']);
 const MAX_RESULTS = 200;
 
-function walkFiles(root: string): string[] {
+function walkFiles(root: string, operations: FileToolOperations): string[] {
   const results: string[] = [];
   const stack = [root];
   while (stack.length) {
     const current = stack.pop()!;
-    let entries: fs.Dirent[];
+    let entries;
     try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
+      entries = operations.readdir(current);
     } catch {
       continue;
     }
@@ -47,7 +47,10 @@ export class FindTool implements Tool<FindToolInput> {
     required: ['pattern'],
   };
 
-  constructor(private readonly workspaceDir: string = '.') {}
+  constructor(
+    private readonly workspaceDir: string = '.',
+    private readonly operations: FileToolOperations = localFileToolOperations,
+  ) {}
 
   async execute(
     { pattern, path: targetPath = '.', max_results = MAX_RESULTS }: FindToolInput,
@@ -67,7 +70,7 @@ export class FindTool implements Tool<FindToolInput> {
         matcher = (file) => path.basename(file).includes(pattern) || path.relative(resolved, file).includes(pattern);
       }
 
-      const matches = walkFiles(resolved).filter((file) => {
+      const matches = walkFiles(resolved, this.operations).filter((file) => {
         if (isToolExecutionAborted(context)) return false;
         return matcher(file);
       }).slice(0, limit);
