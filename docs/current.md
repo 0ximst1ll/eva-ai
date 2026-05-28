@@ -23,22 +23,22 @@
 - 工具层大输出截断已开始按工具类型收敛：`read_file` 保留 head 并提示 offset continuation，`bash` 保留 tail 并只在截断/中断时写系统临时 log，`grep_files` / `find_files` / `list_files` 保留 head 并提示缩小范围。
 - 工具执行 abort lifecycle 已收敛：agent-loop 在工具批次边界停止后续执行，foreground bash 会响应 abort，已 abort 的同步文件工具不会继续读写。
 - Tool operation injection 最小边界已实现：文件工具可注入 `FileToolOperations`，foreground bash 可注入 `BashOperations.exec`，background bash 可注入 `BashOperations.spawn`，默认实现仍使用本地 fs/shell。
+- 工具执行状态保持 pi-mono 风格的 lifecycle event 归约：`Agent` 基于 `tool_execution_start/end` 维护 `pendingToolCalls`，暂不引入独立 tool execution diagnostics 聚合层。
 
 ## 进行中
 
 - M5 Tool / Permission Governance 继续推进。
-- 当前重点转向更细的 tool execution diagnostics 和权限诊断收敛。
+- 当前重点转向权限诊断和 sandbox policy integration 的最小闭环。
 
 ## 下一步
 
 - 继续推进权限治理：补更细的网络/危险命令识别、sandbox policy integration 和 permission diagnostics 展示。
-- 继续补强工具执行治理：更细的 tool execution diagnostics。
 - 后续可继续细化工具输出体验：更准确的行/字节统计、bash streaming accumulator、背景任务输出滚动窗口和 compaction-time tool result micro-compaction。
 
 ## 已知问题
 
 - 工具层大输出已具备 head/tail 基础策略，但仍缺更完整的行/字节统计、streaming accumulator 和 compaction-time tool result micro-compaction。
-- abort lifecycle 已覆盖当前内置工具的主要路径，但仍缺更细的工具执行耗时、队列状态和 abort reason diagnostics。
+- abort lifecycle 已覆盖当前内置工具的主要路径，但仍缺更细的 abort reason 和队列状态；工具执行诊断暂保持 lifecycle event + pending state 的简单边界。
 - operation injection 目前是最小边界，尚未提供统一 remote workspace adapter、sandbox adapter 或 extension wrapper。
 - `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。
 - manual `/compact` 仍是最小版：没有工具结果 micro-compaction。
