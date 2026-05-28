@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
 import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateTailByChars } from './truncate.js';
 
 const MAX_INLINE_OUTPUT_CHARS = DEFAULT_TOOL_OUTPUT_MAX_CHARS;
@@ -17,6 +17,18 @@ export interface BashOutputResult extends ToolResult {
   exitCode: number;
   bashId?: string;
   fullOutputPath?: string;
+}
+
+function abortedBashResult(): BashOutputResult {
+  const result = createAbortedToolResult();
+  return {
+    success: result.success,
+    content: result.content,
+    error: result.error,
+    stdout: '',
+    stderr: result.error ?? '',
+    exitCode: -1,
+  };
 }
 
 function ensureLogDir(): string {
@@ -224,6 +236,7 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
     context?: ToolExecutionContext,
   ): Promise<BashOutputResult> {
     try {
+      if (isToolExecutionAborted(context)) return abortedBashResult();
       const effectiveTimeout = Math.min(Math.max(timeout, 1), 600);
       if (run_in_background) return this._runBackground(command);
       return this._runForeground(command, effectiveTimeout, context?.signal);
@@ -382,7 +395,8 @@ export class BashOutputTool implements Tool<BashOutputInput> {
     required: ['bash_id'],
   };
 
-  async execute({ bash_id, filter_str }: BashOutputInput): Promise<BashOutputResult> {
+  async execute({ bash_id, filter_str }: BashOutputInput, context?: ToolExecutionContext): Promise<BashOutputResult> {
+    if (isToolExecutionAborted(context)) return abortedBashResult();
     const shell = getShell(bash_id);
     if (!shell) {
       const available = getAvailableIds();
@@ -428,8 +442,9 @@ export class BashKillTool implements Tool<BashKillInput> {
     required: ['bash_id'],
   };
 
-  async execute({ bash_id }: BashKillInput): Promise<BashOutputResult> {
+  async execute({ bash_id }: BashKillInput, context?: ToolExecutionContext): Promise<BashOutputResult> {
     try {
+      if (isToolExecutionAborted(context)) return abortedBashResult();
       const shell = getShell(bash_id);
       const remaining = shell ? shell.getNewOutput() : [];
       const terminated = await terminateShell(bash_id);

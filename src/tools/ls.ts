@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
 import { resolveWorkspacePath } from './path-utils.js';
 import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars } from './truncate.js';
 
@@ -23,6 +23,7 @@ export class LsTool implements Tool<LsToolInput> {
 
   async execute({ path: targetPath = '.' }: LsToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
     try {
+      if (isToolExecutionAborted(context)) return createAbortedToolResult();
       const resolved = resolveWorkspacePath(this.workspaceDir, targetPath, {
         allowOutsideWorkspace: context?.allowOutsideWorkspace,
       });

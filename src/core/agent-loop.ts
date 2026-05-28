@@ -170,6 +170,16 @@ function createBlockedToolResult(toolCall: ToolCall, reason?: string): ToolExecu
   };
 }
 
+function createAbortedToolResult(toolCall: ToolCall): ToolExecutionResult {
+  return {
+    toolCallId: toolCall.id,
+    toolName: toolCall.function.name,
+    success: false,
+    content: '',
+    error: 'Tool execution aborted',
+  };
+}
+
 async function executeToolCall(
   toolCall: ToolCall,
   toolMap: Map<string, Tool>,
@@ -178,6 +188,10 @@ async function executeToolCall(
 ): Promise<ToolExecutionResult> {
   const { id: toolCallId, function: fn } = toolCall;
   const { name: toolName, arguments: args } = fn;
+
+  if (config.signal?.aborted) {
+    return applyToolResultBudget(createAbortedToolResult(toolCall), config.toolResultBudget);
+  }
 
   await emit(config.emit, { type: 'tool_execution_start', toolCallId, toolName, args });
 
@@ -199,6 +213,11 @@ async function executeToolCall(
 
   try {
     const before = await config.beforeToolCall?.({ toolCall, tool, args, messages }, config.signal);
+    if (config.signal?.aborted) {
+      const result = applyToolResultBudget(createAbortedToolResult(toolCall), config.toolResultBudget);
+      await emit(config.emit, { type: 'tool_execution_end', result });
+      return result;
+    }
     if (before?.block) {
       const result = applyToolResultBudget(
         createBlockedToolResult(toolCall, before.reason),
@@ -221,14 +240,21 @@ async function executeToolCall(
       error: output.error,
     };
 
-    const after = await config.afterToolCall?.({ toolCall, tool, args, result, messages }, config.signal);
-    if (after) result = { ...result, ...after };
+    if (!config.signal?.aborted) {
+      const after = await config.afterToolCall?.({ toolCall, tool, args, result, messages }, config.signal);
+      if (after) result = { ...result, ...after };
+    }
     result = applyToolResultBudget(result, config.toolResultBudget);
 
     await emit(config.emit, { type: 'tool_execution_end', result });
     return result;
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
+    if (config.signal?.aborted) {
+      const result = applyToolResultBudget(createAbortedToolResult(toolCall), config.toolResultBudget);
+      await emit(config.emit, { type: 'tool_execution_end', result });
+      return result;
+    }
     const result = applyToolResultBudget(
       {
         toolCallId,
@@ -297,15 +323,20 @@ async function executeToolCalls(
   const batches = createToolExecutionBatches(toolCalls, toolMap, config.toolExecution);
 
   for (const batch of batches) {
+    if (config.signal?.aborted) break;
+
     if (batch.mode === 'parallel') {
       results.push(...(await Promise.all(
         batch.toolCalls.map((toolCall) => executeToolCall(toolCall, toolMap, messages, config)),
       )));
+      if (config.signal?.aborted) break;
       continue;
     }
 
     for (const toolCall of batch.toolCalls) {
+      if (config.signal?.aborted) break;
       results.push(await executeToolCall(toolCall, toolMap, messages, config));
+      if (config.signal?.aborted) break;
     }
   }
 
@@ -462,6 +493,12 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
             tool_call_id: result.toolCallId,
             name: result.toolName,
           });
+        }
+        if (config.signal?.aborted) {
+          const message = 'Task cancelled by user.';
+          await emit(config.emit, { type: 'error', message });
+          await emit(config.emit, { type: 'agent_end', messages, finalContent: message });
+          return abortResult(messages, message, apiTotalTokens);
         }
       }
 

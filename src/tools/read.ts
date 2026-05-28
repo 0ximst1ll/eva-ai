@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
 import { resolveWorkspacePath } from './path-utils.js';
 import { DEFAULT_TOOL_OUTPUT_MAX_CHARS } from './truncate.js';
 
@@ -31,6 +31,7 @@ export class ReadTool implements Tool<ReadToolInput> {
 
   async execute({ path: filePath, offset, limit }: ReadToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
     try {
+      if (isToolExecutionAborted(context)) return createAbortedToolResult();
       const resolved = resolveWorkspacePath(this.workspaceDir, filePath, {
         allowOutsideWorkspace: context?.allowOutsideWorkspace,
       });

@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
 import { resolveWorkspacePath } from './path-utils.js';
 import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars } from './truncate.js';
 
@@ -56,6 +56,7 @@ export class GrepTool implements Tool<GrepToolInput> {
     context?: ToolExecutionContext,
   ): Promise<ToolResult> {
     try {
+      if (isToolExecutionAborted(context)) return createAbortedToolResult();
       const resolved = resolveWorkspacePath(this.workspaceDir, targetPath, {
         allowOutsideWorkspace: context?.allowOutsideWorkspace,
       });
@@ -73,6 +74,7 @@ export class GrepTool implements Tool<GrepToolInput> {
 
       const matches: string[] = [];
       for (const file of files) {
+        if (isToolExecutionAborted(context)) return createAbortedToolResult();
         if (matches.length >= limit) break;
         let content: string;
         try {
@@ -82,6 +84,7 @@ export class GrepTool implements Tool<GrepToolInput> {
         }
         const lines = content.split('\n');
         for (let i = 0; i < lines.length; i++) {
+          if (isToolExecutionAborted(context)) return createAbortedToolResult();
           if (!matcher(lines[i])) continue;
           matches.push(`${path.relative(this.workspaceDir, file)}:${i + 1}: ${lines[i]}`);
           if (matches.length >= limit) break;

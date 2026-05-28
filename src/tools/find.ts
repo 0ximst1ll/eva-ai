@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
 import { resolveWorkspacePath } from './path-utils.js';
 import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars } from './truncate.js';
 
@@ -54,6 +54,7 @@ export class FindTool implements Tool<FindToolInput> {
     context?: ToolExecutionContext,
   ): Promise<ToolResult> {
     try {
+      if (isToolExecutionAborted(context)) return createAbortedToolResult();
       const resolved = resolveWorkspacePath(this.workspaceDir, targetPath, {
         allowOutsideWorkspace: context?.allowOutsideWorkspace,
       });
@@ -66,7 +67,11 @@ export class FindTool implements Tool<FindToolInput> {
         matcher = (file) => path.basename(file).includes(pattern) || path.relative(resolved, file).includes(pattern);
       }
 
-      const matches = walkFiles(resolved).filter(matcher).slice(0, limit);
+      const matches = walkFiles(resolved).filter((file) => {
+        if (isToolExecutionAborted(context)) return false;
+        return matcher(file);
+      }).slice(0, limit);
+      if (isToolExecutionAborted(context)) return createAbortedToolResult();
       const output = matches.map((file) => path.relative(this.workspaceDir, file)).sort().join('\n');
       if (!output) return { success: true, content: 'No matching files found.' };
 

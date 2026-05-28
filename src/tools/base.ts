@@ -33,6 +33,14 @@ export interface ToolExecutionContext {
   readonly onUpdate?: (update: { content?: string; details?: Record<string, unknown> }) => void;
 }
 
+export function isToolExecutionAborted(context?: ToolExecutionContext): boolean {
+  return context?.signal?.aborted ?? false;
+}
+
+export function createAbortedToolResult(): ToolResult {
+  return { success: false, content: '', error: 'Operation aborted' };
+}
+
 export interface ToolDefinition<Input extends Record<string, unknown> = Record<string, unknown>> {
   readonly name: string;
   readonly description: string;
