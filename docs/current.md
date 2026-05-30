@@ -17,7 +17,7 @@
 - M4 session tree 核心路径已完成：entry-tree-first session model、active leaf path rebuild、fork/clone/branch/import/export、branch summary、entry navigation、schema validation、latest fallback 和 recovery smoke cases。
 - `SessionManager` 已收敛为 public lifecycle facade；storage backend、entry store、session model、log parser、context rebuilder 和 fork/create/load helper 已拆出。
 - M5 Tool Execution Orchestration 最小闭环已实现：安全 read-only batch 并发，write/bash/high-risk/unknown 工具串行，tool result 按模型 tool call 原始顺序写回。
-- M5 三模式 permission rule/mode 最小闭环已实现：`default`、`read-only`、`full-access` 已落地到 runtime/tool governance，并记录 pending/denied 关键事实。
+- M5 三模式 permission rule/mode 最小闭环已实现：`default`、`read-only`、`full-access` 已落地到 runtime/tool governance，并记录 pending/denied 关键事实；网络/敏感系统命令识别已覆盖常见远端 git、包管理器、容器/云工具和系统包管理器命令。
 - M5 Tool Result Budget 当前已有最小实现：agent-loop 写回边界会对超预算 tool result 做 preview 截断，并保留原始长度/预算 metadata。
 - 超大工具输出 session sidecar artifact 路径已拆除：tool result 不再保存 artifact reference、不再写 `tool_result_artifact` internal entry，session storage 不再暴露 tool result artifact API。
 - 工具层大输出截断已开始按工具类型收敛：`read_file` 保留 head 并提示 offset continuation，`bash` 保留 tail 并只在截断/中断时写系统临时 log，`grep_files` / `find_files` / `list_files` 保留 head 并提示缩小范围。
@@ -28,11 +28,11 @@
 ## 进行中
 
 - M5 Tool / Permission Governance 继续推进。
-- 当前 permission pending/denied 展示与记录收敛已完成，下一步转向网络/危险命令识别补强。
+- 当前网络/危险命令识别补强已完成，下一步可转向 permission 与底层 sandbox enforcement 的边界梳理，或继续推进 tool result budget 的细化。
 
 ## 下一步
 
-- 补强网络/危险命令识别，覆盖常见网络命令、包管理器安装、远程 git 操作和 workspace 外文件访问。
+- 梳理 Eva permission policy 与底层 sandbox enforcement 的职责边界，明确哪些能力只做 Eva 层提示，哪些需要交给运行环境强制执行。
 - 保持 permission diagnostics 简单，继续沿用 pending/denied 关键事实和 `/diagnostics` 摘要展示。
 - 后续可继续细化工具输出体验：更准确的行/字节统计、bash streaming accumulator、背景任务输出滚动窗口和 compaction-time tool result micro-compaction。
 
@@ -46,5 +46,5 @@
 - skills 已有 resource discovery、source metadata、metadata system prompt 注入和 `/skill:name` 全文按需展开；尚未支持 package/extension source discovery。
 - MCP 相关配置字段已解析，但当前只报告 extension boundary diagnostic，尚未接入 MCP server lifecycle。
 - session 当前有意暂不拆完整 `SessionRepo`；跨 session parent/child entry graph、完整 tree navigation 交互和 branch summarization pipeline 仍未实现。
-- 三模式 permission rule/mode 已落地到 runtime/tool governance，并已有 pending/denied 记录；当前只在 Eva 层做 policy gating，尚未接入底层 sandbox enforcement。
+- 三模式 permission rule/mode 已落地到 runtime/tool governance，并已有 pending/denied 记录和常见网络/敏感系统命令识别；当前只在 Eva 层做 policy gating，尚未接入底层 sandbox enforcement。
 - TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。

@@ -20,21 +20,39 @@ const PATH_ARG_KEYS = [
 ];
 
 const NETWORK_COMMAND_PATTERNS = [
-  /\b(curl|wget|ssh|scp|sftp|rsync|ftp|telnet|nc|ncat|socat)\b/i,
-  /\bgit\s+(clone|pull|fetch|push|ls-remote)\b/i,
-  /\bgit\s+submodule\s+update\b.*\b(--init|--remote)\b/i,
+  /\b(curl|wget|aria2c|ssh|scp|sftp|rsync|ftp|telnet|nc|ncat|socat|ssh-keyscan)\b/i,
+  /\bopenssl\s+s_client\b/i,
+  /\bgit\s+(clone|pull|fetch|push|ls-remote|archive)\b/i,
+  /\bgit\s+remote\s+(add|set-url)\b.*\b(https?:\/\/|ssh:\/\/|git@)/i,
+  /\bgit\s+(submodule|lfs)\s+(update|pull|fetch|push|install)\b/i,
   /\b(gh|glab)\s+(repo|pr|issue|release|workflow|run|api|auth)\b/i,
-  /\b(npm|pnpm|yarn|bun)\s+(install|i|add|update|upgrade|dlx|create)\b/i,
-  /\bnpx\b/i,
+  /\b(npm|pnpm|yarn|bun)\s+(install|i|add|update|upgrade|dlx|create|exec|x|link)\b/i,
+  /\b(corepack)\s+(enable|prepare|install)\b/i,
+  /\b(npx|pnpx|yarnx|bunx|uvx)\b/i,
+  /\b(python|python3|py)\s+-m\s+pip\s+install\b/i,
   /\b(pip|pip3|pipx)\s+install\b/i,
   /\buv\s+(add|sync|pip\s+install|tool\s+install)\b/i,
-  /\bpoetry\s+(add|install|update)\b/i,
-  /\b(gem|cargo|go)\s+(install|get)\b/i,
-  /\bgo\s+mod\s+download\b/i,
+  /\b(poetry|pipenv|conda|mamba)\s+(add|install|update|sync|create)\b/i,
+  /\b(gem|bundle)\s+(install|update|add)\b/i,
+  /\b(cargo|rustup)\s+(install|fetch|update|add|toolchain\s+install|component\s+add)\b/i,
+  /\bgo\s+(install|get|work\s+sync)\b/i,
+  /\bgo\s+(mod\s+download|run\s+\S+@\S+)\b/i,
   /\bcomposer\s+(install|update|require)\b/i,
-  /\b(docker|podman)\s+(pull|push|build|buildx|compose\s+(pull|build|up))\b/i,
-  /\b(kubectl|helm|terraform|tofu)\s+(apply|destroy|init|plan|refresh|push|pull)\b/i,
-  /\b(apt|apt-get|apk|dnf|yum|pacman|brew)\s+(install|update|upgrade|add)\b/i,
+  /\b(dotnet|nuget)\s+(restore|add\s+package|tool\s+install|install)\b/i,
+  /\b(swift|gradle|mvn)\s+(package\s+(resolve|update)|dependencies|dependency:go-offline|compile|test|package|install|verify)\b/i,
+  /\b(docker|podman)\s+(pull|push|login|run|build|buildx\s+build|compose\s+(pull|build|up|run))\b/i,
+  /\b(kubectl)\s+(get|logs|exec|port-forward|apply|delete|create|scale|rollout|cp)\b/i,
+  /\bhelm\s+(repo\s+(add|update)|install|upgrade|pull|dependency\s+(build|update))\b/i,
+  /\b(terraform|tofu)\s+(apply|destroy|init|plan|refresh|push|pull|import)\b/i,
+  /\b(aws|gcloud|az|flyctl|vercel|netlify|wrangler|supabase|firebase)\b/i,
+  /\b(apt|apt-get|apk|dnf|yum|pacman|brew|snap|flatpak)\s+(install|update|upgrade|add)\b/i,
+];
+
+const SENSITIVE_SYSTEM_COMMAND_PATTERNS = [
+  /\b(sudo|doas|su)\b/i,
+  /\b(systemctl|service|launchctl|sc|netsh|reg)\b/i,
+  /\b(mkfs|mount|umount|fdisk|parted|dd)\b/i,
+  /\b(rm|chmod|chown|chgrp|mv|cp)\b[^|;&\n]*\s\/(etc|usr|bin|sbin|var|lib|opt|boot|sys|proc|dev)\b/i,
 ];
 
 export function resolveToolPermission({
@@ -92,6 +110,13 @@ export function resolveToolPermission({
     };
   }
 
+  if (metadata.category === 'bash' && isLikelySensitiveSystemCommand(context.args)) {
+    return {
+      decision: 'ask',
+      reason: 'Tool permission required: bash command may modify system resources',
+    };
+  }
+
   return { decision: 'allow' };
 }
 
@@ -99,6 +124,12 @@ export function isLikelyNetworkCommand(args: Record<string, unknown>): boolean {
   const command = args['command'];
   if (typeof command !== 'string') return false;
   return NETWORK_COMMAND_PATTERNS.some((pattern) => pattern.test(command));
+}
+
+function isLikelySensitiveSystemCommand(args: Record<string, unknown>): boolean {
+  const command = args['command'];
+  if (typeof command !== 'string') return false;
+  return SENSITIVE_SYSTEM_COMMAND_PATTERNS.some((pattern) => pattern.test(command));
 }
 
 function findOutsideWorkspacePath(args: Record<string, unknown>, workspaceDir: string): string | null {
