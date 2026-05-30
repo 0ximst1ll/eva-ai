@@ -251,16 +251,17 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
       case 'tool_result': {
         const r = event.result;
         if (r.success) {
+          const summary = r.displayContent ? `: ${r.displayContent}` : '';
           chatContainer.addChild(
             new Text(
-              `${Colors.BRIGHT_GREEN}✓${Colors.RESET} ${Colors.DIM}${r.toolName} completed${Colors.RESET}`,
-              { wrap: false },
+              `${Colors.BRIGHT_GREEN}✓${Colors.RESET} ${Colors.DIM}${r.toolName} completed${summary}${Colors.RESET}`,
+              { wrap: true },
             ),
           );
         } else {
           chatContainer.addChild(
             new Text(
-              `${Colors.BRIGHT_RED}✗ ${r.error ?? r.content}${Colors.RESET}`,
+              `${Colors.BRIGHT_RED}✗ ${r.displayContent ?? r.error ?? r.content}${Colors.RESET}`,
               { wrap: true },
             ),
           );

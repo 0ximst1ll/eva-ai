@@ -118,6 +118,25 @@ function createBashDetails({
   };
 }
 
+function renderBashResult(result: ToolResult<BashToolDetails>): string | undefined {
+  const details = result.details;
+  if (!details) return undefined;
+  const parts: string[] = [];
+  if (details.bashId) parts.push(`bash_id=${details.bashId}`);
+  if (details.status) parts.push(`status=${details.status}`);
+  if (typeof details.exitCode === 'number') parts.push(`exit=${details.exitCode}`);
+  if (typeof details.outputLines === 'number') parts.push(`${details.outputLines} new lines`);
+  if (typeof details.stdoutChars === 'number') parts.push(`stdout=${details.stdoutChars} chars`);
+  if (typeof details.stderrChars === 'number' && details.stderrChars > 0) {
+    parts.push(`stderr=${details.stderrChars} chars`);
+  }
+  if (details.truncation?.truncated) {
+    parts.push(`truncated ${details.truncation.shownChars}/${details.truncation.originalChars} chars`);
+  }
+  if (details.fullOutputPath) parts.push(`full output: ${details.fullOutputPath}`);
+  return parts.length ? parts.join('; ') : undefined;
+}
+
 function killProcessTree(proc: cp.ChildProcess, isWindows: boolean): void {
   if (!proc.pid) return;
   try {
@@ -295,6 +314,8 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
     },
     required: ['command'],
   };
+
+  renderResult = renderBashResult;
 
   async execute(
     { command, timeout = 120, run_in_background = false }: BashInput,
@@ -486,6 +507,8 @@ export class BashOutputTool implements Tool<BashOutputInput, BashToolDetails> {
     required: ['bash_id'],
   };
 
+  renderResult = renderBashResult;
+
   async execute({ bash_id, filter_str }: BashOutputInput, context?: ToolExecutionContext): Promise<BashOutputResult> {
     if (isToolExecutionAborted(context)) return abortedBashResult();
     const shell = getShell(bash_id);
@@ -540,6 +563,8 @@ export class BashKillTool implements Tool<BashKillInput, BashToolDetails> {
     },
     required: ['bash_id'],
   };
+
+  renderResult = renderBashResult;
 
   async execute({ bash_id }: BashKillInput, context?: ToolExecutionContext): Promise<BashOutputResult> {
     try {

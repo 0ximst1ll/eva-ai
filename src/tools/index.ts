@@ -5,12 +5,14 @@ export type {
   ToolDefinition,
   ToolExecutionContext,
   ToolMetadata,
+  ToolRenderResultContext,
+  ToolResultRenderer,
   ToolResult,
   ToolResultDetails,
   ToolRiskLevel,
   ToolSource,
 } from './base.js';
-export { createToolDefinition, toAnthropicSchema, toOpenAISchema, toolFromDefinition, withToolMetadata } from './base.js';
+export { createToolDefinition, renderToolResult, toAnthropicSchema, toOpenAISchema, toolFromDefinition, withToolMetadata } from './base.js';
 export { BashKillTool, BashOutputTool, BashTool, type BashExecOptions, type BashOperations, type BashOutputResult, type BashSpawnOptions, type BashToolDetails } from './bash.js';
 export { EditTool, type EditToolInput } from './edit.js';
 export { localFileToolOperations, type FileToolDirent, type FileToolOperations, type FileToolStats } from './file-operations.js';

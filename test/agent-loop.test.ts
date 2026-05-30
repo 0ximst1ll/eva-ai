@@ -73,6 +73,9 @@ test('runAgentLoop continues after tool calls and preserves tool result order', 
     async execute(args) {
       return { success: true, content: String(args['text']), details: { echoed: true } };
     },
+    renderResult(result) {
+      return result.details?.['echoed'] ? 'echo rendered from details' : undefined;
+    },
   };
   const events: AgentLoopEvent[] = [];
 
@@ -101,6 +104,10 @@ test('runAgentLoop continues after tool calls and preserves tool result order', 
   assert.deepEqual(
     events.find((event) => event.type === 'tool_result')?.result.details,
     { echoed: true },
+  );
+  assert.equal(
+    events.find((event) => event.type === 'tool_result')?.result.displayContent,
+    'echo rendered from details',
   );
 });
 

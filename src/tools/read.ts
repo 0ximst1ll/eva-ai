@@ -42,6 +42,15 @@ export class ReadTool implements Tool<ReadToolInput, ReadToolDetails> {
     private readonly operations: FileToolOperations = localFileToolOperations,
   ) {}
 
+  renderResult(result: ToolResult<ReadToolDetails>): string | undefined {
+    if (!result.success || !result.details) return undefined;
+    const { startLine, endLine, totalLines, shownLines, nextOffset, truncation } = result.details;
+    const parts = [`read ${shownLines} lines (${startLine}-${endLine} of ${totalLines})`];
+    if (nextOffset !== null) parts.push(`continue with offset=${nextOffset}`);
+    if (truncation?.truncated) parts.push(`truncated ${truncation.shownChars}/${truncation.originalChars} chars`);
+    return parts.join('; ');
+  }
+
   async execute({ path: filePath, offset, limit }: ReadToolInput, context?: ToolExecutionContext): Promise<ToolResult<ReadToolDetails>> {
     try {
       if (isToolExecutionAborted(context)) return createAbortedToolResult();

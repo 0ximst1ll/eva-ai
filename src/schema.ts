@@ -77,6 +77,7 @@ export interface ToolExecutionResult {
     toolName: string;
     success: boolean;
     content: string;
+    displayContent?: string;
     error?: string;
     details?: ToolExecutionDetails;
     contentTruncated?: boolean;

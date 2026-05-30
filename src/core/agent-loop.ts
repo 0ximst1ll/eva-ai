@@ -2,7 +2,7 @@ import type { LLMClient } from '../llm/llm-client.js';
 import { formatProviderError } from '../llm/provider-errors.js';
 import { RetryExhaustedError } from '../retry.js';
 import type { AgentMessage, LLMResponse, LlmMessage, ToolCall, ToolExecutionResult } from '../schema.js';
-import type { Tool, ToolExecutionContext } from '../tools/base.js';
+import { renderToolResult, type Tool, type ToolExecutionContext } from '../tools/base.js';
 import {
   createInternalAgentMessage,
   defaultConvertToLlm,
@@ -180,6 +180,18 @@ function createAbortedToolResult(toolCall: ToolCall): ToolExecutionResult {
   };
 }
 
+function attachToolDisplayContent(
+  tool: Tool,
+  args: Record<string, unknown>,
+  result: ToolExecutionResult,
+): ToolExecutionResult {
+  const displayContent = renderToolResult(tool, result, {
+    toolCallId: result.toolCallId,
+    args,
+  });
+  return displayContent ? { ...result, displayContent } : result;
+}
+
 async function executeToolCall(
   toolCall: ToolCall,
   toolMap: Map<string, Tool>,
@@ -219,9 +231,13 @@ async function executeToolCall(
       return result;
     }
     if (before?.block) {
-      const result = applyToolResultBudget(
-        createBlockedToolResult(toolCall, before.reason),
-        config.toolResultBudget,
+      const result = attachToolDisplayContent(
+        tool,
+        args,
+        applyToolResultBudget(
+          createBlockedToolResult(toolCall, before.reason),
+          config.toolResultBudget,
+        ),
       );
       await emit(config.emit, { type: 'tool_execution_end', result });
       return result;
@@ -245,7 +261,11 @@ async function executeToolCall(
       const after = await config.afterToolCall?.({ toolCall, tool, args, result, messages }, config.signal);
       if (after) result = { ...result, ...after };
     }
-    result = applyToolResultBudget(result, config.toolResultBudget);
+    result = attachToolDisplayContent(
+      tool,
+      args,
+      applyToolResultBudget(result, config.toolResultBudget),
+    );
 
     await emit(config.emit, { type: 'tool_execution_end', result });
     return result;

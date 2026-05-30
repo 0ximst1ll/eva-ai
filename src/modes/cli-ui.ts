@@ -81,12 +81,13 @@ export function createCliRenderer() {
 
     if (event.type === 'tool_result') {
       if (event.result.success) {
-        let text = event.result.content;
+        let text = event.result.displayContent ?? event.result.content;
         if (text.length > 300) text = text.slice(0, 300) + `${Colors.DIM}...${Colors.RESET}`;
         console.log(`${Colors.BRIGHT_GREEN}✓ Result:${Colors.RESET} ${text}`);
       } else {
+        const text = event.result.displayContent ?? event.result.error ?? event.result.content;
         console.log(
-          `${Colors.BRIGHT_RED}✗ Error:${Colors.RESET} ${Colors.RED}${event.result.error}${Colors.RESET}`,
+          `${Colors.BRIGHT_RED}✗ Error:${Colors.RESET} ${Colors.RED}${text}${Colors.RESET}`,
         );
       }
       return;

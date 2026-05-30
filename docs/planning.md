@@ -107,16 +107,16 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 - read-only tools 可并发；write/bash tools 应串行。
 - execution mode 默认可由 metadata 推断，但应允许工具显式声明 `parallel` / `sequential`，避免复杂工具被全局策略误判。
 - tool result ordering 和预算由统一 orchestration 管理。
-- tool result 应从纯文本结果逐步升级为 `content + details`：截断统计、full output path、bash exit code、grep match count 等结构化信息进入 details，TUI、diagnostics、compaction 不解析文本。
+- tool result 应从纯文本结果逐步升级为 `content + details`：截断统计、full output path、bash exit code、grep match count 等结构化信息进入 details，工具级 renderer、TUI/CLI 和后续 compaction 不解析文本；`/diagnostics` 不作为 tool details 的主要消费路径。
 - 大工具输出默认在工具层或 request view 层截断；bash 等流式输出可写临时文件供当前运行查看，但不作为通用 session artifact 长期保存。
 - tool call / tool result / operations override 是后续 extension/MCP 的核心 hook 边界；先稳定内部 hook，再决定是否开放完整 extension API。
 
 里程碑：
 
 - 已完成：builtin tool registry、metadata 和 governance hook。
-- 已完成：ToolResult `content + typed details` 最小边界。
+- 已完成：ToolResult `content + typed details` 最小边界，以及工具级 `renderResult -> displayContent` 展示边界。
 - 后续：read-only 并发、write/bash 串行、轻量 tool result budget、临时大输出处理、operations injection。
-- 后续：工具级 render boundary、extension-style tool call/result hooks。
+- 后续：extension-style tool call/result hooks。
 - 后续：MCP/custom tools 接入同一 registry 和 metadata 模型。
 
 ### 5. Permission / Safety

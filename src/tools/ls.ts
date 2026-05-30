@@ -29,6 +29,14 @@ export class LsTool implements Tool<LsToolInput, ListToolDetails> {
     private readonly operations: FileToolOperations = localFileToolOperations,
   ) {}
 
+  renderResult(result: ToolResult<ListToolDetails>): string | undefined {
+    if (!result.success || !result.details) return undefined;
+    const { resultCount, truncation } = result.details;
+    const parts = [`${resultCount} entries`];
+    if (truncation?.truncated) parts.push(`truncated ${truncation.shownChars}/${truncation.originalChars} chars`);
+    return parts.join('; ');
+  }
+
   async execute({ path: targetPath = '.' }: LsToolInput, context?: ToolExecutionContext): Promise<ToolResult<ListToolDetails>> {
     try {
       if (isToolExecutionAborted(context)) return createAbortedToolResult();

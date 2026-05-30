@@ -61,6 +61,15 @@ export class GrepTool implements Tool<GrepToolInput, SearchToolDetails> {
     private readonly operations: FileToolOperations = localFileToolOperations,
   ) {}
 
+  renderResult(result: ToolResult<SearchToolDetails>): string | undefined {
+    if (!result.success || !result.details) return undefined;
+    const { matchCount, maxResults, limitedByMaxResults, truncation } = result.details;
+    const parts = [`${matchCount} matches`];
+    if (limitedByMaxResults) parts.push(`stopped at max_results=${maxResults}`);
+    if (truncation?.truncated) parts.push(`truncated ${truncation.shownChars}/${truncation.originalChars} chars`);
+    return parts.join('; ');
+  }
+
   async execute(
     { pattern, path: targetPath = '.', max_results = MAX_RESULTS, case_sensitive = true }: GrepToolInput,
     context?: ToolExecutionContext,

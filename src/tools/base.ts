@@ -12,6 +12,24 @@ export interface ToolResult<TDetails extends ToolResultDetails = ToolResultDetai
   details?: TDetails;
 }
 
+export interface ToolRenderResultContext<
+  Input extends Record<string, unknown> = Record<string, unknown>,
+> {
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly args: Input;
+}
+
+export type ToolResultRenderer<
+  Input extends Record<string, unknown> = Record<string, unknown>,
+  TDetails extends ToolResultDetails = ToolResultDetails,
+> = {
+  bivarianceHack(
+    result: ToolResult<TDetails>,
+    context: ToolRenderResultContext<Input>,
+  ): string | undefined;
+}['bivarianceHack'];
+
 // JSON Schema object type (what the LLM sees for parameters)
 export type JsonSchema = Record<string, unknown>;
 
@@ -54,6 +72,7 @@ export interface ToolDefinition<
   readonly metadata: ToolMetadata;
   prepareArguments?(args: Record<string, unknown>): Input;
   execute(args: Input, context?: ToolExecutionContext): Promise<ToolResult<TDetails>>;
+  renderResult?: ToolResultRenderer<Input, TDetails>;
 }
 
 // Base interface all tools must implement.
@@ -67,6 +86,7 @@ export interface Tool<
   readonly parameters: JsonSchema;
   readonly metadata?: ToolMetadata;
   execute(args: Input, context?: ToolExecutionContext): Promise<ToolResult<TDetails>>;
+  renderResult?: ToolResultRenderer<Input, TDetails>;
 }
 
 export function withToolMetadata<T extends Tool>(tool: T, metadata: ToolMetadata): T {
@@ -86,6 +106,7 @@ export function createToolDefinition<
     parameters: tool.parameters,
     metadata,
     execute: (args, context) => tool.execute(args, context),
+    renderResult: tool.renderResult,
   };
 }
 
@@ -101,7 +122,22 @@ export function toolFromDefinition<
     parameters: definition.parameters,
     metadata: definition.metadata,
     execute: (args, context) => definition.execute(definition.prepareArguments?.(args) ?? (args as Input), context),
+    renderResult: definition.renderResult,
   };
+}
+
+export function renderToolResult<
+  Input extends Record<string, unknown>,
+  TDetails extends ToolResultDetails = ToolResultDetails,
+>(
+  tool: Tool<Input, TDetails>,
+  result: ToolResult<TDetails>,
+  context: Omit<ToolRenderResultContext<Input>, 'toolName'>,
+): string | undefined {
+  return tool.renderResult?.(result, {
+    ...context,
+    toolName: tool.name,
+  });
 }
 
 // Convert a Tool to Anthropic's tool schema format.

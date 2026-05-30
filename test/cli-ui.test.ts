@@ -108,3 +108,23 @@ test('createCliRenderer prints a low-noise working state once per run', () => {
 
   assert.equal(output.match(/Working\.\.\./g)?.length, 2);
 });
+
+test('createCliRenderer prefers tool display content for result output', () => {
+  const render = createCliRenderer();
+
+  const output = captureConsoleAndStdout(() => {
+    render({
+      type: 'tool_result',
+      result: {
+        toolCallId: 'call-1',
+        toolName: 'read_file',
+        success: true,
+        content: 'raw file content',
+        displayContent: 'read 2 lines (1-2 of 10)',
+      },
+    });
+  });
+
+  assert.match(output, /read 2 lines/);
+  assert.doesNotMatch(output, /raw file content/);
+});

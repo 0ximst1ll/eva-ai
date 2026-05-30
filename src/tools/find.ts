@@ -59,6 +59,15 @@ export class FindTool implements Tool<FindToolInput, FindToolDetails> {
     private readonly operations: FileToolOperations = localFileToolOperations,
   ) {}
 
+  renderResult(result: ToolResult<FindToolDetails>): string | undefined {
+    if (!result.success || !result.details) return undefined;
+    const { resultCount, maxResults, limitedByMaxResults, truncation } = result.details;
+    const parts = [`${resultCount} files`];
+    if (limitedByMaxResults) parts.push(`stopped at max_results=${maxResults}`);
+    if (truncation?.truncated) parts.push(`truncated ${truncation.shownChars}/${truncation.originalChars} chars`);
+    return parts.join('; ');
+  }
+
   async execute(
     { pattern, path: targetPath = '.', max_results = MAX_RESULTS }: FindToolInput,
     context?: ToolExecutionContext,
