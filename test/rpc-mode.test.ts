@@ -430,6 +430,8 @@ test('RPC permission request mode emits pending event and approval resumes promp
           isConcurrencySafe: false,
           requiresConfirmation: true,
         },
+        reason: 'Tool permission required: outside workspace',
+        permissionMode: 'default',
       });
       onEvent?.({
         type: 'tool_result',
@@ -478,6 +480,8 @@ test('RPC permission request mode emits pending event and approval resumes promp
   assert.equal(permission['tool_name'], 'write_file');
   assert.equal(permission['tool_call_id'], 'call-1');
   assert.equal(permission['risk_level'], 'high');
+  assert.equal(permission['reason'], 'Tool permission required: outside workspace');
+  assert.equal(permission['permission_mode'], 'default');
   assert.match(String(permission['args_preview']), /file\.txt/);
 
   await handleRpcRequest({
@@ -511,6 +515,7 @@ test('RPC permission request mode emits pending event and approval resumes promp
   assert.equal(confirmationHandler, undefined);
   assert.equal(stats.internalEntries.length, 1);
   assert.equal((stats.internalEntries[0]?.['metadata'] as Record<string, unknown>)['permissionId'], permission['permission_id']);
+  assert.equal((stats.internalEntries[0]?.['metadata'] as Record<string, unknown>)['permissionMode'], 'default');
 });
 
 test('RPC permission request mode supports explicit deny', async () => {

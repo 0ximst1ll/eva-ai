@@ -140,13 +140,15 @@ function formatCompactionRecommendationStatus(diagnostics: ContextDiagnostics): 
   ].join(', ');
 }
 
-function formatPermissionPendingStatus(diagnostics: ContextDiagnostics): string {
-  const pending = diagnostics.permissionPending;
-  if (!pending.count) return 'none';
-  const metadata = pending.latest?.metadata ?? {};
+function formatPermissionDecisionStatus(
+  permission: ContextDiagnostics['permissionPending'],
+  fallbackReason: string,
+): string {
+  if (!permission.count) return 'none';
+  const metadata = permission.latest?.metadata ?? {};
   const toolName = typeof metadata['toolName'] === 'string' ? metadata['toolName'] : 'unknown';
-  const reason = pending.latest?.content ?? 'permission pending';
-  return `count=${pending.count}, latest tool=${toolName}, reason=${reason}`;
+  const reason = permission.latest?.content ?? fallbackReason;
+  return `count=${permission.count}, latest tool=${toolName}, reason=${reason}`;
 }
 
 function formatSkillsStatus(diagnostics: ContextDiagnostics): string {
@@ -180,7 +182,8 @@ function writeContextDiagnostics(
   writeLine(`  Latest usage: ${formatLatestUsageStatus(diagnostics.usage)}`);
   writeLine(`  Context usage: ${formatContextUsageStatus(diagnostics)}`);
   writeLine(`  Compaction recommendation: ${formatCompactionRecommendationStatus(diagnostics)}`);
-  writeLine(`  Permission pending: ${formatPermissionPendingStatus(diagnostics)}`);
+  writeLine(`  Permission pending: ${formatPermissionDecisionStatus(diagnostics.permissionPending, 'permission pending')}`);
+  writeLine(`  Permission denied: ${formatPermissionDecisionStatus(diagnostics.permissionDenied, 'permission denied')}`);
   writeLine(`  Estimated tokens: ${formatTokenEstimateStatus(diagnostics)}`);
   writeLine(`  Project context resources: ${diagnostics.projectContext.count}`);
   for (const resource of diagnostics.projectContext.resources) {

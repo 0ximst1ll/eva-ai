@@ -8,16 +8,16 @@
 - `RuntimeServices` 已承载 workspace 绑定的 config、provider、tools、session manager、resource loader、context builder、context manager、token counter 和 diagnostics。
 - `AgentMessage` / `LlmMessage` 最小类型边界已引入，agent-loop 会在 provider call 前执行 `transformContext()` 和 `convertToLlm()`。
 - `ResourceLoader` 已支持 system prompt、`AGENTS.md` project context、配置目录 skills discovery、skills source metadata、metadata system prompt 注入、explicit skill invocation 和 skills/resource diagnostics 展示。
-- `ContextBuilder` 已收敛为 provider request view builder；`ContextManager` 已提供 token estimate、usage percent、compaction recommendation、skills/resource 和 permission pending diagnostics 的最小聚合。
+- `ContextBuilder` 已收敛为 provider request view builder；`ContextManager` 已提供 token estimate、usage percent、compaction recommendation、skills/resource 和 permission pending/denied diagnostics 的最小聚合。
 - `TokenCounter` 已支持 provider/local 计数边界，Anthropic 和 Gemini provider 优先使用 countTokens API。
 - manual `/compact`、auto compaction、prompt-too-long compact-and-retry、post-compact resource budget 最小闭环已实现。
-- durable `internal` session entry 和 permission pending durable diagnostics 已实现。
+- durable `internal` session entry 和 permission pending/denied durable diagnostics 已实现。
 - TUI 已接入共享 runtime，支持 tool confirmation、Ctrl-C abort/exit、session/entry navigation 和低噪音 streaming event 渲染。
 - Headless JSONL RPC 最小闭环已实现，支持 prompt、state、abort、session lifecycle 和 permission approve/deny。
 - M4 session tree 核心路径已完成：entry-tree-first session model、active leaf path rebuild、fork/clone/branch/import/export、branch summary、entry navigation、schema validation、latest fallback 和 recovery smoke cases。
 - `SessionManager` 已收敛为 public lifecycle facade；storage backend、entry store、session model、log parser、context rebuilder 和 fork/create/load helper 已拆出。
 - M5 Tool Execution Orchestration 最小闭环已实现：安全 read-only batch 并发，write/bash/high-risk/unknown 工具串行，tool result 按模型 tool call 原始顺序写回。
-- M5 三模式 permission rule/mode 最小闭环已实现：`default`、`read-only`、`full-access` 已落地到 runtime/tool governance。
+- M5 三模式 permission rule/mode 最小闭环已实现：`default`、`read-only`、`full-access` 已落地到 runtime/tool governance，并记录 pending/denied 关键事实。
 - M5 Tool Result Budget 当前已有最小实现：agent-loop 写回边界会对超预算 tool result 做 preview 截断，并保留原始长度/预算 metadata。
 - 超大工具输出 session sidecar artifact 路径已拆除：tool result 不再保存 artifact reference、不再写 `tool_result_artifact` internal entry，session storage 不再暴露 tool result artifact API。
 - 工具层大输出截断已开始按工具类型收敛：`read_file` 保留 head 并提示 offset continuation，`bash` 保留 tail 并只在截断/中断时写系统临时 log，`grep_files` / `find_files` / `list_files` 保留 head 并提示缩小范围。
@@ -28,12 +28,12 @@
 ## 进行中
 
 - M5 Tool / Permission Governance 继续推进。
-- 当前正在实现 permission policy 最小收敛：把 `default`、`read-only`、`full-access` 的文件范围、网络命令和确认策略收敛到统一规则入口。
+- 当前 permission pending/denied 展示与记录收敛已完成，下一步转向网络/危险命令识别补强。
 
 ## 下一步
 
 - 补强网络/危险命令识别，覆盖常见网络命令、包管理器安装、远程 git 操作和 workspace 外文件访问。
-- 保持 permission diagnostics 简单，只记录 pending/denied 的关键事实，不引入大而全的 diagnostics 聚合。
+- 保持 permission diagnostics 简单，继续沿用 pending/denied 关键事实和 `/diagnostics` 摘要展示。
 - 后续可继续细化工具输出体验：更准确的行/字节统计、bash streaming accumulator、背景任务输出滚动窗口和 compaction-time tool result micro-compaction。
 
 ## 已知问题
@@ -46,5 +46,5 @@
 - skills 已有 resource discovery、source metadata、metadata system prompt 注入和 `/skill:name` 全文按需展开；尚未支持 package/extension source discovery。
 - MCP 相关配置字段已解析，但当前只报告 extension boundary diagnostic，尚未接入 MCP server lifecycle。
 - session 当前有意暂不拆完整 `SessionRepo`；跨 session parent/child entry graph、完整 tree navigation 交互和 branch summarization pipeline 仍未实现。
-- 三模式 permission rule/mode 已落地到 runtime/tool governance，但网络命令识别仍需补强；当前只在 Eva 层做 policy gating，尚未接入底层 sandbox enforcement。
+- 三模式 permission rule/mode 已落地到 runtime/tool governance，并已有 pending/denied 记录；当前只在 Eva 层做 policy gating，尚未接入底层 sandbox enforcement。
 - TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。

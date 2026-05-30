@@ -250,6 +250,8 @@ test('tool governance records pending permissions as durable internal entries', 
   assert.equal(entries[0]?.content, result?.reason);
   assert.equal(entries[0]?.metadata?.['toolName'], 'write_file');
   assert.equal(entries[0]?.metadata?.['toolCallId'], 'call-1');
+  assert.equal(entries[0]?.metadata?.['permissionMode'], 'default');
+  assert.equal(entries[0]?.metadata?.['decision'], 'ask');
   assert.deepEqual(sessionManager.getMessages(sessionId), [{ role: 'system', content: 'system' }]);
 });
 
@@ -301,6 +303,26 @@ test('tool governance denies rejected tool calls', async () => {
   assert.match(result?.reason ?? '', /Tool execution denied/);
 });
 
+test('tool governance records rejected tool calls as denied permissions', async () => {
+  const sessionManager = new SessionManager({ workspaceDir: '/workspace', mode: 'memory' });
+  const sessionId = await sessionManager.createSession('system', 'session-permission');
+  const hook = createToolGovernanceHook(
+    createConfig(),
+    createOptions(() => false),
+    { sessionManager, sessionId },
+  );
+
+  const result = await hook(createContext(writeTool, { path: '../outside.txt' }));
+
+  assert.equal(result?.block, true);
+  const entries = sessionManager.getInternalEntries(sessionId, 'permission_denied');
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.content, result?.reason);
+  assert.equal(entries[0]?.metadata?.['toolName'], 'write_file');
+  assert.equal(entries[0]?.metadata?.['permissionMode'], 'default');
+  assert.equal(entries[0]?.metadata?.['decision'], 'deny');
+});
+
 test('tool governance blocks writes in read-only mode', async () => {
   const hook = createToolGovernanceHook(
     createConfig('read-only'),
@@ -311,6 +333,26 @@ test('tool governance blocks writes in read-only mode', async () => {
 
   assert.equal(result?.block, true);
   assert.match(result?.reason ?? '', /read-only permission mode/);
+});
+
+test('tool governance records policy-denied tool calls as denied permissions', async () => {
+  const sessionManager = new SessionManager({ workspaceDir: '/workspace', mode: 'memory' });
+  const sessionId = await sessionManager.createSession('system', 'session-permission');
+  const hook = createToolGovernanceHook(
+    createConfig('read-only'),
+    createOptions(() => 'allow'),
+    { sessionManager, sessionId },
+  );
+
+  const result = await hook(createContext(writeTool, { path: 'file.txt' }));
+
+  assert.equal(result?.block, true);
+  const entries = sessionManager.getInternalEntries(sessionId, 'permission_denied');
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.content, result?.reason);
+  assert.equal(entries[0]?.metadata?.['toolName'], 'write_file');
+  assert.equal(entries[0]?.metadata?.['permissionMode'], 'read-only');
+  assert.equal(entries[0]?.metadata?.['decision'], 'deny');
 });
 
 test('tool governance allows all tools in full-access mode', async () => {

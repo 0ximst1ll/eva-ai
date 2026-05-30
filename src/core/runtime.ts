@@ -41,6 +41,8 @@ export interface ToolConfirmationRequest {
   tool: Tool;
   args: Record<string, unknown>;
   metadata: ToolMetadata;
+  reason?: string;
+  permissionMode?: PermissionMode;
 }
 
 export type ToolPermissionHandlerResult = ToolPermissionDecision | boolean;
@@ -95,23 +97,29 @@ export function normalizeToolPermissionDecision(result: ToolPermissionHandlerRes
   return result;
 }
 
-async function appendPermissionPendingEntry({
+type PermissionInternalEntryKind = 'permission_pending' | 'permission_denied';
+
+async function appendPermissionInternalEntry({
+  kind,
   context,
   reason,
   sessionContext,
   mode,
+  decision,
 }: {
+  kind: PermissionInternalEntryKind;
   context: BeforeToolCallContext & { tool: Tool & { metadata: ToolMetadata } };
   reason: string;
   sessionContext?: ToolGovernanceSessionContext;
   mode?: PermissionMode;
+  decision?: ToolPermissionDecision;
 }): Promise<void> {
   if (!sessionContext) return;
 
   try {
     await sessionContext.sessionManager.appendInternalEntry({
       sessionId: sessionContext.sessionId,
-      kind: 'permission_pending',
+      kind,
       content: reason,
       metadata: {
         toolName: context.tool.name,
@@ -122,6 +130,7 @@ async function appendPermissionPendingEntry({
         isReadOnly: context.tool.metadata.isReadOnly,
         requiresConfirmation: context.tool.metadata.requiresConfirmation ?? false,
         permissionMode: mode,
+        decision,
       },
     });
   } catch {
@@ -141,22 +150,43 @@ export function createToolGovernanceHook(
       mode,
       workspaceDir: options.workspaceDir,
     });
+    const governedContext = context.tool?.metadata
+      ? context as BeforeToolCallContext & { tool: Tool & { metadata: ToolMetadata } }
+      : null;
+
     if (result.decision === 'allow') {
       return result.toolExecutionContext ? { toolExecutionContext: result.toolExecutionContext } : undefined;
     }
 
     if (result.decision === 'deny') {
+      const reason = result.reason ?? 'Tool execution denied';
+      if (governedContext) {
+        await appendPermissionInternalEntry({
+          kind: 'permission_denied',
+          context: governedContext,
+          reason,
+          sessionContext,
+          mode,
+          decision: 'deny',
+        });
+      }
       return {
         block: true,
-        reason: result.reason ?? 'Tool execution denied',
+        reason,
       };
     }
 
-    const governedContext = context as BeforeToolCallContext & { tool: Tool & { metadata: ToolMetadata } };
     const reason = result.reason ?? 'Tool permission required: ' + context.toolCall.function.name;
     if (!context.tool?.metadata || !options.confirmToolCall) {
-      if (context.tool?.metadata) {
-        await appendPermissionPendingEntry({ context: governedContext, reason, sessionContext, mode });
+      if (governedContext) {
+        await appendPermissionInternalEntry({
+          kind: 'permission_pending',
+          context: governedContext,
+          reason,
+          sessionContext,
+          mode,
+          decision: 'ask',
+        });
       }
       return {
         block: true,
@@ -166,18 +196,28 @@ export function createToolGovernanceHook(
       };
     }
 
+    const confirmedContext = context as BeforeToolCallContext & { tool: Tool & { metadata: ToolMetadata } };
     const decision = normalizeToolPermissionDecision(
       await options.confirmToolCall({
         toolCall: context.toolCall,
         tool: context.tool,
         args: context.args,
         metadata: context.tool.metadata,
+        reason,
+        permissionMode: mode,
       }),
     );
 
     if (decision === 'ask') {
       const pendingReason = `${reason}; approval required but current mode cannot request it`;
-      await appendPermissionPendingEntry({ context: governedContext, reason: pendingReason, sessionContext, mode });
+      await appendPermissionInternalEntry({
+        kind: 'permission_pending',
+        context: confirmedContext,
+        reason: pendingReason,
+        sessionContext,
+        mode,
+        decision,
+      });
       return {
         block: true,
         reason: pendingReason,
@@ -185,9 +225,18 @@ export function createToolGovernanceHook(
     }
 
     if (decision === 'deny') {
+      const deniedReason = 'Tool execution denied: ' + context.tool.name;
+      await appendPermissionInternalEntry({
+        kind: 'permission_denied',
+        context: confirmedContext,
+        reason: deniedReason,
+        sessionContext,
+        mode,
+        decision,
+      });
       return {
         block: true,
-        reason: 'Tool execution denied: ' + context.tool.name,
+        reason: deniedReason,
       };
     }
 

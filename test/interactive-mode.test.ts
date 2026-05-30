@@ -69,6 +69,7 @@ function createContextManagerMock({
         compaction: session.compaction,
         usage: session.usage,
         permissionPending: { count: 0, latest: null },
+        permissionDenied: { count: 0, latest: null },
         projectContext: {
           count: contextBuilder.projectContext.length,
           resources: contextBuilder.projectContext,
@@ -1229,6 +1230,8 @@ test('/diagnostics prints full runtime diagnostics', async () => {
   assert.match(text, /Latest usage: source=compaction, prompt=100, completion=25, total=125, at=2026-05-10T00:01:00\.000Z/);
   assert.match(text, /Context usage: estimated=\d+, window=100000, percent=\d+\.\d%, source=latest_provider_request_view, count=local, method=gpt-tokenizer/);
   assert.match(text, /Compaction recommendation: no, reason=auto_disabled, auto=disabled/);
+  assert.match(text, /Permission pending: none/);
+  assert.match(text, /Permission denied: none/);
   assert.match(text, /Estimated tokens: active=\d+, provider_request=\d+, project_context=\d+, method=gpt-tokenizer/);
   assert.match(text, /AGENTS\.md path=\/workspace\/AGENTS\.md chars=23/);
   assert.match(text, /Budget: 20000 chars/);

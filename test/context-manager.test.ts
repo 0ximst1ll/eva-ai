@@ -95,6 +95,7 @@ test('ContextManager reports context diagnostics from builder and session metada
   assert.equal(beforeBuild.usage.total.total_tokens, 14);
   assert.equal(beforeBuild.compaction.compacted, false);
   assert.deepEqual(beforeBuild.permissionPending, { count: 0, latest: null });
+  assert.deepEqual(beforeBuild.permissionDenied, { count: 0, latest: null });
 
   contextBuilder.queueSkillInvocation('review');
   contextBuilder.build({
@@ -143,6 +144,37 @@ test('ContextManager reports pending permission diagnostics from durable interna
 
   assert.equal(diagnostics.permissionPending.count, 1);
   assert.deepEqual(diagnostics.permissionPending.latest, pending);
+  assert.deepEqual(diagnostics.permissionDenied, { count: 0, latest: null });
+});
+
+test('ContextManager reports denied permission diagnostics from durable internal entries', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-context');
+  const denied = await sessionManager.appendInternalEntry({
+    sessionId,
+    kind: 'permission_denied',
+    content: 'Tool execution denied: write_file',
+    metadata: {
+      toolName: 'write_file',
+      toolCallId: 'call-1',
+    },
+  });
+  const contextManager = createContextManager({
+    contextBuilder: createContextBuilder(),
+    sessionManager,
+  });
+
+  const diagnostics = await contextManager.getDiagnostics({
+    sessionId,
+    messages: sessionManager.getMessages(sessionId),
+  });
+
+  assert.equal(diagnostics.permissionDenied.count, 1);
+  assert.deepEqual(diagnostics.permissionDenied.latest, denied);
+  assert.deepEqual(diagnostics.permissionPending, { count: 0, latest: null });
 });
 
 test('ContextManager uses provider token counts when a TokenCounter is available', async () => {

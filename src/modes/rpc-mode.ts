@@ -39,6 +39,7 @@ interface RpcPermissionPending {
   is_read_only: boolean;
   requires_confirmation: boolean;
   reason: string;
+  permission_mode?: string;
   args_preview: string;
 }
 
@@ -527,7 +528,8 @@ class RpcPermissionBroker {
       category: request.metadata.category,
       is_read_only: request.metadata.isReadOnly,
       requires_confirmation: request.metadata.requiresConfirmation ?? false,
-      reason: `Tool permission pending: approval required for ${request.tool.name}`,
+      reason: request.reason ?? `Tool permission pending: approval required for ${request.tool.name}`,
+      permission_mode: request.permissionMode,
       args_preview: serializeArgsPreview(request.args),
     };
   }
@@ -547,6 +549,7 @@ class RpcPermissionBroker {
         category: permission.category,
         isReadOnly: permission.is_read_only,
         requiresConfirmation: permission.requires_confirmation,
+        permissionMode: permission.permission_mode,
       },
     });
   }
