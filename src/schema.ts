@@ -78,7 +78,7 @@ export interface ToolExecutionResult {
     success: boolean;
     content: string;
     error?: string;
-    details?: Record<string, unknown>;
+    details?: ToolExecutionDetails;
     contentTruncated?: boolean;
     originalContentLength?: number;
     maxContentLength?: number;
@@ -86,6 +86,8 @@ export interface ToolExecutionResult {
     originalErrorLength?: number;
     maxErrorLength?: number;
 }
+
+export type ToolExecutionDetails = Record<string, unknown>;
 
 export type AgentSessionEvent =
     | { type: 'agent_start' }

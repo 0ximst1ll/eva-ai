@@ -22,10 +22,10 @@ test('read_file keeps the head of large files and returns continuation guidance'
     assert.match(result.content, /1\|line-1/);
     assert.match(result.content, /Use offset=\d+ to continue/);
     assert.doesNotMatch(result.content, /line-800/);
-    assert.equal(result.details?.['totalLines'], 800);
-    assert.equal(result.details?.['startLine'], 1);
-    assert.ok(typeof result.details?.['nextOffset'] === 'number');
-    assert.deepEqual((result.details?.['truncation'] as Record<string, unknown>)['strategy'], 'head');
+    assert.equal(result.details?.totalLines, 800);
+    assert.equal(result.details?.startLine, 1);
+    assert.ok(typeof result.details?.nextOffset === 'number');
+    assert.equal(result.details?.truncation?.strategy, 'head');
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -46,9 +46,9 @@ test('bash keeps tail output and stores full truncated output in temp storage', 
     assert.ok(fullOutputPath.startsWith(path.join(os.tmpdir(), 'eva-ai-bash-logs')));
     assert.doesNotMatch(fullOutputPath, new RegExp(escapeRegExp(tempDir)));
     assert.match(await fs.readFile(fullOutputPath, 'utf-8'), /THE_END/);
-    assert.equal(result.details?.['exitCode'], 0);
-    assert.equal(result.details?.['fullOutputPath'], fullOutputPath);
-    assert.deepEqual((result.details?.['truncation'] as Record<string, unknown>)['strategy'], 'tail');
+    assert.equal(result.details?.exitCode, 0);
+    assert.equal(result.details?.fullOutputPath, fullOutputPath);
+    assert.equal(result.details?.truncation?.strategy, 'tail');
   } finally {
     if (fullOutputPath) await fs.rm(fullOutputPath, { force: true });
     await fs.rm(tempDir, { recursive: true, force: true });
@@ -66,9 +66,9 @@ test('grep_files reports max result boundaries', async () => {
     assert.match(result.content, /matches\.txt:1: needle one/);
     assert.match(result.content, /Stopped after max_results=2/);
     assert.doesNotMatch(result.content, /needle three/);
-    assert.equal(result.details?.['matchCount'], 2);
-    assert.equal(result.details?.['maxResults'], 2);
-    assert.equal(result.details?.['limitedByMaxResults'], true);
+    assert.equal(result.details?.matchCount, 2);
+    assert.equal(result.details?.maxResults, 2);
+    assert.equal(result.details?.limitedByMaxResults, true);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -88,8 +88,8 @@ test('list_files truncates large directory listings from the head', async () => 
     assert.match(result.content, /\[file\] 000-/);
     assert.match(result.content, /Directory listing truncated/);
     assert.doesNotMatch(result.content, /\[file\] 149-/);
-    assert.equal(result.details?.['resultCount'], 150);
-    assert.deepEqual((result.details?.['truncation'] as Record<string, unknown>)['strategy'], 'head');
+    assert.equal(result.details?.resultCount, 150);
+    assert.equal(result.details?.truncation?.strategy, 'head');
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -106,9 +106,9 @@ test('find_files reports result boundaries in details', async () => {
 
     assert.equal(result.success, true);
     assert.match(result.content, /Stopped after max_results=2/);
-    assert.equal(result.details?.['resultCount'], 2);
-    assert.equal(result.details?.['maxResults'], 2);
-    assert.equal(result.details?.['limitedByMaxResults'], true);
+    assert.equal(result.details?.resultCount, 2);
+    assert.equal(result.details?.maxResults, 2);
+    assert.equal(result.details?.limitedByMaxResults, true);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

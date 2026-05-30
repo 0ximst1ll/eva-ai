@@ -19,7 +19,7 @@
 - M5 Tool Execution Orchestration 最小闭环已实现：安全 read-only batch 并发，write/bash/high-risk/unknown 工具串行，tool result 按模型 tool call 原始顺序写回。
 - M5 三模式 permission rule/mode 最小闭环已实现：`default`、`read-only`、`full-access` 已落地到 runtime/tool governance，并记录 pending/denied 关键事实；网络/敏感系统命令识别已覆盖常见远端 git、包管理器、容器/云工具和系统包管理器命令；permission result 已明确表达 workspace 外、网络和系统资源 capability，并标记当前不提供 OS 级 sandbox enforcement。
 - M5 Tool Result Budget 当前已有最小实现：agent-loop 写回边界会对超预算 tool result 做 preview 截断，并保留原始长度/预算 metadata。
-- ToolResult `content + details` 最小闭环已实现：agent-loop 会透传工具结构化 details，`read_file`、`bash`、`grep_files`、`find_files`、`list_files` 已开始输出 truncation、行数/结果数、exit code、full output path 等结构化信息。
+- ToolResult `content + typed details` 最小闭环已实现：agent-loop 会透传工具结构化 details，`read_file`、`bash`、`grep_files`、`find_files`、`list_files` 已输出工具专属 details 类型，包含 truncation、行数/结果数、exit code、full output path 等结构化信息。
 - 超大工具输出 session sidecar artifact 路径已拆除：tool result 不再保存 artifact reference、不再写 `tool_result_artifact` internal entry，session storage 不再暴露 tool result artifact API。
 - 工具层大输出截断已开始按工具类型收敛：`read_file` 保留 head 并提示 offset continuation，`bash` 保留 tail 并只在截断/中断时写系统临时 log，`grep_files` / `find_files` / `list_files` 保留 head 并提示缩小范围。
 - 工具执行 abort lifecycle 已收敛：agent-loop 在工具批次边界停止后续执行，foreground bash 会响应 abort，已 abort 的同步文件工具不会继续读写。
@@ -29,12 +29,12 @@
 ## 进行中
 
 - M5 Tool / Permission Governance 继续推进。
-- 当前 ToolResult `content + details` 最小闭环已完成，下一步可继续扩展 typed details、工具级 render boundary 或 compaction-time tool result micro-compaction。
+- 当前 ToolResult `content + typed details` 最小闭环已完成，下一步可继续推进工具级 render boundary、details-driven diagnostics 或 compaction-time tool result micro-compaction。
 
 ## 下一步
 
 - Tool System 后续继续吸收 `pi-mono` 的 `ToolDefinition + typed details + render boundary + tool_call/tool_result hook` 设计；先扩展现有 details 小闭环，不直接引入完整 extension system。
-- 下一步建议：把现有 `Record<string, unknown>` details 收敛为工具专属 typed details，并让 TUI/diagnostics 优先消费 details 而不是解析文本。
+- 下一步建议：让 TUI/diagnostics 优先消费 typed details，而不是解析工具文本。
 - 继续细化工具输出体验：更准确的行/字节统计、bash streaming accumulator、背景任务输出滚动窗口和 compaction-time tool result micro-compaction。
 - 保持 permission diagnostics 简单，继续沿用 pending/denied 关键事实和 `/diagnostics` 摘要展示。
 - 或进入 MCP lifecycle 最小闭环：server pending/connected/failed/timeout 状态与 tools/resources/prompts loading 边界。
@@ -42,7 +42,7 @@
 ## 已知问题
 
 - 工具层大输出已具备 head/tail 基础策略，但仍缺更完整的行/字节统计、streaming accumulator 和 compaction-time tool result micro-compaction。
-- Tool Result 已有 `content + details` 最小边界，但 details 仍是松散结构；尚未形成工具专属 typed details、render boundary 或 compaction-time micro-compaction。
+- Tool Result 已有 `content + typed details` 最小边界；尚未形成工具级 render boundary、details-driven diagnostics 或 compaction-time micro-compaction。
 - abort lifecycle 已覆盖当前内置工具的主要路径，但仍缺更细的 abort reason 和队列状态；工具执行诊断暂保持 lifecycle event + pending state 的简单边界。
 - operation injection 目前是最小边界，尚未提供统一 remote workspace adapter、sandbox adapter 或 extension wrapper。
 - `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。

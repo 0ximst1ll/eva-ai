@@ -122,7 +122,7 @@ manual `/compact`、auto compaction、prompt-too-long compact-and-retry、post-c
 
 当前 tool metadata 包含 source、category、risk level、read-only、requires confirmation 等治理信息。agent-loop 在 tool call 前经过统一 governance hook。
 
-工具结果当前采用 `content + details` 最小边界。`content` 仍是写回模型的文本，`details` 承载工具结构化信息，例如截断统计、bash exit code、full output path、行数或结果数。agent-loop 会透传 details，供 UI、diagnostics 和后续 compaction 使用。
+工具结果当前采用 `content + typed details` 最小边界。`content` 仍是写回模型的文本，`details` 承载工具结构化信息，例如截断统计、bash exit code、full output path、行数或结果数。agent-loop 会透传 details，供 UI、diagnostics 和后续 compaction 使用。
 
 当前内置工具仍是主要工具来源。MCP/custom tools 的完整 ownership、result budget、大输出持久化和更复杂 orchestration 尚未实现。
 

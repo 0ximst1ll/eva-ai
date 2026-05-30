@@ -1,8 +1,8 @@
 import * as path from 'node:path';
-import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
 import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
-import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars } from './truncate.js';
+import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars, type ToolOutputTruncationDetails } from './truncate.js';
 
 const DEFAULT_IGNORES = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache']);
 const MAX_RESULTS = 200;
@@ -34,7 +34,14 @@ export interface FindToolInput extends Record<string, unknown> {
   max_results?: number;
 }
 
-export class FindTool implements Tool<FindToolInput> {
+export interface FindToolDetails extends ToolResultDetails {
+  resultCount: number;
+  maxResults: number;
+  limitedByMaxResults: boolean;
+  truncation?: ToolOutputTruncationDetails;
+}
+
+export class FindTool implements Tool<FindToolInput, FindToolDetails> {
   readonly name = 'find_files';
   readonly description = 'Find files by filename substring or regular expression inside the workspace. Prefer this over bash find.';
   readonly parameters = {
@@ -55,7 +62,7 @@ export class FindTool implements Tool<FindToolInput> {
   async execute(
     { pattern, path: targetPath = '.', max_results = MAX_RESULTS }: FindToolInput,
     context?: ToolExecutionContext,
-  ): Promise<ToolResult> {
+  ): Promise<ToolResult<FindToolDetails>> {
     try {
       if (isToolExecutionAborted(context)) return createAbortedToolResult();
       const resolved = resolveWorkspacePath(this.workspaceDir, targetPath, {

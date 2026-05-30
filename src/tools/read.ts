@@ -1,7 +1,7 @@
-import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
 import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
-import { createToolOutputTruncation, DEFAULT_TOOL_OUTPUT_MAX_CHARS } from './truncate.js';
+import { createToolOutputTruncation, DEFAULT_TOOL_OUTPUT_MAX_CHARS, type ToolOutputTruncationDetails } from './truncate.js';
 
 const READ_OUTPUT_MAX_CHARS = DEFAULT_TOOL_OUTPUT_MAX_CHARS;
 
@@ -11,7 +11,17 @@ export interface ReadToolInput extends Record<string, unknown> {
   limit?: number;
 }
 
-export class ReadTool implements Tool<ReadToolInput> {
+export interface ReadToolDetails extends ToolResultDetails {
+  totalLines: number;
+  startLine: number;
+  endLine: number;
+  shownLines: number;
+  userLimited: boolean;
+  nextOffset: number | null;
+  truncation?: ToolOutputTruncationDetails;
+}
+
+export class ReadTool implements Tool<ReadToolInput, ReadToolDetails> {
   readonly name = 'read_file';
   readonly description =
     "Read file contents from the filesystem. Output always includes line numbers " +
@@ -32,7 +42,7 @@ export class ReadTool implements Tool<ReadToolInput> {
     private readonly operations: FileToolOperations = localFileToolOperations,
   ) {}
 
-  async execute({ path: filePath, offset, limit }: ReadToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
+  async execute({ path: filePath, offset, limit }: ReadToolInput, context?: ToolExecutionContext): Promise<ToolResult<ReadToolDetails>> {
     try {
       if (isToolExecutionAborted(context)) return createAbortedToolResult();
       const resolved = resolveWorkspacePath(this.workspaceDir, filePath, {
@@ -61,7 +71,7 @@ function formatReadOutput(
   selectedEnd: number,
   totalLines: number,
   userLimited: boolean,
-): { content: string; details: Record<string, unknown> } {
+): { content: string; details: ReadToolDetails } {
   const fullOutput = numberedLines.join('\n');
   const nextOffset = selectedEnd + 1;
   const baseDetails = {

@@ -1,8 +1,8 @@
 import * as path from 'node:path';
-import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
 import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
-import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars } from './truncate.js';
+import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars, type ToolOutputTruncationDetails } from './truncate.js';
 
 const DEFAULT_IGNORES = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache']);
 const MAX_RESULTS = 200;
@@ -35,7 +35,14 @@ export interface GrepToolInput extends Record<string, unknown> {
   case_sensitive?: boolean;
 }
 
-export class GrepTool implements Tool<GrepToolInput> {
+export interface SearchToolDetails extends ToolResultDetails {
+  matchCount: number;
+  maxResults: number;
+  limitedByMaxResults: boolean;
+  truncation?: ToolOutputTruncationDetails;
+}
+
+export class GrepTool implements Tool<GrepToolInput, SearchToolDetails> {
   readonly name = 'grep_files';
   readonly description = 'Search text content in workspace files. Prefer this over bash grep/rg for code search.';
   readonly parameters = {
@@ -57,7 +64,7 @@ export class GrepTool implements Tool<GrepToolInput> {
   async execute(
     { pattern, path: targetPath = '.', max_results = MAX_RESULTS, case_sensitive = true }: GrepToolInput,
     context?: ToolExecutionContext,
-  ): Promise<ToolResult> {
+  ): Promise<ToolResult<SearchToolDetails>> {
     try {
       if (isToolExecutionAborted(context)) return createAbortedToolResult();
       const resolved = resolveWorkspacePath(this.workspaceDir, targetPath, {

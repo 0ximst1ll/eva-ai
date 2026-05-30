@@ -6,20 +6,21 @@ export type {
   ToolExecutionContext,
   ToolMetadata,
   ToolResult,
+  ToolResultDetails,
   ToolRiskLevel,
   ToolSource,
 } from './base.js';
 export { createToolDefinition, toAnthropicSchema, toOpenAISchema, toolFromDefinition, withToolMetadata } from './base.js';
-export { BashKillTool, BashOutputTool, BashTool, type BashExecOptions, type BashOperations, type BashOutputResult, type BashSpawnOptions } from './bash.js';
+export { BashKillTool, BashOutputTool, BashTool, type BashExecOptions, type BashOperations, type BashOutputResult, type BashSpawnOptions, type BashToolDetails } from './bash.js';
 export { EditTool, type EditToolInput } from './edit.js';
 export { localFileToolOperations, type FileToolDirent, type FileToolOperations, type FileToolStats } from './file-operations.js';
 export { fileMutationQueue, FileMutationQueue } from './file-mutation-queue.js';
-export { FindTool, type FindToolInput } from './find.js';
-export { GrepTool, type GrepToolInput } from './grep.js';
-export { LsTool, type LsToolInput } from './ls.js';
+export { FindTool, type FindToolDetails, type FindToolInput } from './find.js';
+export { GrepTool, type GrepToolInput, type SearchToolDetails } from './grep.js';
+export { LsTool, type ListToolDetails, type LsToolInput } from './ls.js';
 export { resolveWorkspacePath } from './path-utils.js';
-export { ReadTool, type ReadToolInput } from './read.js';
-export { truncateMiddle, truncateTextByTokens, type TruncationResult } from './truncate.js';
+export { ReadTool, type ReadToolDetails, type ReadToolInput } from './read.js';
+export { truncateMiddle, truncateTextByTokens, type ToolOutputTruncationDetails, type TruncationResult } from './truncate.js';
 export { WriteTool, type WriteToolInput } from './write.js';
 export { createToolDefinitionFromTool, wrapToolDefinition } from './tool-definition-wrapper.js';
 

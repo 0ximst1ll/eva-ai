@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
 import {
   DEFAULT_TOOL_OUTPUT_MAX_CHARS,
   truncateTailByChars,
@@ -14,8 +14,9 @@ import {
 } from './truncate.js';
 
 const MAX_INLINE_OUTPUT_CHARS = DEFAULT_TOOL_OUTPUT_MAX_CHARS;
+type BashShellStatus = 'running' | 'completed' | 'failed' | 'terminated' | 'error';
 
-export interface BashOutputResult extends ToolResult {
+export interface BashOutputResult extends ToolResult<BashToolDetails> {
   stdout: string;
   stderr: string;
   exitCode: number;
@@ -23,12 +24,15 @@ export interface BashOutputResult extends ToolResult {
   fullOutputPath?: string;
 }
 
-interface BashToolDetails extends Record<string, unknown> {
+export interface BashToolDetails extends ToolResultDetails {
   exitCode: number;
-  stdoutChars: number;
-  stderrChars: number;
+  stdoutChars?: number;
+  stderrChars?: number;
   fullOutputPath?: string;
   truncation?: ToolOutputTruncationDetails;
+  bashId?: string;
+  status?: BashShellStatus;
+  outputLines?: number;
 }
 
 export interface BashExecOptions {
@@ -47,7 +51,7 @@ export interface BashOperations {
 }
 
 function abortedBashResult(): BashOutputResult {
-  const result = createAbortedToolResult();
+  const result = createAbortedToolResult<BashToolDetails>();
   return {
     success: result.success,
     content: result.content,
@@ -150,7 +154,7 @@ class BackgroundShell {
   private readonly isWindows: boolean;
   private readonly outputLines: string[] = [];
   private lastReadIndex = 0;
-  status: 'running' | 'completed' | 'failed' | 'terminated' | 'error' = 'running';
+  status: BashShellStatus = 'running';
   exitCode: number | null = null;
 
   constructor(bashId: string, command: string, process: cp.ChildProcess, isWindows: boolean) {
@@ -249,7 +253,7 @@ interface BashInput extends Record<string, unknown> {
   run_in_background?: boolean;
 }
 
-export class BashTool implements Tool<BashInput> {
+export class BashTool implements Tool<BashInput, BashToolDetails> {
   private readonly isWindows: boolean;
 
   constructor(
@@ -470,7 +474,7 @@ interface BashOutputInput extends Record<string, unknown> {
   filter_str?: string;
 }
 
-export class BashOutputTool implements Tool<BashOutputInput> {
+export class BashOutputTool implements Tool<BashOutputInput, BashToolDetails> {
   readonly name = 'bash_output';
   readonly description = 'Retrieves output from a running or completed background bash shell by bash_id.';
   readonly parameters = {
@@ -526,7 +530,7 @@ interface BashKillInput extends Record<string, unknown> {
   bash_id: string;
 }
 
-export class BashKillTool implements Tool<BashKillInput> {
+export class BashKillTool implements Tool<BashKillInput, BashToolDetails> {
   readonly name = 'bash_kill';
   readonly description = 'Kills a running background bash shell by its ID.';
   readonly parameters = {

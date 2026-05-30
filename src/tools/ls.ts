@@ -1,7 +1,7 @@
-import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
 import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
-import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars } from './truncate.js';
+import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars, type ToolOutputTruncationDetails } from './truncate.js';
 
 const DEFAULT_IGNORES = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache']);
 
@@ -9,7 +9,12 @@ export interface LsToolInput extends Record<string, unknown> {
   path?: string;
 }
 
-export class LsTool implements Tool<LsToolInput> {
+export interface ListToolDetails extends ToolResultDetails {
+  resultCount: number;
+  truncation?: ToolOutputTruncationDetails;
+}
+
+export class LsTool implements Tool<LsToolInput, ListToolDetails> {
   readonly name = 'list_files';
   readonly description = 'List files and directories under a workspace path. Prefer this over bash ls/find.';
   readonly parameters = {
@@ -24,7 +29,7 @@ export class LsTool implements Tool<LsToolInput> {
     private readonly operations: FileToolOperations = localFileToolOperations,
   ) {}
 
-  async execute({ path: targetPath = '.' }: LsToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
+  async execute({ path: targetPath = '.' }: LsToolInput, context?: ToolExecutionContext): Promise<ToolResult<ListToolDetails>> {
     try {
       if (isToolExecutionAborted(context)) return createAbortedToolResult();
       const resolved = resolveWorkspacePath(this.workspaceDir, targetPath, {
