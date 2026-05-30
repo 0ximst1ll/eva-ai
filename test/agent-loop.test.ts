@@ -111,6 +111,67 @@ test('runAgentLoop continues after tool calls and preserves tool result order', 
   );
 });
 
+test('runAgentLoop applies extension-style tool execution hooks', async () => {
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-hooked', 'hooked_tool', { text: 'hello' })],
+    },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const hookEvents: string[] = [];
+  const tool: Tool = {
+    name: 'hooked_tool',
+    description: 'Hooked tool',
+    parameters: { type: 'object' },
+    metadata: {
+      category: 'read',
+      riskLevel: 'low',
+      source: 'builtin',
+      isReadOnly: true,
+      isConcurrencySafe: true,
+    },
+    async execute(args, context) {
+      assert.equal(context?.allowOutsideWorkspace, true);
+      return { success: true, content: String(args['text']), details: { original: true } };
+    },
+  };
+  const events: AgentLoopEvent[] = [];
+
+  const result = await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [tool],
+    maxSteps: 3,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+    toolHooks: [{
+      name: 'test_hook',
+      beforeToolCall(context) {
+        hookEvents.push(`before:${context.toolCall.id}`);
+        return { toolExecutionContext: { allowOutsideWorkspace: true } };
+      },
+      afterToolCall(context) {
+        hookEvents.push(`after:${context.result.content}`);
+        return {
+          details: { ...context.result.details, hooked: true },
+          displayContent: 'display from hook',
+        };
+      },
+    }],
+    emit: (event) => {
+      events.push(event);
+    },
+  });
+
+  const toolResultEvent = events.find((event) => event.type === 'tool_result');
+  assert.equal(result.finalContent, 'done');
+  assert.deepEqual(hookEvents, ['before:call-hooked', 'after:hello']);
+  assert.equal(llm.calls[1].at(-1)?.content, 'hello');
+  assert.equal(toolResultEvent?.type, 'tool_result');
+  assert.deepEqual(toolResultEvent?.result.details, { original: true, hooked: true });
+  assert.equal(toolResultEvent?.result.displayContent, 'display from hook');
+});
+
 test('runAgentLoop applies tool result budget before the next provider request', async () => {
   const largeOutput = 'x'.repeat(500);
   const llm = new ScriptedLLM([

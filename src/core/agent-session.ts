@@ -11,11 +11,10 @@ import { createInternalAgentMessage } from './agent-messages.js';
 import type { ContextBuilder } from './context-builder.js';
 import type { ContextManager } from './context-manager.js';
 import type {
-  AfterToolCallContext,
-  AfterToolCallResult,
+  AfterToolCallHook,
   AgentLoopEvent,
-  BeforeToolCallContext,
-  BeforeToolCallResult,
+  BeforeToolCallHook,
+  ToolExecutionHook,
   ToolExecutionMode,
 } from './agent-loop.js';
 import {
@@ -89,6 +88,7 @@ export class AgentSession {
     maxSteps,
     toolResultBudget,
     toolExecution,
+    toolHooks,
     contextBuilder,
     contextManager,
     beforeToolCall,
@@ -102,12 +102,11 @@ export class AgentSession {
     maxSteps?: number | null;
     toolResultBudget?: ToolResultBudgetOptions;
     toolExecution?: ToolExecutionMode;
+    toolHooks?: ToolExecutionHook[];
     contextBuilder?: ContextBuilder;
     contextManager?: ContextManager;
-    beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) =>
-      BeforeToolCallResult | Promise<BeforeToolCallResult | undefined> | undefined;
-    afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) =>
-      AfterToolCallResult | Promise<AfterToolCallResult | undefined> | undefined;
+    beforeToolCall?: BeforeToolCallHook;
+    afterToolCall?: AfterToolCallHook;
     sessionManager: SessionManager;
     sessionId: string;
   }) {
@@ -125,6 +124,7 @@ export class AgentSession {
       maxSteps,
       toolResultBudget,
       toolExecution,
+      toolHooks,
       contextBuilder,
       beforeToolCall,
       afterToolCall,

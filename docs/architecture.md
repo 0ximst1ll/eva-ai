@@ -124,6 +124,8 @@ manual `/compact`、auto compaction、prompt-too-long compact-and-retry、post-c
 
 工具结果当前采用 `content + typed details + displayContent` 最小边界。`content` 仍是写回模型和 session 的文本，`details` 承载工具结构化信息，例如截断统计、bash exit code、full output path、行数或结果数。工具定义可通过 `renderResult` 基于 details 生成 `displayContent`，agent-loop 会透传给 TUI/CLI 展示和后续 compaction 使用；`/diagnostics` 不作为 tool details 的主要消费路径。
 
+agent-loop 支持内部 `ToolExecutionHook[]` 边界。hook 可在 tool call 前合并 execution context，也可在 tool result 后补充受限结果字段，例如 details、displayContent、content/error 覆盖。当前 runtime permission governance 已作为命名 hook 接入；该边界仍是内部机制，不是完整 extension API。
+
 当前内置工具仍是主要工具来源。MCP/custom tools 的完整 ownership、result budget、大输出持久化和更复杂 orchestration 尚未实现。
 
 ## Permission / Safety

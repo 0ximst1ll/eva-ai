@@ -2,7 +2,18 @@ import type { LLMClient } from '../llm/llm-client.js';
 import { formatProviderError } from '../llm/provider-errors.js';
 import { RetryExhaustedError } from '../retry.js';
 import type { AgentMessage, LLMResponse, LlmMessage, ToolCall, ToolExecutionResult } from '../schema.js';
-import { renderToolResult, type Tool, type ToolExecutionContext } from '../tools/base.js';
+import { renderToolResult, type Tool } from '../tools/base.js';
+import {
+  runAfterToolCallHooks,
+  runBeforeToolCallHooks,
+  type AfterToolCallContext,
+  type AfterToolCallHook,
+  type AfterToolCallResult,
+  type BeforeToolCallContext,
+  type BeforeToolCallHook,
+  type BeforeToolCallResult,
+  type ToolExecutionHook,
+} from './tool-hooks.js';
 import {
   createInternalAgentMessage,
   defaultConvertToLlm,
@@ -24,31 +35,15 @@ type ToolExecutionBatch = {
   toolCalls: ToolCall[];
 };
 
-export interface BeforeToolCallContext {
-  toolCall: ToolCall;
-  tool?: Tool;
-  args: Record<string, unknown>;
-  messages: AgentMessage[];
-}
-
-export interface BeforeToolCallResult {
-  block?: boolean;
-  reason?: string;
-  toolExecutionContext?: Partial<ToolExecutionContext>;
-}
-
-export interface AfterToolCallContext {
-  toolCall: ToolCall;
-  tool: Tool;
-  args: Record<string, unknown>;
-  result: ToolExecutionResult;
-  messages: AgentMessage[];
-}
-
-export type AfterToolCallResult = Partial<Pick<
-  ToolExecutionResult,
-  'success' | 'content' | 'error' | 'details'
->>;
+export type {
+  AfterToolCallContext,
+  AfterToolCallHook,
+  AfterToolCallResult,
+  BeforeToolCallContext,
+  BeforeToolCallHook,
+  BeforeToolCallResult,
+  ToolExecutionHook,
+} from './tool-hooks.js';
 
 export type AgentLoopEvent =
   | { type: 'agent_start' }
@@ -82,17 +77,12 @@ export interface AgentLoopConfig {
   signal?: AbortSignal;
   emit?: AgentLoopEventSink;
   toolExecution?: ToolExecutionMode;
+  toolHooks?: ToolExecutionHook[];
   toolResultBudget?: ToolResultBudgetOptions;
   getSteeringMessages?: () => AgentMessage[] | Promise<AgentMessage[]>;
   getFollowUpMessages?: () => AgentMessage[] | Promise<AgentMessage[]>;
-  beforeToolCall?: (
-    context: BeforeToolCallContext,
-    signal?: AbortSignal,
-  ) => BeforeToolCallResult | Promise<BeforeToolCallResult | undefined> | undefined;
-  afterToolCall?: (
-    context: AfterToolCallContext,
-    signal?: AbortSignal,
-  ) => AfterToolCallResult | Promise<AfterToolCallResult | undefined> | undefined;
+  beforeToolCall?: BeforeToolCallHook;
+  afterToolCall?: AfterToolCallHook;
 }
 
 export interface AgentLoopResult {
@@ -192,6 +182,18 @@ function attachToolDisplayContent(
   return displayContent ? { ...result, displayContent } : result;
 }
 
+function createToolExecutionHooks(config: AgentLoopConfig): ToolExecutionHook[] {
+  const hooks = config.toolHooks?.slice() ?? [];
+  if (config.beforeToolCall || config.afterToolCall) {
+    hooks.push({
+      name: 'agent_loop_legacy_hooks',
+      beforeToolCall: config.beforeToolCall,
+      afterToolCall: config.afterToolCall,
+    });
+  }
+  return hooks;
+}
+
 async function executeToolCall(
   toolCall: ToolCall,
   toolMap: Map<string, Tool>,
@@ -224,7 +226,8 @@ async function executeToolCall(
   }
 
   try {
-    const before = await config.beforeToolCall?.({ toolCall, tool, args, messages }, config.signal);
+    const hooks = createToolExecutionHooks(config);
+    const before = await runBeforeToolCallHooks(hooks, { toolCall, tool, args, messages }, config.signal);
     if (config.signal?.aborted) {
       const result = applyToolResultBudget(createAbortedToolResult(toolCall), config.toolResultBudget);
       await emit(config.emit, { type: 'tool_execution_end', result });
@@ -258,7 +261,7 @@ async function executeToolCall(
     };
 
     if (!config.signal?.aborted) {
-      const after = await config.afterToolCall?.({ toolCall, tool, args, result, messages }, config.signal);
+      const after = await runAfterToolCallHooks(hooks, { toolCall, tool, args, result, messages }, config.signal);
       if (after) result = { ...result, ...after };
     }
     result = attachToolDisplayContent(

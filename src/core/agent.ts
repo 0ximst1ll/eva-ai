@@ -4,11 +4,10 @@ import type { Tool } from '../tools/base.js';
 import type { ConvertToLlm, TransformContext } from './agent-messages.js';
 import type { ContextBuilder } from './context-builder.js';
 import {
-  type AfterToolCallContext,
-  type AfterToolCallResult,
+  type AfterToolCallHook,
   type AgentLoopEvent,
-  type BeforeToolCallContext,
-  type BeforeToolCallResult,
+  type BeforeToolCallHook,
+  type ToolExecutionHook,
   runAgentLoop,
   type ToolExecutionMode,
 } from './agent-loop.js';
@@ -74,10 +73,9 @@ export interface AgentOptions {
   steeringMode?: QueueMode;
   followUpMode?: QueueMode;
   toolExecution?: ToolExecutionMode;
-  beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) =>
-    BeforeToolCallResult | Promise<BeforeToolCallResult | undefined> | undefined;
-  afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) =>
-    AfterToolCallResult | Promise<AfterToolCallResult | undefined> | undefined;
+  toolHooks?: ToolExecutionHook[];
+  beforeToolCall?: BeforeToolCallHook;
+  afterToolCall?: AfterToolCallHook;
 }
 
 export class Agent {
@@ -93,6 +91,7 @@ export class Agent {
   private contextBuilder?: ContextBuilder;
   private transformContext?: TransformContext;
   private convertToLlm?: ConvertToLlm;
+  private toolHooks?: ToolExecutionHook[];
   private beforeToolCall?: AgentOptions['beforeToolCall'];
   private afterToolCall?: AgentOptions['afterToolCall'];
 
@@ -108,6 +107,7 @@ export class Agent {
     this.contextBuilder = options.contextBuilder;
     this.transformContext = options.transformContext;
     this.convertToLlm = options.convertToLlm;
+    this.toolHooks = options.toolHooks?.slice();
     this.beforeToolCall = options.beforeToolCall;
     this.afterToolCall = options.afterToolCall;
     this._state = {
@@ -258,6 +258,7 @@ export class Agent {
       getSteeringMessages: () => this.steeringQueue.drain(),
       getFollowUpMessages: () => this.followUpQueue.drain(),
       toolExecution: this.toolExecution,
+      toolHooks: this.toolHooks,
       beforeToolCall: this.beforeToolCall,
       afterToolCall: this.afterToolCall,
     });

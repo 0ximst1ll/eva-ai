@@ -5,7 +5,7 @@ import { RetryConfig } from '../retry.js';
 import type { Tool, ToolMetadata } from '../tools/base.js';
 import type { ToolRegistry } from '../tools/index.js';
 import { AgentSession } from './agent-session.js';
-import type { BeforeToolCallContext } from './agent-loop.js';
+import type { BeforeToolCallContext, BeforeToolCallHook, ToolExecutionHook } from './agent-loop.js';
 import {
   resolveToolPermission,
   type PermissionMode,
@@ -146,7 +146,7 @@ export function createToolGovernanceHook(
   config: ConfigData,
   options: CreateRuntimeOptions,
   sessionContext?: ToolGovernanceSessionContext,
-) {
+): BeforeToolCallHook {
   return async (context: BeforeToolCallContext) => {
     const mode = options.permissionMode ?? config.tools.permissionMode ?? 'default';
     const result = resolveToolPermission({
@@ -252,6 +252,17 @@ export function createToolGovernanceHook(
   };
 }
 
+export function createToolGovernanceExecutionHook(
+  config: ConfigData,
+  options: CreateRuntimeOptions,
+  sessionContext?: ToolGovernanceSessionContext,
+): ToolExecutionHook {
+  return {
+    name: 'permission_governance',
+    beforeToolCall: createToolGovernanceHook(config, options, sessionContext),
+  };
+}
+
 export async function createRuntime(options: CreateRuntimeOptions): Promise<Runtime> {
   const services = await createRuntimeServices(options);
   const diagnostics = [...services.diagnostics];
@@ -334,7 +345,7 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
     maxSteps: options.maxSteps === undefined ? config.agent.maxSteps : options.maxSteps,
     contextBuilder,
     contextManager: services.contextManager,
-    beforeToolCall: createToolGovernanceHook(config, options, { sessionManager, sessionId }),
+    toolHooks: [createToolGovernanceExecutionHook(config, options, { sessionManager, sessionId })],
     sessionManager,
     sessionId,
   });

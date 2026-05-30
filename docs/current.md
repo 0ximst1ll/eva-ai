@@ -1,6 +1,6 @@
 # Eva AI Current
 
-## 当前状态（2026-05-30）
+## 当前状态（2026-05-31）
 
 ## 已完成
 
@@ -26,15 +26,16 @@
 - 工具执行 abort lifecycle 已收敛：agent-loop 在工具批次边界停止后续执行，foreground bash 会响应 abort，已 abort 的同步文件工具不会继续读写。
 - Tool operation injection 最小边界已实现：文件工具可注入 `FileToolOperations`，foreground bash 可注入 `BashOperations.exec`，background bash 可注入 `BashOperations.spawn`，默认实现仍使用本地 fs/shell。
 - 工具执行状态保持 pi-mono 风格的 lifecycle event 归约：`Agent` 基于 `tool_execution_start/end` 维护 `pendingToolCalls`，暂不引入独立 tool execution diagnostics 聚合层。
+- Extension-style tool execution hook 最小边界已实现：agent-loop 支持 `ToolExecutionHook[]`，可在 tool call 前合并 execution context、在 tool result 后补充 details/displayContent 等受限字段；runtime permission governance 已接入命名 hook，旧 `beforeToolCall/afterToolCall` 参数保留兼容。
 
 ## 进行中
 
 - M5 Tool / Permission Governance 继续推进。
-- 当前 ToolResult `content + typed details` 和工具级 `renderResult` 最小边界已完成；下一步可继续推进 compaction-time tool result micro-compaction 或 extension-style tool call/result hooks。
+- 当前 ToolResult `content + typed details`、工具级 `renderResult` 和内部 tool execution hook 最小边界已完成；下一步可继续推进 compaction-time tool result micro-compaction，或开始 MCP/custom tools 接入同一 registry/hook 边界。
 
 ## 下一步
 
-- Tool System 后续继续吸收 `pi-mono` 的 `ToolDefinition + typed details + render boundary + tool_call/tool_result hook` 设计；下一步可在现有 `renderResult` 边界上补 extension-style hook，不直接引入完整 extension system。
+- Tool System 后续继续吸收 `pi-mono` 的 `ToolDefinition + typed details + render boundary + tool_call/tool_result hook` 设计；下一步可在现有 hook 边界上接 MCP/custom tools，不直接引入完整 extension system。
 - 下一步建议：继续细化 TUI/CLI 的工具展示体验，让展示层只消费 `displayContent` 和 lifecycle state，不解析工具文本。
 - 继续细化工具输出体验：更准确的行/字节统计、bash streaming accumulator、背景任务输出滚动窗口和 compaction-time tool result micro-compaction。
 - 保持 permission diagnostics 简单，继续沿用 pending/denied 关键事实；`/diagnostics` 不承载 tool result details 展示。
@@ -45,7 +46,7 @@
 - 工具层大输出已具备 head/tail 基础策略，但仍缺更完整的行/字节统计、streaming accumulator 和 compaction-time tool result micro-compaction。
 - Tool Result 已有 `content + typed details` 和工具级 `renderResult` 最小边界；尚未形成 compaction-time micro-compaction。
 - abort lifecycle 已覆盖当前内置工具的主要路径，但仍缺更细的 abort reason 和队列状态；工具执行诊断暂保持 lifecycle event + pending state 的简单边界。
-- operation injection 目前是最小边界，尚未提供统一 remote workspace adapter、sandbox adapter 或 extension wrapper。
+- operation injection 和 tool execution hook 目前是内部最小边界，尚未提供统一 remote workspace adapter、sandbox adapter 或完整 extension wrapper。
 - `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。
 - manual `/compact` 仍是最小版：没有工具结果 micro-compaction。
 - skills 已有 resource discovery、source metadata、metadata system prompt 注入和 `/skill:name` 全文按需展开；尚未支持 package/extension source discovery。

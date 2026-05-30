@@ -115,9 +115,9 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 
 - 已完成：builtin tool registry、metadata 和 governance hook。
 - 已完成：ToolResult `content + typed details` 最小边界，以及工具级 `renderResult -> displayContent` 展示边界。
+- 已完成：内部 extension-style tool execution hook 最小边界。
 - 后续：read-only 并发、write/bash 串行、轻量 tool result budget、临时大输出处理、operations injection。
-- 后续：extension-style tool call/result hooks。
-- 后续：MCP/custom tools 接入同一 registry 和 metadata 模型。
+- 后续：MCP/custom tools 接入同一 registry、metadata 和 hook 模型。
 
 ### 5. Permission / Safety
 
