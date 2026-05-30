@@ -2,11 +2,15 @@ import { createDiagnostic, type RuntimeDiagnostic } from '../diagnostics.js';
 import type { ConfigData } from '../config.js';
 import { LLMClient } from '../llm/llm-client.js';
 import { RetryConfig } from '../retry.js';
-import type { Tool, ToolExecutionContext, ToolMetadata } from '../tools/base.js';
+import type { Tool, ToolMetadata } from '../tools/base.js';
 import type { ToolRegistry } from '../tools/index.js';
-import { isWorkspacePath } from '../tools/path-utils.js';
 import { AgentSession } from './agent-session.js';
 import type { BeforeToolCallContext } from './agent-loop.js';
+import {
+  resolveToolPermission,
+  type PermissionMode,
+  type ToolPermissionDecision,
+} from './permission-policy.js';
 import { SessionManager } from './session-manager.js';
 import {
   createRuntimeServices,
@@ -16,6 +20,13 @@ import {
 } from './runtime-services.js';
 
 export type { RuntimeDiagnostic } from '../diagnostics.js';
+export {
+  isLikelyNetworkCommand,
+  resolveToolPermission,
+  type PermissionMode,
+  type ToolPermissionDecision,
+  type ToolPermissionRuleResult,
+} from './permission-policy.js';
 export {
   RuntimeConfigNotFoundError,
   UnsupportedProviderError,
@@ -32,15 +43,7 @@ export interface ToolConfirmationRequest {
   metadata: ToolMetadata;
 }
 
-export type ToolPermissionDecision = 'allow' | 'deny' | 'ask';
 export type ToolPermissionHandlerResult = ToolPermissionDecision | boolean;
-export type PermissionMode = 'default' | 'read-only' | 'full-access';
-
-export interface ToolPermissionRuleResult {
-  decision: ToolPermissionDecision;
-  reason?: string;
-  toolExecutionContext?: Partial<ToolExecutionContext>;
-}
 
 interface ToolGovernanceSessionContext {
   sessionManager: SessionManager;
@@ -90,80 +93,6 @@ export function normalizeToolPermissionDecision(result: ToolPermissionHandlerRes
   if (result === true) return 'allow';
   if (result === false) return 'deny';
   return result;
-}
-
-export function resolveToolPermission({
-  context,
-  mode,
-  workspaceDir,
-}: {
-  context: BeforeToolCallContext & { tool?: Tool & { metadata?: ToolMetadata } };
-  mode: PermissionMode;
-  workspaceDir: string;
-}): ToolPermissionRuleResult {
-  const metadata = context.tool?.metadata;
-  if (mode === 'full-access') {
-    return { decision: 'allow', toolExecutionContext: { allowOutsideWorkspace: true } };
-  }
-
-  if (!metadata) {
-    return {
-      decision: mode === 'read-only' ? 'deny' : 'ask',
-      reason: `Tool permission ${mode === 'read-only' ? 'denied' : 'required'}: missing metadata for `
-        + context.toolCall.function.name,
-    };
-  }
-
-  if (mode === 'read-only') {
-    if (metadata.isReadOnly) return { decision: 'allow' };
-    return {
-      decision: 'deny',
-      reason: `Tool execution denied by read-only permission mode: ${context.tool?.name ?? context.toolCall.function.name}`,
-    };
-  }
-
-  const fileAccess = getFileAccess(context.args);
-  if (fileAccess && !fileAccess.isInsideWorkspace) {
-    return {
-      decision: 'ask',
-      reason: `Tool permission required: ${context.tool?.name ?? context.toolCall.function.name} targets `
-        + `outside workspace (${fileAccess.targetPath})`,
-      toolExecutionContext: { allowOutsideWorkspace: true },
-    };
-  }
-
-  if (metadata.category === 'mcp' || metadata.source === 'mcp') {
-    return {
-      decision: 'ask',
-      reason: `Tool permission required: ${context.tool?.name ?? context.toolCall.function.name} may access external resources`,
-    };
-  }
-
-  if (metadata.category === 'bash' && isLikelyNetworkCommand(context.args)) {
-    return {
-      decision: 'ask',
-      reason: `Tool permission required: bash command may access the network`,
-    };
-  }
-
-  return { decision: 'allow' };
-
-  function getFileAccess(args: Record<string, unknown>): { targetPath: string; isInsideWorkspace: boolean } | null {
-    const targetPath = args['path'];
-    if (typeof targetPath !== 'string' || !targetPath.trim()) return null;
-    return {
-      targetPath,
-      isInsideWorkspace: isWorkspacePath(workspaceDir, targetPath),
-    };
-  }
-}
-
-function isLikelyNetworkCommand(args: Record<string, unknown>): boolean {
-  const command = args['command'];
-  if (typeof command !== 'string') return false;
-
-  return /\b(curl|wget|ssh|scp|rsync|git\s+(clone|pull|fetch|push)|npm\s+(install|i|add)|pnpm\s+(install|add)|yarn\s+(install|add)|pip\s+install|uv\s+(pip\s+)?install|cargo\s+install|go\s+(get|install)|docker\s+(pull|push|build)|kubectl|helm)\b/i
-    .test(command);
 }
 
 async function appendPermissionPendingEntry({

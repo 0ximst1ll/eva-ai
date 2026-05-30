@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import test from 'node:test';
 import {
   createToolGovernanceHook,
+  isLikelyNetworkCommand,
   normalizeToolPermissionDecision,
   resolveToolPermission,
   type CreateRuntimeOptions,
@@ -132,6 +133,42 @@ test('permission rule asks for likely network bash commands in default mode', ()
   assert.match(result.reason ?? '', /network/);
 });
 
+test('permission rule asks for remote git and package manager commands in default mode', () => {
+  for (const command of [
+    'git push origin development',
+    'git fetch --all',
+    'npm install',
+    'pnpm add typescript',
+    'yarn install',
+    'uv pip install pytest',
+    'go mod download',
+    'docker compose pull',
+    'terraform init',
+  ]) {
+    const result = resolveToolPermission({
+      context: createContext(bashTool, { command }),
+      mode: 'default',
+      workspaceDir: '/workspace',
+    });
+
+    assert.equal(result.decision, 'ask', command);
+    assert.match(result.reason ?? '', /network/, command);
+  }
+});
+
+test('permission rule does not treat local bash commands as network access', () => {
+  for (const command of ['git status', 'npm test', 'ls -la', 'cat package.json']) {
+    assert.equal(isLikelyNetworkCommand({ command }), false, command);
+    const result = resolveToolPermission({
+      context: createContext(bashTool, { command }),
+      mode: 'default',
+      workspaceDir: '/workspace',
+    });
+
+    assert.equal(result.decision, 'allow', command);
+  }
+});
+
 test('permission rule denies writes in read-only mode', () => {
   const result = resolveToolPermission({
     context: createContext(writeTool, { path: 'file.txt' }),
@@ -150,6 +187,18 @@ test('permission rule allows read-only tools in read-only mode', () => {
   });
 
   assert.equal(result.decision, 'allow');
+});
+
+test('permission rule denies outside-workspace file access in read-only mode', () => {
+  const result = resolveToolPermission({
+    context: createContext(readTool, { path: '../outside.txt' }),
+    mode: 'read-only',
+    workspaceDir: '/workspace',
+  });
+
+  assert.equal(result.decision, 'deny');
+  assert.equal(result.toolExecutionContext, undefined);
+  assert.match(result.reason ?? '', /outside workspace/);
 });
 
 test('permission rule allows all Eva-level tool calls in full-access mode', () => {

@@ -1,6 +1,6 @@
 # Eva AI Current
 
-## 当前状态（2026-05-28）
+## 当前状态（2026-05-30）
 
 ## 已完成
 
@@ -28,11 +28,12 @@
 ## 进行中
 
 - M5 Tool / Permission Governance 继续推进。
-- 当前重点转向权限诊断和 sandbox policy integration 的最小闭环。
+- 当前正在实现 permission policy 最小收敛：把 `default`、`read-only`、`full-access` 的文件范围、网络命令和确认策略收敛到统一规则入口。
 
 ## 下一步
 
-- 继续推进权限治理：补更细的网络/危险命令识别、sandbox policy integration 和 permission diagnostics 展示。
+- 补强网络/危险命令识别，覆盖常见网络命令、包管理器安装、远程 git 操作和 workspace 外文件访问。
+- 保持 permission diagnostics 简单，只记录 pending/denied 的关键事实，不引入大而全的 diagnostics 聚合。
 - 后续可继续细化工具输出体验：更准确的行/字节统计、bash streaming accumulator、背景任务输出滚动窗口和 compaction-time tool result micro-compaction。
 
 ## 已知问题
@@ -45,5 +46,5 @@
 - skills 已有 resource discovery、source metadata、metadata system prompt 注入和 `/skill:name` 全文按需展开；尚未支持 package/extension source discovery。
 - MCP 相关配置字段已解析，但当前只报告 extension boundary diagnostic，尚未接入 MCP server lifecycle。
 - session 当前有意暂不拆完整 `SessionRepo`；跨 session parent/child entry graph、完整 tree navigation 交互和 branch summarization pipeline 仍未实现。
-- 三模式 permission rule/mode 已落地到 runtime/tool governance，但网络命令识别仍是最小启发式，尚未接入底层 sandbox policy。
+- 三模式 permission rule/mode 已落地到 runtime/tool governance，但网络命令识别仍需补强；当前只在 Eva 层做 policy gating，尚未接入底层 sandbox enforcement。
 - TUI 已有最小单元测试，但仍缺真实终端兼容性 smoke test。

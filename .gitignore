@@ -7,3 +7,4 @@ workspace/
 .agent_memory.json
 .antigravitycli/
 .eva-ai/
+.codex/
