@@ -24,6 +24,10 @@ import {
   type SessionCompactionInfo,
   type SessionUsageInfo,
 } from './session-manager.js';
+import {
+  formatToolResultMessageContent,
+  type ToolResultBudgetOptions,
+} from './tool-result-budget.js';
 
 type AgentRunAttempt = {
   result: string;
@@ -73,6 +77,7 @@ export class AgentSession {
   private readonly contextManager?: ContextManager;
   private _systemPrompt: string;
   private readonly _maxSteps?: number | null;
+  private readonly toolResultBudget?: ToolResultBudgetOptions;
   readonly sessionId: string;
 
   apiTotalTokens = 0;
@@ -82,6 +87,7 @@ export class AgentSession {
     systemPrompt,
     tools,
     maxSteps,
+    toolResultBudget,
     toolExecution,
     contextBuilder,
     contextManager,
@@ -94,6 +100,7 @@ export class AgentSession {
     systemPrompt: string;
     tools: Tool[];
     maxSteps?: number | null;
+    toolResultBudget?: ToolResultBudgetOptions;
     toolExecution?: ToolExecutionMode;
     contextBuilder?: ContextBuilder;
     contextManager?: ContextManager;
@@ -109,12 +116,14 @@ export class AgentSession {
     this.sessionManager = sessionManager;
     this.contextManager = contextManager;
     this._maxSteps = maxSteps;
+    this.toolResultBudget = toolResultBudget;
     this.sessionId = sessionId;
     this.agent = new Agent({
       llmClient,
       systemPrompt,
       tools,
       maxSteps,
+      toolResultBudget,
       toolExecution,
       contextBuilder,
       beforeToolCall,
@@ -324,7 +333,7 @@ export class AgentSession {
       onEvent?.(event);
       await this.sessionManager.appendMessage(this.sessionId, {
         role: 'tool',
-        content: event.result.success ? event.result.content : `Error: ${event.result.error ?? 'Unknown error'}`,
+        content: formatToolResultMessageContent(event.result),
         tool_call_id: event.result.toolCallId,
         name: event.result.toolName,
       });
@@ -361,4 +370,5 @@ export class AgentSession {
       'error',
     ].includes(event.type);
   }
+
 }

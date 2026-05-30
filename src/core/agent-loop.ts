@@ -2,7 +2,7 @@ import type { LLMClient } from '../llm/llm-client.js';
 import { formatProviderError } from '../llm/provider-errors.js';
 import { RetryExhaustedError } from '../retry.js';
 import type { AgentMessage, LLMResponse, LlmMessage, ToolCall, ToolExecutionResult } from '../schema.js';
-import type { Tool } from '../tools/base.js';
+import type { Tool, ToolExecutionContext } from '../tools/base.js';
 import {
   createInternalAgentMessage,
   defaultConvertToLlm,
@@ -12,8 +12,17 @@ import {
   type TransformContext,
 } from './agent-messages.js';
 import type { ContextBuilder, ProviderRequestView } from './context-builder.js';
+import {
+  applyToolResultBudget,
+  formatToolResultMessageContent,
+  type ToolResultBudgetOptions,
+} from './tool-result-budget.js';
 
 export type ToolExecutionMode = 'parallel' | 'sequential';
+type ToolExecutionBatch = {
+  mode: ToolExecutionMode;
+  toolCalls: ToolCall[];
+};
 
 export interface BeforeToolCallContext {
   toolCall: ToolCall;
@@ -25,6 +34,7 @@ export interface BeforeToolCallContext {
 export interface BeforeToolCallResult {
   block?: boolean;
   reason?: string;
+  toolExecutionContext?: Partial<ToolExecutionContext>;
 }
 
 export interface AfterToolCallContext {
@@ -35,7 +45,10 @@ export interface AfterToolCallContext {
   messages: AgentMessage[];
 }
 
-export type AfterToolCallResult = Partial<Pick<ToolExecutionResult, 'success' | 'content' | 'error'>>;
+export type AfterToolCallResult = Partial<Pick<
+  ToolExecutionResult,
+  'success' | 'content' | 'error' | 'details'
+>>;
 
 export type AgentLoopEvent =
   | { type: 'agent_start' }
@@ -69,6 +82,7 @@ export interface AgentLoopConfig {
   signal?: AbortSignal;
   emit?: AgentLoopEventSink;
   toolExecution?: ToolExecutionMode;
+  toolResultBudget?: ToolResultBudgetOptions;
   getSteeringMessages?: () => AgentMessage[] | Promise<AgentMessage[]>;
   getFollowUpMessages?: () => AgentMessage[] | Promise<AgentMessage[]>;
   beforeToolCall?: (
@@ -156,6 +170,16 @@ function createBlockedToolResult(toolCall: ToolCall, reason?: string): ToolExecu
   };
 }
 
+function createAbortedToolResult(toolCall: ToolCall): ToolExecutionResult {
+  return {
+    toolCallId: toolCall.id,
+    toolName: toolCall.function.name,
+    success: false,
+    content: '',
+    error: 'Tool execution aborted',
+  };
+}
+
 async function executeToolCall(
   toolCall: ToolCall,
   toolMap: Map<string, Tool>,
@@ -165,64 +189,129 @@ async function executeToolCall(
   const { id: toolCallId, function: fn } = toolCall;
   const { name: toolName, arguments: args } = fn;
 
+  if (config.signal?.aborted) {
+    return applyToolResultBudget(createAbortedToolResult(toolCall), config.toolResultBudget);
+  }
+
   await emit(config.emit, { type: 'tool_execution_start', toolCallId, toolName, args });
 
   const tool = toolMap.get(toolName);
   if (!tool) {
-    const result = {
-      toolCallId,
-      toolName,
-      success: false,
-      content: '',
-      error: `Unknown tool: ${toolName}`,
-    } satisfies ToolExecutionResult;
+    const result = applyToolResultBudget(
+      {
+        toolCallId,
+        toolName,
+        success: false,
+        content: '',
+        error: `Unknown tool: ${toolName}`,
+      },
+      config.toolResultBudget,
+    );
     await emit(config.emit, { type: 'tool_execution_end', result });
     return result;
   }
 
   try {
     const before = await config.beforeToolCall?.({ toolCall, tool, args, messages }, config.signal);
+    if (config.signal?.aborted) {
+      const result = applyToolResultBudget(createAbortedToolResult(toolCall), config.toolResultBudget);
+      await emit(config.emit, { type: 'tool_execution_end', result });
+      return result;
+    }
     if (before?.block) {
-      const result = createBlockedToolResult(toolCall, before.reason);
+      const result = applyToolResultBudget(
+        createBlockedToolResult(toolCall, before.reason),
+        config.toolResultBudget,
+      );
       await emit(config.emit, { type: 'tool_execution_end', result });
       return result;
     }
 
-    const output = await tool.execute(args, { toolCallId, signal: config.signal });
-    let result = {
+    const output = await tool.execute(args, {
+      ...before?.toolExecutionContext,
+      toolCallId,
+      signal: config.signal,
+    });
+    let result: ToolExecutionResult = {
       toolCallId,
       toolName,
       success: output.success,
       content: output.content,
       error: output.error,
-    } satisfies ToolExecutionResult;
+      details: output.details,
+    };
 
-    const after = await config.afterToolCall?.({ toolCall, tool, args, result, messages }, config.signal);
-    if (after) result = { ...result, ...after };
+    if (!config.signal?.aborted) {
+      const after = await config.afterToolCall?.({ toolCall, tool, args, result, messages }, config.signal);
+      if (after) result = { ...result, ...after };
+    }
+    result = applyToolResultBudget(result, config.toolResultBudget);
 
     await emit(config.emit, { type: 'tool_execution_end', result });
     return result;
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
-    const result = {
-      toolCallId,
-      toolName,
-      success: false,
-      content: '',
-      error: `Tool execution failed: ${err.message}\n\nStack:\n${err.stack ?? ''}`,
-    } satisfies ToolExecutionResult;
+    if (config.signal?.aborted) {
+      const result = applyToolResultBudget(createAbortedToolResult(toolCall), config.toolResultBudget);
+      await emit(config.emit, { type: 'tool_execution_end', result });
+      return result;
+    }
+    const result = applyToolResultBudget(
+      {
+        toolCallId,
+        toolName,
+        success: false,
+        content: '',
+        error: `Tool execution failed: ${err.message}\n\nStack:\n${err.stack ?? ''}`,
+      },
+      config.toolResultBudget,
+    );
     await emit(config.emit, { type: 'tool_execution_end', result });
     return result;
   }
 }
 
-function shouldRunSequential(toolCalls: ToolCall[], toolMap: Map<string, Tool>, mode?: ToolExecutionMode): boolean {
-  if (mode === 'sequential') return true;
-  if (mode === 'parallel') return false;
-  return toolCalls.some((toolCall) => {
-    const tool = toolMap.get(toolCall.function.name);
-    return tool?.metadata?.isConcurrencySafe === false;
-  });
+function canRunToolCallInParallel(toolCall: ToolCall, toolMap: Map<string, Tool>): boolean {
+  const tool = toolMap.get(toolCall.function.name);
+  const metadata = tool?.metadata;
+  if (!metadata) return false;
+
+  return metadata.category === 'read'
+    && metadata.riskLevel !== 'high'
+    && metadata.isReadOnly
+    && metadata.isConcurrencySafe;
+}
+
+function createToolExecutionBatches(
+  toolCalls: ToolCall[],
+  toolMap: Map<string, Tool>,
+  mode?: ToolExecutionMode,
+): ToolExecutionBatch[] {
+  if (mode === 'sequential') {
+    return [{ mode: 'sequential', toolCalls }];
+  }
+
+  const batches: ToolExecutionBatch[] = [];
+  let parallelBatch: ToolCall[] = [];
+
+  const flushParallelBatch = () => {
+    if (parallelBatch.length === 0) return;
+    batches.push({ mode: 'parallel', toolCalls: parallelBatch });
+    parallelBatch = [];
+  };
+
+  for (const toolCall of toolCalls) {
+    if (canRunToolCallInParallel(toolCall, toolMap)) {
+      parallelBatch.push(toolCall);
+      continue;
+    }
+
+    flushParallelBatch();
+    batches.push({ mode: 'sequential', toolCalls: [toolCall] });
+  }
+
+  flushParallelBatch();
+  return batches;
 }
 
 async function executeToolCalls(
@@ -231,15 +320,28 @@ async function executeToolCalls(
   messages: AgentMessage[],
   config: AgentLoopConfig,
 ): Promise<ToolExecutionResult[]> {
-  if (shouldRunSequential(toolCalls, toolMap, config.toolExecution)) {
-    const results: ToolExecutionResult[] = [];
-    for (const toolCall of toolCalls) {
-      results.push(await executeToolCall(toolCall, toolMap, messages, config));
+  const results: ToolExecutionResult[] = [];
+  const batches = createToolExecutionBatches(toolCalls, toolMap, config.toolExecution);
+
+  for (const batch of batches) {
+    if (config.signal?.aborted) break;
+
+    if (batch.mode === 'parallel') {
+      results.push(...(await Promise.all(
+        batch.toolCalls.map((toolCall) => executeToolCall(toolCall, toolMap, messages, config)),
+      )));
+      if (config.signal?.aborted) break;
+      continue;
     }
-    return results;
+
+    for (const toolCall of batch.toolCalls) {
+      if (config.signal?.aborted) break;
+      results.push(await executeToolCall(toolCall, toolMap, messages, config));
+      if (config.signal?.aborted) break;
+    }
   }
 
-  return Promise.all(toolCalls.map((toolCall) => executeToolCall(toolCall, toolMap, messages, config)));
+  return results;
 }
 
 async function appendInputMessages(
@@ -388,10 +490,16 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           await emit(config.emit, { type: 'tool_result', result });
           messages.push({
             role: 'tool',
-            content: result.success ? result.content : `Error: ${result.error ?? 'Unknown error'}`,
+            content: formatToolResultMessageContent(result),
             tool_call_id: result.toolCallId,
             name: result.toolName,
           });
+        }
+        if (config.signal?.aborted) {
+          const message = 'Task cancelled by user.';
+          await emit(config.emit, { type: 'error', message });
+          await emit(config.emit, { type: 'agent_end', messages, finalContent: message });
+          return abortResult(messages, message, apiTotalTokens);
         }
       }
 

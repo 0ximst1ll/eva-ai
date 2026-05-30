@@ -8,8 +8,16 @@ import {
   type RuntimeHost,
 } from '../src/core/runtime-host.js';
 import { defaultConvertToLlm } from '../src/core/agent-messages.js';
+import type { ResourceSourceInfo } from '../src/core/resource-loader.js';
 import { estimateMessagesTokens } from '../src/core/token-estimator.js';
 import { handleInteractiveCommand } from '../src/modes/interactive-mode.js';
+
+const skillSourceInfo: ResourceSourceInfo = {
+  source: 'config',
+  scope: 'project',
+  configuredPath: './skills',
+  baseDir: '/workspace/skills',
+};
 
 function createContextManagerMock({
   contextBuilder = createContextBuilder(),
@@ -61,6 +69,7 @@ function createContextManagerMock({
         compaction: session.compaction,
         usage: session.usage,
         permissionPending: { count: 0, latest: null },
+        permissionDenied: { count: 0, latest: null },
         projectContext: {
           count: contextBuilder.projectContext.length,
           resources: contextBuilder.projectContext,
@@ -176,6 +185,7 @@ test('/skill:name queues a skill invocation for the next provider request', asyn
       baseDir: '/workspace/skills/review',
       content: 'Review full instructions.',
       disableModelInvocation: false,
+      sourceInfo: skillSourceInfo,
     }],
   });
   const output: string[] = [];
@@ -217,6 +227,7 @@ test('/skill reports missing skills without queueing an invocation', async () =>
       baseDir: '/workspace/skills/review',
       content: 'Review full instructions.',
       disableModelInvocation: false,
+      sourceInfo: skillSourceInfo,
     }],
   });
   const output: string[] = [];
@@ -267,6 +278,38 @@ test('/resume <id> reports missing sessions without throwing', async () => {
 
   assert.equal(result, 'continue');
   assert.match(output.join('\n'), /Session not found: .*missing-session/);
+});
+
+test('/resume <id> reports unloadable session diagnostics', async () => {
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-current';
+    },
+    async switchSession() {
+      throw new RuntimeSessionNotFoundError('broken-session', [{
+        source: 'session',
+        level: 'error',
+        type: 'error',
+        code: 'session_load_invalid_log',
+        message: 'Session is not loadable: active entry path is broken',
+        details: {
+          sessionId: 'broken-session',
+          diagnosticCode: 'session_log_broken_parent_chain',
+        },
+      }]);
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/resume broken-session',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.match(output.join('\n'), /Session could not be loaded: .*broken-session/);
+  assert.match(output.join('\n'), /active entry path is broken/);
 });
 
 test('/fork forks the active runtime session through RuntimeHost', async () => {
@@ -674,6 +717,7 @@ test('/stats prints session and runtime details', async () => {
         baseDir: '/workspace/skills/review',
         content: 'Review instructions.',
         disableModelInvocation: false,
+        sourceInfo: skillSourceInfo,
       },
       {
         type: 'skill',
@@ -683,6 +727,7 @@ test('/stats prints session and runtime details', async () => {
         baseDir: '/workspace/skills/hidden',
         content: 'Hidden instructions.',
         disableModelInvocation: true,
+        sourceInfo: skillSourceInfo,
       },
     ],
     projectContextMaxChars: 20000,
@@ -985,6 +1030,93 @@ test('/entries reports when the current session has no entry tree metadata', asy
   assert.match(output.join('\n'), /No entry tree metadata found/);
 });
 
+test('/path prints current active entry path', async () => {
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-current';
+    },
+    get runtime() {
+      return {
+        sessionManager: {
+          getEntryPath(sessionId: string) {
+            assert.equal(sessionId, 'session-current');
+            return [
+              {
+                type: 'message',
+                sessionId,
+                timestamp: Date.parse('2026-05-08T00:00:00.000Z'),
+                entryId: 'entry-system',
+                parentEntryId: null,
+                message: { role: 'system', content: 'system prompt' },
+              },
+              {
+                type: 'message',
+                sessionId,
+                timestamp: Date.parse('2026-05-08T00:00:01.000Z'),
+                entryId: 'entry-user',
+                parentEntryId: 'entry-system',
+                message: { role: 'user', content: 'user task' },
+              },
+              {
+                type: 'branch_summary',
+                sessionId,
+                timestamp: Date.parse('2026-05-08T00:00:02.000Z'),
+                entryId: 'entry-summary',
+                parentEntryId: 'entry-user',
+                fromEntryId: null,
+                toEntryId: 'entry-user',
+                pathEntryCount: 2,
+                messageCount: 2,
+              },
+            ];
+          },
+        },
+      };
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/path',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+  const text = output.join('\n');
+
+  assert.equal(result, 'continue');
+  assert.match(text, /Current active entry path:/);
+  assert.match(text, /#0 entry-system type=message role=system parent=root preview="system prompt"/);
+  assert.match(text, /#1 entry-user type=message role=user parent=entry-system preview="user task"/);
+  assert.match(text, /\* #2 entry-summary type=branch_summary parent=entry-user from=root to=entry-user messages=2/);
+});
+
+test('/path reports when the current session has no active entry path', async () => {
+  const output: string[] = [];
+  const host = {
+    get sessionId() {
+      return 'session-current';
+    },
+    get runtime() {
+      return {
+        sessionManager: {
+          getEntryPath() {
+            return [];
+          },
+        },
+      };
+    },
+  } as unknown as RuntimeHost;
+
+  const result = await handleInteractiveCommand({
+    userInput: '/path',
+    host,
+    writeLine: (message = '') => output.push(message),
+  });
+
+  assert.equal(result, 'continue');
+  assert.match(output.join('\n'), /No active entry path found/);
+});
+
 test('/diagnostics prints full runtime diagnostics', async () => {
   const output: string[] = [];
   const contextBuilder = createContextBuilder({
@@ -1002,6 +1134,7 @@ test('/diagnostics prints full runtime diagnostics', async () => {
       baseDir: '/workspace/skills/review',
       content: 'Review instructions.',
       disableModelInvocation: false,
+      sourceInfo: skillSourceInfo,
     }],
     projectContextMaxChars: 20000,
   });
@@ -1097,11 +1230,13 @@ test('/diagnostics prints full runtime diagnostics', async () => {
   assert.match(text, /Latest usage: source=compaction, prompt=100, completion=25, total=125, at=2026-05-10T00:01:00\.000Z/);
   assert.match(text, /Context usage: estimated=\d+, window=100000, percent=\d+\.\d%, source=latest_provider_request_view, count=local, method=gpt-tokenizer/);
   assert.match(text, /Compaction recommendation: no, reason=auto_disabled, auto=disabled/);
+  assert.match(text, /Permission pending: none/);
+  assert.match(text, /Permission denied: none/);
   assert.match(text, /Estimated tokens: active=\d+, provider_request=\d+, project_context=\d+, method=gpt-tokenizer/);
   assert.match(text, /AGENTS\.md path=\/workspace\/AGENTS\.md chars=23/);
   assert.match(text, /Budget: 20000 chars/);
   assert.match(text, /Skills: loaded=1, visible=1, hidden=0, last_invoked=review/);
-  assert.match(text, /review visible path=\/workspace\/skills\/review\/SKILL\.md/);
+  assert.match(text, /review visible source=config scope=project path=\/workspace\/skills\/review\/SKILL\.md/);
   assert.match(text, /Last build: injected 1 resource\(s\).*estimated provider request tokens=\d+.*chars=85\/20000.*invoked_skills=review/);
 });
 

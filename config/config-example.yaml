@@ -45,6 +45,12 @@ compaction:
 
 # ===== Tools Configuration =====
 tools:
+  # Permission mode:
+  # - default: allow workspace file read/write and local commands; ask for outside-workspace file access or likely network commands.
+  # - read-only: allow only read-only tools.
+  # - full-access: Eva does not ask for tool permissions; OS/sandbox limits still apply.
+  permission_mode: "default"
+
   # Basic tool switches
   enable_file_tools: true  # File read/write/edit tools (ReadTool, WriteTool, EditTool)
   enable_bash: true        # Bash command execution tool

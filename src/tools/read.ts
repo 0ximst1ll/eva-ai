@@ -1,7 +1,9 @@
-import * as fs from 'node:fs';
-import type { Tool, ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
+import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
-import { truncateTextByTokens } from './truncate.js';
+import { createToolOutputTruncation, DEFAULT_TOOL_OUTPUT_MAX_CHARS, type ToolOutputTruncationDetails } from './truncate.js';
+
+const READ_OUTPUT_MAX_CHARS = DEFAULT_TOOL_OUTPUT_MAX_CHARS;
 
 export interface ReadToolInput extends Record<string, unknown> {
   path: string;
@@ -9,7 +11,17 @@ export interface ReadToolInput extends Record<string, unknown> {
   limit?: number;
 }
 
-export class ReadTool implements Tool<ReadToolInput> {
+export interface ReadToolDetails extends ToolResultDetails {
+  totalLines: number;
+  startLine: number;
+  endLine: number;
+  shownLines: number;
+  userLimited: boolean;
+  nextOffset: number | null;
+  truncation?: ToolOutputTruncationDetails;
+}
+
+export class ReadTool implements Tool<ReadToolInput, ReadToolDetails> {
   readonly name = 'read_file';
   readonly description =
     "Read file contents from the filesystem. Output always includes line numbers " +
@@ -25,20 +37,92 @@ export class ReadTool implements Tool<ReadToolInput> {
     required: ['path'],
   };
 
-  constructor(private readonly workspaceDir: string = '.') {}
+  constructor(
+    private readonly workspaceDir: string = '.',
+    private readonly operations: FileToolOperations = localFileToolOperations,
+  ) {}
 
-  async execute({ path: filePath, offset, limit }: ReadToolInput): Promise<ToolResult> {
+  async execute({ path: filePath, offset, limit }: ReadToolInput, context?: ToolExecutionContext): Promise<ToolResult<ReadToolDetails>> {
     try {
-      const resolved = resolveWorkspacePath(this.workspaceDir, filePath);
-      if (!fs.existsSync(resolved)) return { success: false, content: '', error: `File not found: ${filePath}` };
+      if (isToolExecutionAborted(context)) return createAbortedToolResult();
+      const resolved = resolveWorkspacePath(this.workspaceDir, filePath, {
+        allowOutsideWorkspace: context?.allowOutsideWorkspace,
+      });
+      if (!this.operations.exists(resolved)) return { success: false, content: '', error: `File not found: ${filePath}` };
 
-      const lines = fs.readFileSync(resolved, 'utf-8').split('\n');
+      const lines = this.operations.readFile(resolved).split('\n');
       const start = offset ? Math.max(0, offset - 1) : 0;
+      if (start >= lines.length) {
+        return { success: false, content: '', error: `Offset ${offset} is beyond end of file (${lines.length} lines total)` };
+      }
       const end = limit ? Math.min(start + limit, lines.length) : lines.length;
       const numbered = lines.slice(start, end).map((line, i) => `${String(start + i + 1).padStart(6, ' ')}|${line}`);
-      return { success: true, content: truncateTextByTokens(numbered.join('\n'), 32000).content };
+      const output = formatReadOutput(numbered, start, end, lines.length, Boolean(limit));
+      return { success: true, content: output.content, details: output.details };
     } catch (err) {
       return { success: false, content: '', error: String(err) };
     }
   }
+}
+
+function formatReadOutput(
+  numberedLines: string[],
+  start: number,
+  selectedEnd: number,
+  totalLines: number,
+  userLimited: boolean,
+): { content: string; details: ReadToolDetails } {
+  const fullOutput = numberedLines.join('\n');
+  const nextOffset = selectedEnd + 1;
+  const baseDetails = {
+    totalLines,
+    startLine: start + 1,
+    endLine: selectedEnd,
+    shownLines: numberedLines.length,
+    userLimited,
+    nextOffset: selectedEnd < totalLines ? nextOffset : null,
+  };
+  if (fullOutput.length <= READ_OUTPUT_MAX_CHARS) {
+    if (userLimited && selectedEnd < totalLines) {
+      const content = `${fullOutput}\n\n[${totalLines - selectedEnd} more lines in file. Use offset=${nextOffset} to continue.]`;
+      return { content, details: baseDetails };
+    }
+    return { content: fullOutput, details: baseDetails };
+  }
+
+  const markerReserve = 220;
+  const contentLimit = Math.max(0, READ_OUTPUT_MAX_CHARS - markerReserve);
+  const outputLines: string[] = [];
+  let outputLength = 0;
+  for (const line of numberedLines) {
+    const lineLength = line.length + (outputLines.length ? 1 : 0);
+    if (outputLength + lineLength > contentLimit) break;
+    outputLines.push(line);
+    outputLength += lineLength;
+  }
+
+  if (outputLines.length === 0 && numberedLines.length > 0) {
+    outputLines.push(numberedLines[0].slice(0, contentLimit));
+  }
+
+  const endLine = start + outputLines.length;
+  const content = [
+    outputLines.join('\n'),
+    `[Showing lines ${start + 1}-${endLine} of ${totalLines}. Use offset=${endLine + 1} to continue.]`,
+  ].join('\n\n');
+  return {
+    content,
+    details: {
+      ...baseDetails,
+      endLine,
+      shownLines: outputLines.length,
+      nextOffset: endLine < totalLines ? endLine + 1 : null,
+      truncation: createToolOutputTruncation({
+        original: fullOutput,
+        shown: content,
+        strategy: 'head',
+        maxChars: READ_OUTPUT_MAX_CHARS,
+      }),
+    },
+  };
 }

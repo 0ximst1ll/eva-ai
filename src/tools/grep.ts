@@ -1,19 +1,20 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Tool, ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
+import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
+import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars, type ToolOutputTruncationDetails } from './truncate.js';
 
 const DEFAULT_IGNORES = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache']);
 const MAX_RESULTS = 200;
 
-function walkFiles(root: string): string[] {
+function walkFiles(root: string, operations: FileToolOperations): string[] {
   const results: string[] = [];
   const stack = [root];
   while (stack.length) {
     const current = stack.pop()!;
-    let entries: fs.Dirent[];
+    let entries;
     try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
+      entries = operations.readdir(current);
     } catch {
       continue;
     }
@@ -34,7 +35,14 @@ export interface GrepToolInput extends Record<string, unknown> {
   case_sensitive?: boolean;
 }
 
-export class GrepTool implements Tool<GrepToolInput> {
+export interface SearchToolDetails extends ToolResultDetails {
+  matchCount: number;
+  maxResults: number;
+  limitedByMaxResults: boolean;
+  truncation?: ToolOutputTruncationDetails;
+}
+
+export class GrepTool implements Tool<GrepToolInput, SearchToolDetails> {
   readonly name = 'grep_files';
   readonly description = 'Search text content in workspace files. Prefer this over bash grep/rg for code search.';
   readonly parameters = {
@@ -48,14 +56,23 @@ export class GrepTool implements Tool<GrepToolInput> {
     required: ['pattern'],
   };
 
-  constructor(private readonly workspaceDir: string = '.') {}
+  constructor(
+    private readonly workspaceDir: string = '.',
+    private readonly operations: FileToolOperations = localFileToolOperations,
+  ) {}
 
-  async execute({ pattern, path: targetPath = '.', max_results = MAX_RESULTS, case_sensitive = true }: GrepToolInput): Promise<ToolResult> {
+  async execute(
+    { pattern, path: targetPath = '.', max_results = MAX_RESULTS, case_sensitive = true }: GrepToolInput,
+    context?: ToolExecutionContext,
+  ): Promise<ToolResult<SearchToolDetails>> {
     try {
-      const resolved = resolveWorkspacePath(this.workspaceDir, targetPath);
+      if (isToolExecutionAborted(context)) return createAbortedToolResult();
+      const resolved = resolveWorkspacePath(this.workspaceDir, targetPath, {
+        allowOutsideWorkspace: context?.allowOutsideWorkspace,
+      });
       const limit = Math.max(1, Math.min(Number(max_results) || MAX_RESULTS, 1000));
-      const stat = fs.statSync(resolved);
-      const files = stat.isDirectory() ? walkFiles(resolved) : [resolved];
+      const stat = this.operations.stat(resolved);
+      const files = stat.isDirectory() ? walkFiles(resolved, this.operations) : [resolved];
       let matcher: (line: string) => boolean;
       try {
         const re = new RegExp(pattern, case_sensitive ? '' : 'i');
@@ -67,22 +84,53 @@ export class GrepTool implements Tool<GrepToolInput> {
 
       const matches: string[] = [];
       for (const file of files) {
+        if (isToolExecutionAborted(context)) return createAbortedToolResult();
         if (matches.length >= limit) break;
         let content: string;
         try {
-          content = fs.readFileSync(file, 'utf-8');
+          content = this.operations.readFile(file);
         } catch {
           continue;
         }
         const lines = content.split('\n');
         for (let i = 0; i < lines.length; i++) {
+          if (isToolExecutionAborted(context)) return createAbortedToolResult();
           if (!matcher(lines[i])) continue;
           matches.push(`${path.relative(this.workspaceDir, file)}:${i + 1}: ${lines[i]}`);
           if (matches.length >= limit) break;
         }
       }
 
-      return { success: true, content: matches.length ? matches.join('\n') : 'No matches found.' };
+      if (!matches.length) return { success: true, content: 'No matches found.' };
+
+      const output = matches.join('\n');
+      const limitedByMaxResults = matches.length >= limit;
+      const baseDetails = {
+        matchCount: matches.length,
+        maxResults: limit,
+        limitedByMaxResults,
+      };
+      const markerParts = [
+        `Search output truncated: original=${output.length} chars.`,
+        'Narrow path/pattern or lower max_results to reduce output.',
+      ];
+      if (limitedByMaxResults) markerParts.push(`Stopped after max_results=${limit}.`);
+      const truncated = truncateHeadByChars(output, DEFAULT_TOOL_OUTPUT_MAX_CHARS, `[${markerParts.join(' ')}]`);
+      if (!truncated.truncated && limitedByMaxResults) {
+        return {
+          success: true,
+          content: `${output}\n\n[Stopped after max_results=${limit}. Narrow path/pattern to find more specific matches.]`,
+          details: baseDetails,
+        };
+      }
+      return {
+        success: true,
+        content: truncated.content,
+        details: {
+          ...baseDetails,
+          truncation: truncated.truncation,
+        },
+      };
     } catch (err) {
       return { success: false, content: '', error: String(err) };
     }

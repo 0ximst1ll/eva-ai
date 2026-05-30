@@ -29,6 +29,7 @@ export interface MCPConfigData {
 }
 
 export interface ToolsConfigData {
+  permissionMode: 'default' | 'read-only' | 'full-access';
   enableFileTools: boolean;
   enableBash: boolean;
   enableSkills: boolean;
@@ -87,6 +88,7 @@ interface RawYaml {
   };
   tools?: {
     enable_file_tools?: boolean;
+    permission_mode?: string;
     enable_bash?: boolean;
     enable_skills?: boolean;
     skills_dir?: string;
@@ -175,6 +177,7 @@ export class Config {
         },
       },
       tools: {
+        permissionMode: normalizePermissionMode(tools.permission_mode),
         enableFileTools: tools.enable_file_tools ?? true,
         enableBash: tools.enable_bash ?? true,
         enableSkills: tools.enable_skills ?? true,
@@ -204,6 +207,11 @@ export class Config {
     }
     return Config.fromYaml(configPath);
   }
+}
+
+function normalizePermissionMode(value: string | undefined): 'default' | 'read-only' | 'full-access' {
+  if (value === 'read-only' || value === 'full-access') return value;
+  return 'default';
 }
 
 function normalizeOptionalPositiveInteger(value: number | undefined): number | null {

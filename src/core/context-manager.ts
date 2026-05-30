@@ -65,7 +65,7 @@ export interface CompactionRecommendationDiagnostics {
   usagePercent: number | null;
 }
 
-export interface PermissionPendingDiagnostics {
+export interface PermissionDecisionDiagnostics {
   count: number;
   latest: SessionInternalEntry | null;
 }
@@ -78,7 +78,8 @@ export interface ContextDiagnostics {
   stepGuard: ContextStepGuardDiagnostics;
   compaction: SessionCompactionInfo;
   usage: SessionUsageInfo;
-  permissionPending: PermissionPendingDiagnostics;
+  permissionPending: PermissionDecisionDiagnostics;
+  permissionDenied: PermissionDecisionDiagnostics;
   projectContext: ProjectContextDiagnostics;
   skills: SkillsDiagnostics;
   latestBuild: ContextBuildSummary | null;
@@ -148,8 +149,11 @@ export function createContextManager({
         stepGuard,
         compaction: sessionManager.getCompactionInfo(sessionId),
         usage: sessionManager.getUsageInfo(sessionId),
-        permissionPending: createPermissionPendingDiagnostics(
+        permissionPending: createPermissionDecisionDiagnostics(
           sessionManager.getInternalEntries(sessionId, 'permission_pending'),
+        ),
+        permissionDenied: createPermissionDecisionDiagnostics(
+          sessionManager.getInternalEntries(sessionId, 'permission_denied'),
         ),
         projectContext: {
           count: currentContextBuilder.projectContext.length,
@@ -187,7 +191,7 @@ function createSkillsDiagnostics({
   };
 }
 
-function createPermissionPendingDiagnostics(entries: SessionInternalEntry[]): PermissionPendingDiagnostics {
+function createPermissionDecisionDiagnostics(entries: SessionInternalEntry[]): PermissionDecisionDiagnostics {
   const sorted = entries.slice().sort((a, b) => b.timestamp - a.timestamp);
   return {
     count: sorted.length,

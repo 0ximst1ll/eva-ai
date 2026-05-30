@@ -5,7 +5,7 @@ import {
   createContextBuilder,
 } from '../src/core/context-builder.js';
 import { createCompactionSummaryMessage } from '../src/core/compaction.js';
-import type { ProjectContextResource, SkillResource } from '../src/core/resource-loader.js';
+import type { ProjectContextResource, ResourceSourceInfo, SkillResource } from '../src/core/resource-loader.js';
 import type { Message } from '../src/schema.js';
 
 const agentsResource: ProjectContextResource = {
@@ -13,6 +13,13 @@ const agentsResource: ProjectContextResource = {
   name: 'AGENTS.md',
   path: '/workspace/AGENTS.md',
   content: '# Project Instructions\nUse rg before grep.\n',
+};
+
+const skillSourceInfo: ResourceSourceInfo = {
+  source: 'config',
+  scope: 'project',
+  configuredPath: './skills',
+  baseDir: '/workspace/skills',
 };
 
 const reviewSkill: SkillResource = {
@@ -23,6 +30,7 @@ const reviewSkill: SkillResource = {
   baseDir: '/workspace/skills/review',
   content: 'Full skill body should not be injected by default.',
   disableModelInvocation: false,
+  sourceInfo: skillSourceInfo,
 };
 
 test('ContextBuilder injects project context after the system message', () => {

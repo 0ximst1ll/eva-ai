@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 import { RuntimeHost } from '../src/core/runtime-host.js';
+import { CURRENT_SESSION_SCHEMA_VERSION } from '../src/core/session-manager.js';
 
 async function writeConfig(dir: string): Promise<string> {
   const configPath = path.join(dir, 'config.yaml');
@@ -52,6 +53,158 @@ test('RuntimeHost creates, resumes, and switches sessions through the runtime bo
 
     await host.switchSession(secondSessionId);
     assert.equal(host.sessionId, secondSessionId);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('RuntimeHost falls back when latest manifest points to a missing session', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-latest-missing-'));
+
+  try {
+    const configPath = await writeConfig(tempDir);
+    const sessionBaseDir = path.join(tempDir, 'sessions');
+    const writer = await RuntimeHost.create({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'jsonl',
+      sessionBaseDir,
+      createNewSession: true,
+      tools: [],
+    });
+    const fallbackSessionId = writer.sessionId;
+    await writer.session.addUserMessage('fallback task');
+
+    const workspaceKey = encodeURIComponent(path.resolve(tempDir));
+    await fs.writeFile(
+      path.join(sessionBaseDir, workspaceKey, 'manifest.json'),
+      JSON.stringify({ latestSessionId: 'missing-session', updatedAt: Date.now() }, null, 2),
+      'utf-8',
+    );
+
+    const host = await RuntimeHost.create({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'jsonl',
+      sessionBaseDir,
+      createNewSession: false,
+      tools: [],
+    });
+
+    assert.equal(host.sessionId, fallbackSessionId);
+    assert.equal(host.session.messages[0]?.role, 'system');
+    assert.deepEqual(
+      host.session.messages.slice(1).map((message) => message.content),
+      ['fallback task'],
+    );
+    assert.ok(host.runtime.sessionManager.getDiagnostics().some((diagnostic) => (
+      diagnostic.code === 'latest_session_fallback_loaded'
+      && diagnostic.details?.['failedLatestSessionId'] === 'missing-session'
+    )));
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('RuntimeHost creates a new session when latest is missing and no fallback exists', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-latest-empty-'));
+
+  try {
+    const configPath = await writeConfig(tempDir);
+    const sessionBaseDir = path.join(tempDir, 'sessions');
+    const workspaceKey = encodeURIComponent(path.resolve(tempDir));
+    const workspaceDataDir = path.join(sessionBaseDir, workspaceKey);
+    await fs.mkdir(workspaceDataDir, { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDataDir, 'manifest.json'),
+      JSON.stringify({ latestSessionId: 'missing-session', updatedAt: Date.now() }, null, 2),
+      'utf-8',
+    );
+
+    const host = await RuntimeHost.create({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'jsonl',
+      sessionBaseDir,
+      createNewSession: false,
+      tools: [],
+    });
+
+    assert.notEqual(host.sessionId, 'missing-session');
+    assert.equal(host.session.messages[0]?.role, 'system');
+    assert.ok(host.runtime.sessionManager.getDiagnostics().some((diagnostic) => (
+      diagnostic.code === 'latest_session_fallback_unavailable'
+      && diagnostic.details?.['sessionId'] === 'missing-session'
+    )));
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('RuntimeHost reports diagnostics when latest schema is unsupported before fallback', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-latest-schema-'));
+
+  try {
+    const configPath = await writeConfig(tempDir);
+    const sessionBaseDir = path.join(tempDir, 'sessions');
+    const writer = await RuntimeHost.create({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'jsonl',
+      sessionBaseDir,
+      createNewSession: true,
+      tools: [],
+    });
+    const fallbackSessionId = writer.sessionId;
+
+    const workspaceKey = encodeURIComponent(path.resolve(tempDir));
+    const workspaceDataDir = path.join(sessionBaseDir, workspaceKey);
+    await fs.writeFile(
+      path.join(workspaceDataDir, 'bad-latest.jsonl'),
+      [
+        JSON.stringify({
+          type: 'session_start',
+          sessionId: 'bad-latest',
+          workspaceDir: path.resolve(tempDir),
+          createdAt: 100,
+          schemaVersion: CURRENT_SESSION_SCHEMA_VERSION + 1,
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'bad-latest',
+          timestamp: 101,
+          entryId: 'entry-system',
+          parentEntryId: null,
+          message: { role: 'system', content: 'system' },
+        }),
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    await fs.writeFile(
+      path.join(workspaceDataDir, 'manifest.json'),
+      JSON.stringify({ latestSessionId: 'bad-latest', updatedAt: Date.now() }, null, 2),
+      'utf-8',
+    );
+
+    const host = await RuntimeHost.create({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'jsonl',
+      sessionBaseDir,
+      createNewSession: false,
+      tools: [],
+    });
+
+    assert.equal(host.sessionId, fallbackSessionId);
+    assert.ok(host.runtime.sessionManager.getDiagnostics().some((diagnostic) => (
+      diagnostic.code === 'session_log_unsupported_schema'
+      && diagnostic.details?.['sessionId'] === 'bad-latest'
+    )));
+    assert.ok(host.runtime.sessionManager.getDiagnostics().some((diagnostic) => (
+      diagnostic.code === 'latest_session_fallback_loaded'
+      && diagnostic.details?.['failedLatestSessionId'] === 'bad-latest'
+    )));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -250,6 +403,61 @@ test('RuntimeHost exports and imports sessions through the runtime boundary', as
   }
 });
 
+test('RuntimeHost keeps the active session when import fails', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-import-fail-'));
+
+  try {
+    const configPath = await writeConfig(tempDir);
+    const sessionBaseDir = path.join(tempDir, 'sessions');
+    const importPath = path.join(tempDir, 'bad-import.jsonl');
+    const host = await RuntimeHost.create({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'jsonl',
+      sessionBaseDir,
+      createNewSession: true,
+      tools: [],
+    });
+    const activeSessionId = host.sessionId;
+    await host.session.addUserMessage('current task');
+    const activeMessages = host.session.messages.map((message) => message.content);
+
+    await fs.writeFile(importPath, [
+      JSON.stringify({
+        type: 'session_start',
+        sessionId: 'bad-import',
+        workspaceDir: path.resolve(tempDir),
+        createdAt: 100,
+        schemaVersion: CURRENT_SESSION_SCHEMA_VERSION + 1,
+      }),
+      JSON.stringify({
+        type: 'message',
+        sessionId: 'bad-import',
+        timestamp: 101,
+        entryId: 'entry-system',
+        parentEntryId: null,
+        message: { role: 'system', content: 'system' },
+      }),
+      '',
+    ].join('\n'), 'utf-8');
+
+    await assert.rejects(
+      () => host.importSession(importPath),
+      /Imported session is not loadable: unsupported session schema version/,
+    );
+
+    const workspaceKey = encodeURIComponent(path.resolve(tempDir));
+    const manifest = JSON.parse(
+      await fs.readFile(path.join(sessionBaseDir, workspaceKey, 'manifest.json'), 'utf-8'),
+    ) as { latestSessionId: string };
+    assert.equal(host.sessionId, activeSessionId);
+    assert.deepEqual(host.session.messages.map((message) => message.content), activeMessages);
+    assert.equal(manifest.latestSessionId, activeSessionId);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('RuntimeHost switches to the parent session through the runtime boundary', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-parent-'));
 
@@ -330,6 +538,7 @@ test('RuntimeHost resumes sessions using the active entry path', async () => {
           sessionId: 'branch-session',
           workspaceDir: path.resolve(tempDir),
           createdAt: 100,
+          schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
         }),
         JSON.stringify({
           type: 'message',

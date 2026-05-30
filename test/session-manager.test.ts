@@ -8,6 +8,7 @@ import {
   CURRENT_SESSION_SCHEMA_VERSION,
   SessionManager,
 } from '../src/core/session-manager.js';
+import { MemorySessionStorage } from '../src/core/session-store.js';
 
 test('SessionManager stores and resets memory sessions', async () => {
   const manager = new SessionManager({ workspaceDir: '/workspace', mode: 'memory' });
@@ -73,7 +74,58 @@ test('SessionManager stores and resets memory sessions', async () => {
     })),
     [{ sessionId, messageCount: 1, isLatest: true }],
   );
-  assert.equal(await manager.loadLatestSession(), null);
+  assert.equal(await manager.loadLatestSession(), sessionId);
+});
+
+test('SessionManager can share a memory storage backend across managers', async () => {
+  const storage = new MemorySessionStorage();
+  const first = new SessionManager({ workspaceDir: '/workspace', storage });
+  const sessionId = await first.createSession('system', 'session-a');
+  await first.appendMessage(sessionId, { role: 'user', content: 'hello' });
+
+  const second = new SessionManager({ workspaceDir: '/workspace', storage });
+  assert.equal(await second.loadLatestSession(), sessionId);
+  assert.deepEqual(second.getMessages(sessionId), [
+    { role: 'system', content: 'system' },
+    { role: 'user', content: 'hello' },
+  ]);
+  assert.deepEqual(
+    (await second.listSessions()).map((session) => ({
+      sessionId: session.sessionId,
+      messageCount: session.messageCount,
+      isLatest: session.isLatest,
+    })),
+    [{ sessionId, messageCount: 2, isLatest: true }],
+  );
+});
+
+test('SessionManager preserves active path parent invariants across append, branch, and reset', async () => {
+  const manager = new SessionManager({ workspaceDir: '/workspace', mode: 'memory' });
+  const sessionId = await manager.createSession('system');
+  await manager.appendMessage(sessionId, { role: 'user', content: 'first task' });
+  const firstTaskEntryId = manager.getEntryPath(sessionId).at(-1)?.entryId;
+  assert.ok(firstTaskEntryId);
+
+  await manager.appendMessage(sessionId, { role: 'assistant', content: 'main answer' });
+  const mainPath = manager.getEntryPath(sessionId);
+  assert.equal(mainPath.at(-1)?.parentEntryId, firstTaskEntryId);
+
+  await manager.branchSession({ sessionId, leafEntryId: firstTaskEntryId });
+  const branchSummaryEntry = manager.getEntryPath(sessionId).at(-1);
+  assert.equal(branchSummaryEntry?.type, 'branch_summary');
+  assert.equal(branchSummaryEntry?.parentEntryId, firstTaskEntryId);
+
+  await manager.appendMessage(sessionId, { role: 'assistant', content: 'branch answer' });
+  const branchAnswerEntry = manager.getEntryPath(sessionId).at(-1);
+  assert.equal(branchAnswerEntry?.type, 'message');
+  assert.equal(branchAnswerEntry?.parentEntryId, branchSummaryEntry?.entryId);
+  assert.deepEqual(manager.getActiveState(sessionId), buildSessionStateFromEntryPath(manager.getEntryPath(sessionId)));
+
+  await manager.resetSession(sessionId, 'reset system');
+  assert.deepEqual(manager.getMessages(sessionId), [{ role: 'system', content: 'reset system' }]);
+  assert.deepEqual(manager.getEntryPath(sessionId).map((entry) => (
+    entry.type === 'message' ? entry.message.content : entry.type
+  )), ['reset system']);
 });
 
 test('SessionManager persists and reloads jsonl sessions', async () => {
@@ -180,9 +232,9 @@ test('SessionManager writes and reloads entry tree parent links', async () => {
       .split('\n')
       .map((line) => JSON.parse(line) as {
         type: string;
-        entryId?: string;
-        parentEntryId?: string | null;
-        schemaVersion?: number;
+        entryId: string;
+        parentEntryId: string | null;
+        schemaVersion: number;
       });
     const startEntry = entries.find((entry) => entry.type === 'session_start');
     const messageEntries = entries.filter((entry) => entry.type === 'message');
@@ -192,7 +244,6 @@ test('SessionManager writes and reloads entry tree parent links', async () => {
     assert.equal(startEntry?.schemaVersion, CURRENT_SESSION_SCHEMA_VERSION);
     assert.deepEqual(first.getSessionFormatInfo(sessionId), {
       schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
-      isLegacy: false,
     });
     assert.equal(messageEntries.length, 2);
     assert.ok(messageEntries[0].entryId);
@@ -225,8 +276,8 @@ test('SessionManager writes and reloads entry tree parent links', async () => {
       .split('\n')
       .map((line) => JSON.parse(line) as {
         type: string;
-        entryId?: string;
-        parentEntryId?: string | null;
+        entryId: string;
+        parentEntryId: string | null;
       });
     const lastEntry = reloadedEntries[reloadedEntries.length - 1];
     assert.equal(lastEntry?.type, 'message');
@@ -253,6 +304,7 @@ test('SessionManager loadSession uses the active entry path when entries branch'
           sessionId: 'branch-session',
           workspaceDir: path.resolve(workspaceDir),
           createdAt: 100,
+          schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
         }),
         JSON.stringify({
           type: 'message',
@@ -394,6 +446,8 @@ test('SessionManager persists internal entries without adding provider messages'
     assert.equal(entry.kind, 'permission_pending');
     assert.deepEqual(first.getInternalEntries(sessionId), [{
       timestamp: entry.timestamp,
+      entryId: entry.entryId,
+      parentEntryId: entry.parentEntryId,
       kind: 'permission_pending',
       content: 'Tool approval required',
       metadata: {
@@ -621,8 +675,8 @@ test('SessionManager branches the active session to a specified entry path', asy
       .split('\n')
       .map((line) => JSON.parse(line) as {
         type: string;
-        entryId?: string;
-        parentEntryId?: string | null;
+        entryId: string;
+        parentEntryId: string | null;
         targetEntryId?: string | null;
       });
     const leafEntry = persistedEntries.find((entry) => entry.type === 'leaf');
@@ -844,6 +898,8 @@ test('SessionManager derives active state and compaction anchors from the active
     activeState.usage.total.total_tokens = 999;
     activeState.internalEntries.push({
       timestamp: 1,
+      entryId: 'mutated-entry',
+      parentEntryId: null,
       kind: 'mutated',
       content: 'copy only',
     });
@@ -946,6 +1002,55 @@ test('SessionManager lists sessions as a lineage tree', async () => {
   }
 });
 
+test('SessionManager listSessionTree skips unloadable session logs', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-tree-list-bad-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+  const workspaceKey = encodeURIComponent(path.resolve(workspaceDir));
+  const workspaceDataDir = path.join(baseDir, workspaceKey);
+
+  try {
+    const manager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    const sessionId = await manager.createSession('system', 'good-session');
+    await manager.appendMessage(sessionId, { role: 'user', content: 'good task' });
+    await fs.writeFile(
+      path.join(workspaceDataDir, 'bad-session.jsonl'),
+      [
+        JSON.stringify({
+          type: 'session_start',
+          sessionId: 'bad-session',
+          workspaceDir: path.resolve(workspaceDir),
+          createdAt: 123,
+          schemaVersion: CURRENT_SESSION_SCHEMA_VERSION + 1,
+        }),
+        JSON.stringify({
+          type: 'message',
+          sessionId: 'bad-session',
+          timestamp: 124,
+          entryId: 'entry-system',
+          parentEntryId: null,
+          message: { role: 'system', content: 'system' },
+        }),
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const sessions = await manager.listSessions();
+    const tree = await manager.listSessionTree();
+
+    assert.deepEqual(sessions.map((session) => session.sessionId), ['good-session']);
+    assert.deepEqual(tree.map((node) => node.session.sessionId), ['good-session']);
+    assert.ok(manager.getDiagnostics().some((diagnostic) => (
+      diagnostic.code === 'session_log_unsupported_schema'
+      && diagnostic.details?.['operation'] === 'list'
+      && diagnostic.details?.['sessionId'] === 'bad-session'
+    )));
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('SessionManager exports and imports JSONL sessions', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-import-export-'));
   const sourceWorkspaceDir = path.join(tempDir, 'source-workspace');
@@ -993,7 +1098,6 @@ test('SessionManager exports and imports JSONL sessions', async () => {
     );
     assert.deepEqual(target.getSessionFormatInfo(sessionId), {
       schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
-      isLegacy: false,
     });
     assert.equal(await target.loadLatestSession(), sessionId);
 
@@ -1009,7 +1113,7 @@ test('SessionManager exports and imports JSONL sessions', async () => {
   }
 });
 
-test('SessionManager treats old session_start entries as root sessions', async () => {
+test('SessionManager rejects sessions without entry metadata', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-old-lineage-'));
   const workspaceDir = path.join(tempDir, 'workspace');
   const baseDir = path.join(tempDir, 'sessions');
@@ -1026,6 +1130,7 @@ test('SessionManager treats old session_start entries as root sessions', async (
           sessionId: 'old-session',
           workspaceDir: path.resolve(workspaceDir),
           createdAt: 123,
+          schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
         }),
         JSON.stringify({
           type: 'message',
@@ -1039,16 +1144,315 @@ test('SessionManager treats old session_start entries as root sessions', async (
     );
 
     const manager = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
-    assert.equal(await manager.loadSession('old-session'), true);
-    assert.deepEqual(manager.getLineageInfo('old-session'), {
-      sessionId: 'old-session',
-      rootSessionId: 'old-session',
-      createdAt: 123,
-    });
-    assert.deepEqual(manager.getSessionFormatInfo('old-session'), { isLegacy: true });
+    assert.equal(await manager.loadSession('old-session'), false);
+    assert.deepEqual(manager.getMessages('old-session'), []);
+    assert.deepEqual(manager.getEntryPath('old-session'), []);
+    assert.ok(manager.getDiagnostics().some((diagnostic) => (
+      diagnostic.code === 'session_log_missing_entry_metadata'
+      && diagnostic.details?.['sessionId'] === 'old-session'
+    )));
+    assert.ok(manager.getDiagnostics().some((diagnostic) => (
+      diagnostic.code === 'session_load_invalid_log'
+      && diagnostic.details?.['sessionId'] === 'old-session'
+      && diagnostic.details?.['diagnosticCode'] === 'session_log_missing_entry_metadata'
+    )));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
+});
+
+test('SessionManager reports diagnostics for corrupt JSONL while loading valid entries', async () => {
+  const storage = new MemorySessionStorage();
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  const sessionId = await manager.createSession('system', 'corrupt-session');
+  await manager.appendMessage(sessionId, { role: 'user', content: 'hello' });
+  await storage.writeSessionLog(sessionId, `${await storage.readSessionLog(sessionId)}{"type":"message"\n`);
+  const reloaded = new SessionManager({ workspaceDir: '/workspace', storage });
+
+  assert.equal(await reloaded.loadSession(sessionId), true);
+  assert.ok(reloaded.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_log_invalid_json'
+    && diagnostic.details?.['sessionId'] === sessionId
+  )));
+});
+
+test('SessionManager rejects invalid session entry payloads with diagnostics', async () => {
+  const storage = new MemorySessionStorage();
+  const sessionId = 'invalid-payload-session';
+  await storage.writeSessionLog(sessionId, [
+    JSON.stringify({
+      type: 'session_start',
+      sessionId,
+      workspaceDir: '/workspace',
+      createdAt: 123,
+      schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
+    }),
+    JSON.stringify({
+      type: 'message',
+      sessionId,
+      timestamp: 124,
+      entryId: 'entry-system',
+      parentEntryId: null,
+      message: { role: 'system', content: 'system' },
+    }),
+    JSON.stringify({
+      type: 'usage',
+      sessionId,
+      timestamp: 125,
+      entryId: 'entry-bad-usage',
+      parentEntryId: 'entry-system',
+      source: 'assistant',
+      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 'bad' },
+    }),
+    '',
+  ].join('\n'));
+
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  assert.equal(await manager.loadSession(sessionId), true);
+  assert.deepEqual(manager.getMessages(sessionId), [{ role: 'system', content: 'system' }]);
+  assert.equal(manager.getUsageInfo(sessionId).count, 0);
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_log_invalid_entry'
+    && diagnostic.details?.['sessionId'] === sessionId
+    && diagnostic.details?.['reason'] === 'usage.usage.total_tokens must be a finite number'
+  )));
+});
+
+test('SessionManager rejects unsupported session schema versions', async () => {
+  const storage = new MemorySessionStorage();
+  const sessionId = 'unsupported-schema-session';
+  await storage.writeSessionLog(sessionId, [
+    JSON.stringify({
+      type: 'session_start',
+      sessionId,
+      workspaceDir: '/workspace',
+      createdAt: 123,
+      schemaVersion: CURRENT_SESSION_SCHEMA_VERSION + 1,
+    }),
+    JSON.stringify({
+      type: 'message',
+      sessionId,
+      timestamp: 124,
+      entryId: 'entry-system',
+      parentEntryId: null,
+      message: { role: 'system', content: 'system' },
+    }),
+    '',
+  ].join('\n'));
+
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  assert.equal(await manager.loadSession(sessionId), false);
+  assert.deepEqual(manager.getMessages(sessionId), []);
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_log_unsupported_schema'
+    && diagnostic.details?.['sessionId'] === sessionId
+    && diagnostic.details?.['schemaVersion'] === CURRENT_SESSION_SCHEMA_VERSION + 1
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_load_invalid_log'
+    && diagnostic.details?.['sessionId'] === sessionId
+    && diagnostic.details?.['diagnosticCode'] === 'session_log_unsupported_schema'
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_load_invalid_log'
+    && diagnostic.message.includes(`schema version ${CURRENT_SESSION_SCHEMA_VERSION + 1}`)
+    && diagnostic.message.includes(`supports schema version ${CURRENT_SESSION_SCHEMA_VERSION}`)
+    && /Upgrade Eva or run a session migration/.test(diagnostic.message)
+  )));
+});
+
+test('SessionManager reports actionable import errors for unsupported schema versions', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-session-import-schema-'));
+  const inputPath = path.join(tempDir, 'unsupported-schema.jsonl');
+  const sessionId = 'unsupported-import-session';
+
+  try {
+    await fs.writeFile(inputPath, [
+      JSON.stringify({
+        type: 'session_start',
+        sessionId,
+        workspaceDir: '/source',
+        createdAt: 123,
+        schemaVersion: CURRENT_SESSION_SCHEMA_VERSION + 1,
+      }),
+      JSON.stringify({
+        type: 'message',
+        sessionId,
+        timestamp: 124,
+        entryId: 'entry-system',
+        parentEntryId: null,
+        message: { role: 'system', content: 'system' },
+      }),
+      '',
+    ].join('\n'), 'utf-8');
+
+    const manager = new SessionManager({ workspaceDir: '/workspace', mode: 'memory' });
+    await assert.rejects(
+      () => manager.importSession({ inputPath }),
+      new RegExp(
+        'Imported session is not loadable: unsupported session schema version '
+        + `${CURRENT_SESSION_SCHEMA_VERSION + 1}; this Eva build supports schema version `
+        + `${CURRENT_SESSION_SCHEMA_VERSION}. Upgrade Eva or run a session migration`,
+      ),
+    );
+    assert.ok(manager.getDiagnostics().some((diagnostic) => (
+      diagnostic.code === 'session_import_invalid_log'
+      && diagnostic.details?.['sessionId'] === sessionId
+      && diagnostic.details?.['diagnosticCode'] === 'session_log_unsupported_schema'
+    )));
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('SessionManager rejects session logs without a valid session_start', async () => {
+  const storage = new MemorySessionStorage();
+  const sessionId = 'missing-start-session';
+  await storage.writeSessionLog(sessionId, [
+    JSON.stringify({
+      type: 'message',
+      sessionId,
+      timestamp: 124,
+      entryId: 'entry-system',
+      parentEntryId: null,
+      message: { role: 'system', content: 'system' },
+    }),
+    '',
+  ].join('\n'));
+
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  assert.equal(await manager.loadSession(sessionId), false);
+  assert.deepEqual(manager.getMessages(sessionId), []);
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_log_missing_session_start'
+    && diagnostic.details?.['sessionId'] === sessionId
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_load_invalid_log'
+    && diagnostic.details?.['sessionId'] === sessionId
+    && diagnostic.details?.['diagnosticCode'] === 'session_log_missing_session_start'
+  )));
+});
+
+test('SessionManager rejects broken active parent chains', async () => {
+  const storage = new MemorySessionStorage();
+  const sessionId = 'broken-parent-session';
+  await storage.writeSessionLog(sessionId, [
+    JSON.stringify({
+      type: 'session_start',
+      sessionId,
+      workspaceDir: '/workspace',
+      createdAt: 123,
+      schemaVersion: CURRENT_SESSION_SCHEMA_VERSION,
+    }),
+    JSON.stringify({
+      type: 'message',
+      sessionId,
+      timestamp: 124,
+      entryId: 'entry-orphan',
+      parentEntryId: 'missing-parent',
+      message: { role: 'system', content: 'orphan system' },
+    }),
+    '',
+  ].join('\n'));
+
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  assert.equal(await manager.loadSession(sessionId), false);
+  assert.deepEqual(manager.getMessages(sessionId), []);
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_log_broken_parent_chain'
+    && diagnostic.details?.['sessionId'] === sessionId
+    && diagnostic.details?.['missingParentEntryId'] === 'missing-parent'
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_load_invalid_log'
+    && diagnostic.details?.['sessionId'] === sessionId
+    && diagnostic.details?.['diagnosticCode'] === 'session_log_broken_parent_chain'
+  )));
+});
+
+test('SessionManager falls back to a loadable session when latest manifest target is missing', async () => {
+  const storage = new MemorySessionStorage();
+  const writer = new SessionManager({ workspaceDir: '/workspace', storage });
+  const fallbackSessionId = await writer.createSession('system', 'fallback-session');
+  await writer.appendMessage(fallbackSessionId, { role: 'user', content: 'fallback task' });
+  await storage.writeManifest({ latestSessionId: 'missing-session', updatedAt: 999 });
+
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  assert.equal(await manager.loadLatestSession(), fallbackSessionId);
+  assert.deepEqual(
+    manager.getMessages(fallbackSessionId).map((message) => message.content),
+    ['system', 'fallback task'],
+  );
+  assert.equal((await storage.readManifest())?.latestSessionId, fallbackSessionId);
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_load_failed'
+    && diagnostic.details?.['sessionId'] === 'missing-session'
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'latest_session_fallback_loaded'
+    && diagnostic.details?.['sessionId'] === fallbackSessionId
+    && diagnostic.details?.['failedLatestSessionId'] === 'missing-session'
+  )));
+});
+
+test('SessionManager skips unloadable latest sessions during fallback selection', async () => {
+  const storage = new MemorySessionStorage();
+  const writer = new SessionManager({ workspaceDir: '/workspace', storage });
+  const fallbackSessionId = await writer.createSession('system', 'fallback-schema-session');
+  await writer.appendMessage(fallbackSessionId, { role: 'user', content: 'fallback task' });
+  await storage.writeSessionLog('bad-latest-session', [
+    JSON.stringify({
+      type: 'session_start',
+      sessionId: 'bad-latest-session',
+      workspaceDir: '/workspace',
+      createdAt: 123,
+      schemaVersion: CURRENT_SESSION_SCHEMA_VERSION + 1,
+    }),
+    JSON.stringify({
+      type: 'message',
+      sessionId: 'bad-latest-session',
+      timestamp: 124,
+      entryId: 'entry-system',
+      parentEntryId: null,
+      message: { role: 'system', content: 'system' },
+    }),
+    '',
+  ].join('\n'));
+  await storage.writeManifest({ latestSessionId: 'bad-latest-session', updatedAt: 999 });
+
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  assert.equal(await manager.loadLatestSession(), fallbackSessionId);
+  assert.equal((await storage.readManifest())?.latestSessionId, fallbackSessionId);
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_log_unsupported_schema'
+    && diagnostic.details?.['sessionId'] === 'bad-latest-session'
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'latest_session_fallback_loaded'
+    && diagnostic.details?.['sessionId'] === fallbackSessionId
+    && diagnostic.details?.['failedLatestSessionId'] === 'bad-latest-session'
+  )));
+});
+
+test('SessionManager reports diagnostics when latest manifest points to an unloadable session', async () => {
+  const storage = new MemorySessionStorage();
+  const manager = new SessionManager({ workspaceDir: '/workspace', storage });
+  await storage.writeManifest({ latestSessionId: 'missing-session', updatedAt: 123 });
+
+  assert.equal(await manager.loadLatestSession(), null);
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'session_load_failed'
+    && diagnostic.details?.['sessionId'] === 'missing-session'
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'latest_session_load_failed'
+    && diagnostic.details?.['sessionId'] === 'missing-session'
+  )));
+  assert.ok(manager.getDiagnostics().some((diagnostic) => (
+    diagnostic.code === 'latest_session_fallback_unavailable'
+    && diagnostic.details?.['sessionId'] === 'missing-session'
+  )));
 });
 
 function escapeRegExp(value: string): string {

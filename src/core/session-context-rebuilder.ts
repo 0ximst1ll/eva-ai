@@ -8,7 +8,7 @@ import {
   type SessionUsageInfo,
 } from './session-manager.js';
 
-export type SessionContextRebuildStrategy = 'flat_snapshot' | 'entry_path';
+export type SessionContextRebuildStrategy = 'entry_path';
 
 export interface SessionContextBranchNode {
   sessionId: string;
@@ -40,27 +40,19 @@ export async function rebuildSessionContext({
   sessionId,
   internalKind,
 }: RebuildSessionContextOptions): Promise<SessionContextSnapshot | null> {
-  let messages = sessionManager.getMessages(sessionId);
-  if (!messages.length && await sessionManager.loadSession(sessionId)) {
-    messages = sessionManager.getMessages(sessionId);
+  if (!sessionManager.getMessages(sessionId).length) {
+    await sessionManager.loadSession(sessionId);
   }
 
   const entryPath = sessionManager.getEntryPath(sessionId);
   const activeState = sessionManager.getActiveState(sessionId);
-  const strategy: SessionContextRebuildStrategy = entryPath.length && activeState.messages.length
-    ? 'entry_path'
-    : 'flat_snapshot';
-  if (activeState.messages.length) {
-    messages = activeState.messages;
-  }
-
-  if (!messages.length) return null;
+  if (!entryPath.length || !activeState.messages.length) return null;
 
   const lineage = sessionManager.getLineageInfo(sessionId);
   return {
     sessionId,
-    strategy,
-    messages,
+    strategy: 'entry_path',
+    messages: activeState.messages,
     lineage,
     branchPath: createBranchPath(lineage),
     compaction: activeState.compaction,
@@ -75,6 +67,8 @@ function filterInternalEntries(entries: SessionInternalEntry[], kind?: string): 
     .filter((entry) => !kind || entry.kind === kind)
     .map((entry) => ({
       timestamp: entry.timestamp,
+      entryId: entry.entryId,
+      parentEntryId: entry.parentEntryId,
       kind: entry.kind,
       content: entry.content,
       metadata: entry.metadata ? { ...entry.metadata } : undefined,

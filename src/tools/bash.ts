@@ -6,11 +6,17 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Tool, ToolExecutionContext, ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
+import {
+  DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+  truncateTailByChars,
+  type ToolOutputTruncationDetails,
+} from './truncate.js';
 
-const MAX_INLINE_OUTPUT_CHARS = 24000;
+const MAX_INLINE_OUTPUT_CHARS = DEFAULT_TOOL_OUTPUT_MAX_CHARS;
+type BashShellStatus = 'running' | 'completed' | 'failed' | 'terminated' | 'error';
 
-export interface BashOutputResult extends ToolResult {
+export interface BashOutputResult extends ToolResult<BashToolDetails> {
   stdout: string;
   stderr: string;
   exitCode: number;
@@ -18,15 +24,53 @@ export interface BashOutputResult extends ToolResult {
   fullOutputPath?: string;
 }
 
-function ensureLogDir(workspaceDir?: string): string {
-  const base = workspaceDir ? path.join(workspaceDir, '.eva-ai', 'bash-logs') : path.join(os.tmpdir(), 'eva-ai-bash-logs');
+export interface BashToolDetails extends ToolResultDetails {
+  exitCode: number;
+  stdoutChars?: number;
+  stderrChars?: number;
+  fullOutputPath?: string;
+  truncation?: ToolOutputTruncationDetails;
+  bashId?: string;
+  status?: BashShellStatus;
+  outputLines?: number;
+}
+
+export interface BashExecOptions {
+  signal?: AbortSignal;
+  timeoutSecs: number;
+}
+
+export interface BashSpawnOptions {
+  cwd?: string;
+  isWindows: boolean;
+}
+
+export interface BashOperations {
+  exec?: (command: string, cwd: string | undefined, isWindows: boolean, options: BashExecOptions) => Promise<BashOutputResult>;
+  spawn?: (command: string, options: BashSpawnOptions) => cp.ChildProcess;
+}
+
+function abortedBashResult(): BashOutputResult {
+  const result = createAbortedToolResult<BashToolDetails>();
+  return {
+    success: result.success,
+    content: result.content,
+    error: result.error,
+    stdout: '',
+    stderr: result.error ?? '',
+    exitCode: -1,
+  };
+}
+
+function ensureLogDir(): string {
+  const base = path.join(os.tmpdir(), 'eva-ai-bash-logs');
   fs.mkdirSync(base, { recursive: true });
   return base;
 }
 
-function writeFullOutput(workspaceDir: string | undefined, command: string, stdout: string, stderr: string): string | undefined {
+function writeFullOutput(command: string, stdout: string, stderr: string): string | undefined {
   try {
-    const filePath = path.join(ensureLogDir(workspaceDir), `${Date.now()}-${randomUUID().slice(0, 8)}.log`);
+    const filePath = path.join(ensureLogDir(), `${Date.now()}-${randomUUID().slice(0, 8)}.log`);
     fs.writeFileSync(filePath, `$ ${command}\n\n[stdout]\n${stdout}\n\n[stderr]\n${stderr}\n`, 'utf-8');
     return filePath;
   } catch {
@@ -34,14 +78,44 @@ function writeFullOutput(workspaceDir: string | undefined, command: string, stdo
   }
 }
 
-function truncateOutput(content: string, fullOutputPath?: string): string {
-  if (content.length <= MAX_INLINE_OUTPUT_CHARS) return content || '(no output)';
-  const keep = Math.floor(MAX_INLINE_OUTPUT_CHARS / 2);
-  return (
-    content.slice(0, keep) +
-    `\n\n... [output truncated: ${content.length} chars; full output: ${fullOutputPath ?? 'unavailable'}] ...\n\n` +
-    content.slice(-keep)
+function truncateOutput(content: string, fullOutputPath?: string): {
+  content: string;
+  truncation?: ToolOutputTruncationDetails;
+} {
+  if (content.length <= MAX_INLINE_OUTPUT_CHARS) return { content: content || '(no output)' };
+  const truncated = truncateTailByChars(
+    content,
+    MAX_INLINE_OUTPUT_CHARS,
+    `[Showing last output. Output truncated: original=${content.length} chars; full output: ${fullOutputPath ?? 'unavailable'}]`,
   );
+  return {
+    content: truncated.content,
+    truncation: fullOutputPath && truncated.truncation
+      ? { ...truncated.truncation, fullOutputPath }
+      : truncated.truncation,
+  };
+}
+
+function createBashDetails({
+  exitCode,
+  stdout,
+  stderr,
+  fullOutputPath,
+  truncation,
+}: {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  fullOutputPath?: string;
+  truncation?: ToolOutputTruncationDetails;
+}): BashToolDetails {
+  return {
+    exitCode,
+    stdoutChars: stdout.length,
+    stderrChars: stderr.length,
+    fullOutputPath,
+    truncation,
+  };
 }
 
 function killProcessTree(proc: cp.ChildProcess, isWindows: boolean): void {
@@ -80,7 +154,7 @@ class BackgroundShell {
   private readonly isWindows: boolean;
   private readonly outputLines: string[] = [];
   private lastReadIndex = 0;
-  status: 'running' | 'completed' | 'failed' | 'terminated' | 'error' = 'running';
+  status: BashShellStatus = 'running';
   exitCode: number | null = null;
 
   constructor(bashId: string, command: string, process: cp.ChildProcess, isWindows: boolean) {
@@ -179,10 +253,13 @@ interface BashInput extends Record<string, unknown> {
   run_in_background?: boolean;
 }
 
-export class BashTool implements Tool<BashInput> {
+export class BashTool implements Tool<BashInput, BashToolDetails> {
   private readonly isWindows: boolean;
 
-  constructor(private readonly workspaceDir?: string) {
+  constructor(
+    private readonly workspaceDir?: string,
+    private readonly operations: BashOperations = {},
+  ) {
     this.isWindows = os.platform() === 'win32';
   }
 
@@ -224,6 +301,7 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
     context?: ToolExecutionContext,
   ): Promise<BashOutputResult> {
     try {
+      if (isToolExecutionAborted(context)) return abortedBashResult();
       const effectiveTimeout = Math.min(Math.max(timeout, 1), 600);
       if (run_in_background) return this._runBackground(command);
       return this._runForeground(command, effectiveTimeout, context?.signal);
@@ -240,6 +318,9 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
   }
 
   private _spawn(command: string): cp.ChildProcess {
+    if (this.operations.spawn) {
+      return this.operations.spawn(command, { cwd: this.workspaceDir, isWindows: this.isWindows });
+    }
     return this.isWindows
       ? cp.spawn('powershell.exe', ['-NoProfile', '-Command', command], {
           cwd: this.workspaceDir,
@@ -272,6 +353,10 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
   }
 
   private _runForeground(command: string, timeoutSecs: number, signal?: AbortSignal): Promise<BashOutputResult> {
+    if (this.operations.exec) {
+      return this.operations.exec(command, this.workspaceDir, this.isWindows, { signal, timeoutSecs });
+    }
+
     return new Promise((resolve) => {
       const proc = this._spawn(command);
       let stdout = '';
@@ -303,29 +388,35 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
       proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString('utf-8'); });
       proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString('utf-8'); });
 
-      proc.once('exit', (code) => {
-        const fullOutputPath = writeFullOutput(this.workspaceDir, command, stdout, stderr);
+      proc.once('close', (code) => {
+        const rawOutput = formatBashOutput(stdout, stderr, code ?? 0);
+        const shouldWriteFullOutput = rawOutput.length > MAX_INLINE_OUTPUT_CHARS || aborted || timedOut;
+        const fullOutputPath = shouldWriteFullOutput ? writeFullOutput(command, stdout, stderr) : undefined;
         if (aborted) {
+          const content = `Command aborted. Full output: ${fullOutputPath ?? 'unavailable'}`;
           finish({
             success: false,
-            content: `Command aborted. Full output: ${fullOutputPath ?? 'unavailable'}`,
+            content,
             error: 'Command aborted',
             stdout,
             stderr,
             exitCode: -1,
             fullOutputPath,
+            details: createBashDetails({ exitCode: -1, stdout, stderr, fullOutputPath }),
           });
           return;
         }
         if (timedOut) {
+          const content = `Command timed out after ${timeoutSecs} seconds. Full output: ${fullOutputPath ?? 'unavailable'}`;
           finish({
             success: false,
-            content: `Command timed out after ${timeoutSecs} seconds. Full output: ${fullOutputPath ?? 'unavailable'}`,
+            content,
             error: `Command timed out after ${timeoutSecs} seconds`,
             stdout,
             stderr,
             exitCode: -1,
             fullOutputPath,
+            details: createBashDetails({ exitCode: -1, stdout, stderr, fullOutputPath }),
           });
           return;
         }
@@ -338,11 +429,23 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
           if (stderr.trim()) error += `\n${stderr.trim()}`;
         }
 
-        let rawContent = stdout;
-        if (stderr) rawContent += `\n[stderr]:\n${stderr}`;
-        if (exitCode) rawContent += `\n[exit_code]:\n${exitCode}`;
-        const content = truncateOutput(rawContent, fullOutputPath);
-        finish({ success, content, error, stdout, stderr, exitCode, fullOutputPath });
+        const output = truncateOutput(rawOutput, fullOutputPath);
+        finish({
+          success,
+          content: output.content,
+          error,
+          stdout,
+          stderr,
+          exitCode,
+          fullOutputPath,
+          details: createBashDetails({
+            exitCode,
+            stdout,
+            stderr,
+            fullOutputPath,
+            truncation: output.truncation,
+          }),
+        });
       });
 
       proc.once('error', (err) => {
@@ -359,12 +462,19 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
   }
 }
 
+function formatBashOutput(stdout: string, stderr: string, exitCode: number): string {
+  let rawContent = stdout;
+  if (stderr) rawContent += `\n[stderr]:\n${stderr}`;
+  if (exitCode) rawContent += `\n[exit_code]:\n${exitCode}`;
+  return rawContent;
+}
+
 interface BashOutputInput extends Record<string, unknown> {
   bash_id: string;
   filter_str?: string;
 }
 
-export class BashOutputTool implements Tool<BashOutputInput> {
+export class BashOutputTool implements Tool<BashOutputInput, BashToolDetails> {
   readonly name = 'bash_output';
   readonly description = 'Retrieves output from a running or completed background bash shell by bash_id.';
   readonly parameters = {
@@ -376,7 +486,8 @@ export class BashOutputTool implements Tool<BashOutputInput> {
     required: ['bash_id'],
   };
 
-  async execute({ bash_id, filter_str }: BashOutputInput): Promise<BashOutputResult> {
+  async execute({ bash_id, filter_str }: BashOutputInput, context?: ToolExecutionContext): Promise<BashOutputResult> {
+    if (isToolExecutionAborted(context)) return abortedBashResult();
     const shell = getShell(bash_id);
     if (!shell) {
       const available = getAvailableIds();
@@ -392,7 +503,8 @@ export class BashOutputTool implements Tool<BashOutputInput> {
 
     const newLines = shell.getNewOutput(filter_str);
     const stdout = newLines.join('\n');
-    let content = stdout;
+    const output = truncateOutput(stdout);
+    let content = output.content;
     content += `\n[status]:\n${shell.status}`;
     content += `\n[bash_id]:\n${shell.bashId}`;
 
@@ -403,6 +515,13 @@ export class BashOutputTool implements Tool<BashOutputInput> {
       stderr: '',
       exitCode: shell.exitCode ?? 0,
       bashId: bash_id,
+      details: {
+        bashId: bash_id,
+        status: shell.status,
+        exitCode: shell.exitCode ?? 0,
+        outputLines: newLines.length,
+        truncation: output.truncation,
+      },
     };
   }
 }
@@ -411,7 +530,7 @@ interface BashKillInput extends Record<string, unknown> {
   bash_id: string;
 }
 
-export class BashKillTool implements Tool<BashKillInput> {
+export class BashKillTool implements Tool<BashKillInput, BashToolDetails> {
   readonly name = 'bash_kill';
   readonly description = 'Kills a running background bash shell by its ID.';
   readonly parameters = {
@@ -422,8 +541,9 @@ export class BashKillTool implements Tool<BashKillInput> {
     required: ['bash_id'],
   };
 
-  async execute({ bash_id }: BashKillInput): Promise<BashOutputResult> {
+  async execute({ bash_id }: BashKillInput, context?: ToolExecutionContext): Promise<BashOutputResult> {
     try {
+      if (isToolExecutionAborted(context)) return abortedBashResult();
       const shell = getShell(bash_id);
       const remaining = shell ? shell.getNewOutput() : [];
       const terminated = await terminateShell(bash_id);
@@ -435,6 +555,12 @@ export class BashKillTool implements Tool<BashKillInput> {
         stderr: '',
         exitCode: terminated.exitCode ?? 0,
         bashId: bash_id,
+        details: {
+          bashId: bash_id,
+          status: terminated.status,
+          exitCode: terminated.exitCode ?? 0,
+          outputLines: remaining.length,
+        },
       };
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('Shell not found')) {

@@ -1,19 +1,20 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Tool, ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
+import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
+import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars, type ToolOutputTruncationDetails } from './truncate.js';
 
 const DEFAULT_IGNORES = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache']);
 const MAX_RESULTS = 200;
 
-function walkFiles(root: string): string[] {
+function walkFiles(root: string, operations: FileToolOperations): string[] {
   const results: string[] = [];
   const stack = [root];
   while (stack.length) {
     const current = stack.pop()!;
-    let entries: fs.Dirent[];
+    let entries;
     try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
+      entries = operations.readdir(current);
     } catch {
       continue;
     }
@@ -33,7 +34,14 @@ export interface FindToolInput extends Record<string, unknown> {
   max_results?: number;
 }
 
-export class FindTool implements Tool<FindToolInput> {
+export interface FindToolDetails extends ToolResultDetails {
+  resultCount: number;
+  maxResults: number;
+  limitedByMaxResults: boolean;
+  truncation?: ToolOutputTruncationDetails;
+}
+
+export class FindTool implements Tool<FindToolInput, FindToolDetails> {
   readonly name = 'find_files';
   readonly description = 'Find files by filename substring or regular expression inside the workspace. Prefer this over bash find.';
   readonly parameters = {
@@ -46,11 +54,20 @@ export class FindTool implements Tool<FindToolInput> {
     required: ['pattern'],
   };
 
-  constructor(private readonly workspaceDir: string = '.') {}
+  constructor(
+    private readonly workspaceDir: string = '.',
+    private readonly operations: FileToolOperations = localFileToolOperations,
+  ) {}
 
-  async execute({ pattern, path: targetPath = '.', max_results = MAX_RESULTS }: FindToolInput): Promise<ToolResult> {
+  async execute(
+    { pattern, path: targetPath = '.', max_results = MAX_RESULTS }: FindToolInput,
+    context?: ToolExecutionContext,
+  ): Promise<ToolResult<FindToolDetails>> {
     try {
-      const resolved = resolveWorkspacePath(this.workspaceDir, targetPath);
+      if (isToolExecutionAborted(context)) return createAbortedToolResult();
+      const resolved = resolveWorkspacePath(this.workspaceDir, targetPath, {
+        allowOutsideWorkspace: context?.allowOutsideWorkspace,
+      });
       const limit = Math.max(1, Math.min(Number(max_results) || MAX_RESULTS, 1000));
       let matcher: (file: string) => boolean;
       try {
@@ -60,9 +77,41 @@ export class FindTool implements Tool<FindToolInput> {
         matcher = (file) => path.basename(file).includes(pattern) || path.relative(resolved, file).includes(pattern);
       }
 
-      const matches = walkFiles(resolved).filter(matcher).slice(0, limit);
-      const content = matches.map((file) => path.relative(this.workspaceDir, file)).sort().join('\n');
-      return { success: true, content: content || 'No matching files found.' };
+      const matches = walkFiles(resolved, this.operations).filter((file) => {
+        if (isToolExecutionAborted(context)) return false;
+        return matcher(file);
+      }).slice(0, limit);
+      if (isToolExecutionAborted(context)) return createAbortedToolResult();
+      const output = matches.map((file) => path.relative(this.workspaceDir, file)).sort().join('\n');
+      if (!output) return { success: true, content: 'No matching files found.' };
+
+      const limitedByMaxResults = matches.length >= limit;
+      const baseDetails = {
+        resultCount: matches.length,
+        maxResults: limit,
+        limitedByMaxResults,
+      };
+      const markerParts = [
+        `Find output truncated: original=${output.length} chars.`,
+        'Narrow path/pattern or lower max_results to reduce output.',
+      ];
+      if (limitedByMaxResults) markerParts.push(`Stopped after max_results=${limit}.`);
+      const truncated = truncateHeadByChars(output, DEFAULT_TOOL_OUTPUT_MAX_CHARS, `[${markerParts.join(' ')}]`);
+      if (!truncated.truncated && limitedByMaxResults) {
+        return {
+          success: true,
+          content: `${output}\n\n[Stopped after max_results=${limit}. Narrow path/pattern to find more specific matches.]`,
+          details: baseDetails,
+        };
+      }
+      return {
+        success: true,
+        content: truncated.content,
+        details: {
+          ...baseDetails,
+          truncation: truncated.truncation,
+        },
+      };
     } catch (err) {
       return { success: false, content: '', error: String(err) };
     }

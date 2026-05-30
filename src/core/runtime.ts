@@ -6,6 +6,12 @@ import type { Tool, ToolMetadata } from '../tools/base.js';
 import type { ToolRegistry } from '../tools/index.js';
 import { AgentSession } from './agent-session.js';
 import type { BeforeToolCallContext } from './agent-loop.js';
+import {
+  resolveToolPermission,
+  type PermissionMode,
+  type ToolPermissionDecision,
+  type ToolPermissionRuleResult,
+} from './permission-policy.js';
 import { SessionManager } from './session-manager.js';
 import {
   createRuntimeServices,
@@ -15,6 +21,13 @@ import {
 } from './runtime-services.js';
 
 export type { RuntimeDiagnostic } from '../diagnostics.js';
+export {
+  isLikelyNetworkCommand,
+  resolveToolPermission,
+  type PermissionMode,
+  type ToolPermissionDecision,
+  type ToolPermissionRuleResult,
+} from './permission-policy.js';
 export {
   RuntimeConfigNotFoundError,
   UnsupportedProviderError,
@@ -29,9 +42,10 @@ export interface ToolConfirmationRequest {
   tool: Tool;
   args: Record<string, unknown>;
   metadata: ToolMetadata;
+  reason?: string;
+  permissionMode?: PermissionMode;
 }
 
-export type ToolPermissionDecision = 'allow' | 'deny' | 'ask';
 export type ToolPermissionHandlerResult = ToolPermissionDecision | boolean;
 
 interface ToolGovernanceSessionContext {
@@ -44,6 +58,7 @@ export interface CreateRuntimeOptions extends CreateRuntimeServicesOptions {
   sessionId?: string;
   createSessionIfMissing?: boolean;
   maxSteps?: number | null;
+  permissionMode?: PermissionMode;
   confirmToolCall?: (request: ToolConfirmationRequest) =>
     ToolPermissionHandlerResult | Promise<ToolPermissionHandlerResult>;
 }
@@ -67,18 +82,14 @@ export interface Runtime {
 
 export class RuntimeSessionNotFoundError extends Error {
   readonly sessionId: string;
+  readonly diagnostics: RuntimeDiagnostic[];
 
-  constructor(sessionId: string) {
+  constructor(sessionId: string, diagnostics: RuntimeDiagnostic[] = []) {
     super('Session not found: ' + sessionId);
     this.name = 'RuntimeSessionNotFoundError';
     this.sessionId = sessionId;
+    this.diagnostics = diagnostics;
   }
-}
-
-function shouldConfirmTool(metadata: ToolMetadata, config: ConfigData): boolean {
-  if (!config.tools.requireConfirmation) return false;
-  if (metadata.requiresConfirmation) return true;
-  return config.tools.confirmRiskLevels.includes(metadata.riskLevel);
 }
 
 export function normalizeToolPermissionDecision(result: ToolPermissionHandlerResult): ToolPermissionDecision {
@@ -87,21 +98,31 @@ export function normalizeToolPermissionDecision(result: ToolPermissionHandlerRes
   return result;
 }
 
-async function appendPermissionPendingEntry({
+type PermissionInternalEntryKind = 'permission_pending' | 'permission_denied';
+
+async function appendPermissionInternalEntry({
+  kind,
   context,
   reason,
   sessionContext,
+  mode,
+  decision,
+  executionPolicy,
 }: {
+  kind: PermissionInternalEntryKind;
   context: BeforeToolCallContext & { tool: Tool & { metadata: ToolMetadata } };
   reason: string;
   sessionContext?: ToolGovernanceSessionContext;
+  mode?: PermissionMode;
+  decision?: ToolPermissionDecision;
+  executionPolicy?: ToolPermissionRuleResult['executionPolicy'];
 }): Promise<void> {
   if (!sessionContext) return;
 
   try {
     await sessionContext.sessionManager.appendInternalEntry({
       sessionId: sessionContext.sessionId,
-      kind: 'permission_pending',
+      kind,
       content: reason,
       metadata: {
         toolName: context.tool.name,
@@ -111,6 +132,9 @@ async function appendPermissionPendingEntry({
         category: context.tool.metadata.category,
         isReadOnly: context.tool.metadata.isReadOnly,
         requiresConfirmation: context.tool.metadata.requiresConfirmation ?? false,
+        permissionMode: mode,
+        decision,
+        executionPolicy,
       },
     });
   } catch {
@@ -124,49 +148,107 @@ export function createToolGovernanceHook(
   sessionContext?: ToolGovernanceSessionContext,
 ) {
   return async (context: BeforeToolCallContext) => {
-    if (!context.tool?.metadata) return undefined;
+    const mode = options.permissionMode ?? config.tools.permissionMode ?? 'default';
+    const result = resolveToolPermission({
+      context,
+      mode,
+      workspaceDir: options.workspaceDir,
+    });
+    const governedContext = context.tool?.metadata
+      ? context as BeforeToolCallContext & { tool: Tool & { metadata: ToolMetadata } }
+      : null;
 
-    const governedContext = context as BeforeToolCallContext & { tool: Tool & { metadata: ToolMetadata } };
-    const metadata = context.tool.metadata;
-    if (!shouldConfirmTool(metadata, config)) return undefined;
+    if (result.decision === 'allow') {
+      return result.toolExecutionContext ? { toolExecutionContext: result.toolExecutionContext } : undefined;
+    }
 
-    if (!options.confirmToolCall) {
-      const reason = 'Tool permission pending: confirmation required but no confirmation handler is available for '
-        + context.tool.name;
-      await appendPermissionPendingEntry({ context: governedContext, reason, sessionContext });
+    if (result.decision === 'deny') {
+      const reason = result.reason ?? 'Tool execution denied';
+      if (governedContext) {
+        await appendPermissionInternalEntry({
+          kind: 'permission_denied',
+          context: governedContext,
+          reason,
+          sessionContext,
+          mode,
+          decision: 'deny',
+          executionPolicy: result.executionPolicy,
+        });
+      }
       return {
         block: true,
         reason,
       };
     }
 
+    const reason = result.reason ?? 'Tool permission required: ' + context.toolCall.function.name;
+    if (!context.tool?.metadata || !options.confirmToolCall) {
+      if (governedContext) {
+        await appendPermissionInternalEntry({
+          kind: 'permission_pending',
+          context: governedContext,
+          reason,
+          sessionContext,
+          mode,
+          decision: 'ask',
+          executionPolicy: result.executionPolicy,
+        });
+      }
+      return {
+        block: true,
+        reason: !options.confirmToolCall
+          ? `${reason}; no confirmation handler is available`
+          : reason,
+      };
+    }
+
+    const confirmedContext = context as BeforeToolCallContext & { tool: Tool & { metadata: ToolMetadata } };
     const decision = normalizeToolPermissionDecision(
       await options.confirmToolCall({
         toolCall: context.toolCall,
         tool: context.tool,
         args: context.args,
-        metadata,
+        metadata: context.tool.metadata,
+        reason,
+        permissionMode: mode,
       }),
     );
 
     if (decision === 'ask') {
-      const reason = 'Tool permission pending: approval required but current mode cannot request it for '
-        + context.tool.name;
-      await appendPermissionPendingEntry({ context: governedContext, reason, sessionContext });
+      const pendingReason = `${reason}; approval required but current mode cannot request it`;
+      await appendPermissionInternalEntry({
+        kind: 'permission_pending',
+        context: confirmedContext,
+        reason: pendingReason,
+        sessionContext,
+        mode,
+        decision,
+        executionPolicy: result.executionPolicy,
+      });
       return {
         block: true,
-        reason,
+        reason: pendingReason,
       };
     }
 
     if (decision === 'deny') {
+      const deniedReason = 'Tool execution denied: ' + context.tool.name;
+      await appendPermissionInternalEntry({
+        kind: 'permission_denied',
+        context: confirmedContext,
+        reason: deniedReason,
+        sessionContext,
+        mode,
+        decision,
+        executionPolicy: result.executionPolicy,
+      });
       return {
         block: true,
-        reason: 'Tool execution denied: ' + context.tool.name,
+        reason: deniedReason,
       };
     }
 
-    return undefined;
+    return result.toolExecutionContext ? { toolExecutionContext: result.toolExecutionContext } : undefined;
   };
 }
 
@@ -199,7 +281,10 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
         details: { sessionId },
       }));
     } else if (options.createSessionIfMissing === false) {
-      throw new RuntimeSessionNotFoundError(options.sessionId);
+      throw new RuntimeSessionNotFoundError(options.sessionId, [
+        ...diagnostics,
+        ...sessionManager.getDiagnostics(),
+      ]);
     } else {
       sessionId = await sessionManager.createSession(systemPrompt, options.sessionId);
       diagnostics.push(createDiagnostic({

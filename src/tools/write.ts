@@ -1,7 +1,7 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Tool, ToolResult } from './base.js';
+import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
 import { fileMutationQueue } from './file-mutation-queue.js';
+import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
 
 export interface WriteToolInput extends Record<string, unknown> {
@@ -22,14 +22,21 @@ export class WriteTool implements Tool<WriteToolInput> {
     required: ['path', 'content'],
   };
 
-  constructor(private readonly workspaceDir: string = '.') {}
+  constructor(
+    private readonly workspaceDir: string = '.',
+    private readonly operations: FileToolOperations = localFileToolOperations,
+  ) {}
 
-  async execute({ path: filePath, content }: WriteToolInput): Promise<ToolResult> {
+  async execute({ path: filePath, content }: WriteToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
     try {
-      const resolved = resolveWorkspacePath(this.workspaceDir, filePath);
+      if (isToolExecutionAborted(context)) return createAbortedToolResult();
+      const resolved = resolveWorkspacePath(this.workspaceDir, filePath, {
+        allowOutsideWorkspace: context?.allowOutsideWorkspace,
+      });
       return await fileMutationQueue.run(resolved, async () => {
-        fs.mkdirSync(path.dirname(resolved), { recursive: true });
-        fs.writeFileSync(resolved, content, 'utf-8');
+        if (isToolExecutionAborted(context)) return createAbortedToolResult();
+        this.operations.mkdir(path.dirname(resolved));
+        this.operations.writeFile(resolved, content);
         return { success: true, content: `Successfully wrote to ${resolved}` };
       });
     } catch (err) {
