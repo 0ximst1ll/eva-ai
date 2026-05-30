@@ -7,6 +7,7 @@ export interface ToolResult {
   success: boolean;
   content: string;
   error?: string;
+  details?: Record<string, unknown>;
 }
 
 // JSON Schema object type (what the LLM sees for parameters)

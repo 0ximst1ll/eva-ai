@@ -78,6 +78,7 @@ export interface ToolExecutionResult {
     success: boolean;
     content: string;
     error?: string;
+    details?: Record<string, unknown>;
     contentTruncated?: boolean;
     originalContentLength?: number;
     maxContentLength?: number;

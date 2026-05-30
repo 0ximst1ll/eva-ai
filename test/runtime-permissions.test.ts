@@ -119,6 +119,12 @@ test('permission rule asks for outside-workspace file access in default mode', (
 
   assert.equal(result.decision, 'ask');
   assert.equal(result.toolExecutionContext?.allowOutsideWorkspace, true);
+  assert.deepEqual(result.executionPolicy, {
+    allowOutsideWorkspace: true,
+    allowNetwork: false,
+    allowSystemResources: false,
+    sandboxEnforced: false,
+  });
   assert.match(result.reason ?? '', /outside workspace/);
 });
 
@@ -130,6 +136,12 @@ test('permission rule asks for likely network bash commands in default mode', ()
   });
 
   assert.equal(result.decision, 'ask');
+  assert.deepEqual(result.executionPolicy, {
+    allowOutsideWorkspace: false,
+    allowNetwork: true,
+    allowSystemResources: false,
+    sandboxEnforced: false,
+  });
   assert.match(result.reason ?? '', /network/);
 });
 
@@ -181,6 +193,12 @@ test('permission rule asks for sensitive system bash commands in default mode', 
     });
 
     assert.equal(result.decision, 'ask', command);
+    assert.deepEqual(result.executionPolicy, {
+      allowOutsideWorkspace: false,
+      allowNetwork: false,
+      allowSystemResources: true,
+      sandboxEnforced: false,
+    }, command);
     assert.match(result.reason ?? '', /system resources/, command);
   }
 });
@@ -235,6 +253,12 @@ test('permission rule denies outside-workspace file access in read-only mode', (
 
   assert.equal(result.decision, 'deny');
   assert.equal(result.toolExecutionContext, undefined);
+  assert.deepEqual(result.executionPolicy, {
+    allowOutsideWorkspace: false,
+    allowNetwork: false,
+    allowSystemResources: false,
+    sandboxEnforced: false,
+  });
   assert.match(result.reason ?? '', /outside workspace/);
 });
 
@@ -248,6 +272,12 @@ test('permission rule denies network and system bash commands in read-only mode'
 
     assert.equal(result.decision, 'deny', command);
     assert.equal(result.toolExecutionContext, undefined, command);
+    assert.deepEqual(result.executionPolicy, {
+      allowOutsideWorkspace: false,
+      allowNetwork: false,
+      allowSystemResources: false,
+      sandboxEnforced: false,
+    }, command);
   }
 });
 
@@ -260,6 +290,12 @@ test('permission rule allows all Eva-level tool calls in full-access mode', () =
 
   assert.equal(result.decision, 'allow');
   assert.equal(result.toolExecutionContext?.allowOutsideWorkspace, true);
+  assert.deepEqual(result.executionPolicy, {
+    allowOutsideWorkspace: true,
+    allowNetwork: true,
+    allowSystemResources: true,
+    sandboxEnforced: false,
+  });
 });
 
 test('tool governance allows default workspace writes without confirmation', async () => {
@@ -302,6 +338,12 @@ test('tool governance records pending permissions as durable internal entries', 
   assert.equal(entries[0]?.metadata?.['toolCallId'], 'call-1');
   assert.equal(entries[0]?.metadata?.['permissionMode'], 'default');
   assert.equal(entries[0]?.metadata?.['decision'], 'ask');
+  assert.deepEqual(entries[0]?.metadata?.['executionPolicy'], {
+    allowOutsideWorkspace: true,
+    allowNetwork: false,
+    allowSystemResources: false,
+    sandboxEnforced: false,
+  });
   assert.deepEqual(sessionManager.getMessages(sessionId), [{ role: 'system', content: 'system' }]);
 });
 
@@ -371,6 +413,12 @@ test('tool governance records rejected tool calls as denied permissions', async 
   assert.equal(entries[0]?.metadata?.['toolName'], 'write_file');
   assert.equal(entries[0]?.metadata?.['permissionMode'], 'default');
   assert.equal(entries[0]?.metadata?.['decision'], 'deny');
+  assert.deepEqual(entries[0]?.metadata?.['executionPolicy'], {
+    allowOutsideWorkspace: true,
+    allowNetwork: false,
+    allowSystemResources: false,
+    sandboxEnforced: false,
+  });
 });
 
 test('tool governance blocks writes in read-only mode', async () => {

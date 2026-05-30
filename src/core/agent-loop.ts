@@ -47,7 +47,7 @@ export interface AfterToolCallContext {
 
 export type AfterToolCallResult = Partial<Pick<
   ToolExecutionResult,
-  'success' | 'content' | 'error'
+  'success' | 'content' | 'error' | 'details'
 >>;
 
 export type AgentLoopEvent =
@@ -238,6 +238,7 @@ async function executeToolCall(
       success: output.success,
       content: output.content,
       error: output.error,
+      details: output.details,
     };
 
     if (!config.signal?.aborted) {

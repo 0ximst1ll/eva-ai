@@ -10,6 +10,7 @@ import {
   resolveToolPermission,
   type PermissionMode,
   type ToolPermissionDecision,
+  type ToolPermissionRuleResult,
 } from './permission-policy.js';
 import { SessionManager } from './session-manager.js';
 import {
@@ -106,6 +107,7 @@ async function appendPermissionInternalEntry({
   sessionContext,
   mode,
   decision,
+  executionPolicy,
 }: {
   kind: PermissionInternalEntryKind;
   context: BeforeToolCallContext & { tool: Tool & { metadata: ToolMetadata } };
@@ -113,6 +115,7 @@ async function appendPermissionInternalEntry({
   sessionContext?: ToolGovernanceSessionContext;
   mode?: PermissionMode;
   decision?: ToolPermissionDecision;
+  executionPolicy?: ToolPermissionRuleResult['executionPolicy'];
 }): Promise<void> {
   if (!sessionContext) return;
 
@@ -131,6 +134,7 @@ async function appendPermissionInternalEntry({
         requiresConfirmation: context.tool.metadata.requiresConfirmation ?? false,
         permissionMode: mode,
         decision,
+        executionPolicy,
       },
     });
   } catch {
@@ -168,6 +172,7 @@ export function createToolGovernanceHook(
           sessionContext,
           mode,
           decision: 'deny',
+          executionPolicy: result.executionPolicy,
         });
       }
       return {
@@ -186,6 +191,7 @@ export function createToolGovernanceHook(
           sessionContext,
           mode,
           decision: 'ask',
+          executionPolicy: result.executionPolicy,
         });
       }
       return {
@@ -217,6 +223,7 @@ export function createToolGovernanceHook(
         sessionContext,
         mode,
         decision,
+        executionPolicy: result.executionPolicy,
       });
       return {
         block: true,
@@ -233,6 +240,7 @@ export function createToolGovernanceHook(
         sessionContext,
         mode,
         decision,
+        executionPolicy: result.executionPolicy,
       });
       return {
         block: true,

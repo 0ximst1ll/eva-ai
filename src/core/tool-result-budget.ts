@@ -19,6 +19,15 @@ export function applyToolResultBudget(
     next = {
       ...next,
       content: content.text,
+      details: {
+        ...next.details,
+        toolResultBudget: {
+          ...(isRecord(next.details?.['toolResultBudget']) ? next.details['toolResultBudget'] : {}),
+          contentTruncated: true,
+          originalContentLength: content.originalLength,
+          maxContentLength: maxChars,
+        },
+      },
       contentTruncated: true,
       originalContentLength: content.originalLength,
       maxContentLength: maxChars,
@@ -31,6 +40,15 @@ export function applyToolResultBudget(
       next = {
         ...next,
         error: error.text,
+        details: {
+          ...next.details,
+          toolResultBudget: {
+            ...(isRecord(next.details?.['toolResultBudget']) ? next.details['toolResultBudget'] : {}),
+            errorTruncated: true,
+            originalErrorLength: error.originalLength,
+            maxErrorLength: maxChars,
+          },
+        },
         errorTruncated: true,
         originalErrorLength: error.originalLength,
         maxErrorLength: maxChars,
@@ -39,6 +57,10 @@ export function applyToolResultBudget(
   }
 
   return next;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function formatToolResultMessageContent(result: ToolExecutionResult): string {

@@ -1,7 +1,7 @@
 import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
 import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
-import { DEFAULT_TOOL_OUTPUT_MAX_CHARS } from './truncate.js';
+import { createToolOutputTruncation, DEFAULT_TOOL_OUTPUT_MAX_CHARS } from './truncate.js';
 
 const READ_OUTPUT_MAX_CHARS = DEFAULT_TOOL_OUTPUT_MAX_CHARS;
 
@@ -47,7 +47,8 @@ export class ReadTool implements Tool<ReadToolInput> {
       }
       const end = limit ? Math.min(start + limit, lines.length) : lines.length;
       const numbered = lines.slice(start, end).map((line, i) => `${String(start + i + 1).padStart(6, ' ')}|${line}`);
-      return { success: true, content: formatReadOutput(numbered, start, end, lines.length, Boolean(limit)) };
+      const output = formatReadOutput(numbered, start, end, lines.length, Boolean(limit));
+      return { success: true, content: output.content, details: output.details };
     } catch (err) {
       return { success: false, content: '', error: String(err) };
     }
@@ -60,14 +61,23 @@ function formatReadOutput(
   selectedEnd: number,
   totalLines: number,
   userLimited: boolean,
-): string {
+): { content: string; details: Record<string, unknown> } {
   const fullOutput = numberedLines.join('\n');
   const nextOffset = selectedEnd + 1;
+  const baseDetails = {
+    totalLines,
+    startLine: start + 1,
+    endLine: selectedEnd,
+    shownLines: numberedLines.length,
+    userLimited,
+    nextOffset: selectedEnd < totalLines ? nextOffset : null,
+  };
   if (fullOutput.length <= READ_OUTPUT_MAX_CHARS) {
     if (userLimited && selectedEnd < totalLines) {
-      return `${fullOutput}\n\n[${totalLines - selectedEnd} more lines in file. Use offset=${nextOffset} to continue.]`;
+      const content = `${fullOutput}\n\n[${totalLines - selectedEnd} more lines in file. Use offset=${nextOffset} to continue.]`;
+      return { content, details: baseDetails };
     }
-    return fullOutput;
+    return { content: fullOutput, details: baseDetails };
   }
 
   const markerReserve = 220;
@@ -86,8 +96,23 @@ function formatReadOutput(
   }
 
   const endLine = start + outputLines.length;
-  return [
+  const content = [
     outputLines.join('\n'),
     `[Showing lines ${start + 1}-${endLine} of ${totalLines}. Use offset=${endLine + 1} to continue.]`,
   ].join('\n\n');
+  return {
+    content,
+    details: {
+      ...baseDetails,
+      endLine,
+      shownLines: outputLines.length,
+      nextOffset: endLine < totalLines ? endLine + 1 : null,
+      truncation: createToolOutputTruncation({
+        original: fullOutput,
+        shown: content,
+        strategy: 'head',
+        maxChars: READ_OUTPUT_MAX_CHARS,
+      }),
+    },
+  };
 }

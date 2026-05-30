@@ -7,7 +7,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult } from './base.js';
-import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateTailByChars } from './truncate.js';
+import {
+  DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+  truncateTailByChars,
+  type ToolOutputTruncationDetails,
+} from './truncate.js';
 
 const MAX_INLINE_OUTPUT_CHARS = DEFAULT_TOOL_OUTPUT_MAX_CHARS;
 
@@ -17,6 +21,14 @@ export interface BashOutputResult extends ToolResult {
   exitCode: number;
   bashId?: string;
   fullOutputPath?: string;
+}
+
+interface BashToolDetails extends Record<string, unknown> {
+  exitCode: number;
+  stdoutChars: number;
+  stderrChars: number;
+  fullOutputPath?: string;
+  truncation?: ToolOutputTruncationDetails;
 }
 
 export interface BashExecOptions {
@@ -62,13 +74,44 @@ function writeFullOutput(command: string, stdout: string, stderr: string): strin
   }
 }
 
-function truncateOutput(content: string, fullOutputPath?: string): string {
-  if (content.length <= MAX_INLINE_OUTPUT_CHARS) return content || '(no output)';
-  return truncateTailByChars(
+function truncateOutput(content: string, fullOutputPath?: string): {
+  content: string;
+  truncation?: ToolOutputTruncationDetails;
+} {
+  if (content.length <= MAX_INLINE_OUTPUT_CHARS) return { content: content || '(no output)' };
+  const truncated = truncateTailByChars(
     content,
     MAX_INLINE_OUTPUT_CHARS,
     `[Showing last output. Output truncated: original=${content.length} chars; full output: ${fullOutputPath ?? 'unavailable'}]`,
-  ).content;
+  );
+  return {
+    content: truncated.content,
+    truncation: fullOutputPath && truncated.truncation
+      ? { ...truncated.truncation, fullOutputPath }
+      : truncated.truncation,
+  };
+}
+
+function createBashDetails({
+  exitCode,
+  stdout,
+  stderr,
+  fullOutputPath,
+  truncation,
+}: {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  fullOutputPath?: string;
+  truncation?: ToolOutputTruncationDetails;
+}): BashToolDetails {
+  return {
+    exitCode,
+    stdoutChars: stdout.length,
+    stderrChars: stderr.length,
+    fullOutputPath,
+    truncation,
+  };
 }
 
 function killProcessTree(proc: cp.ChildProcess, isWindows: boolean): void {
@@ -346,26 +389,30 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
         const shouldWriteFullOutput = rawOutput.length > MAX_INLINE_OUTPUT_CHARS || aborted || timedOut;
         const fullOutputPath = shouldWriteFullOutput ? writeFullOutput(command, stdout, stderr) : undefined;
         if (aborted) {
+          const content = `Command aborted. Full output: ${fullOutputPath ?? 'unavailable'}`;
           finish({
             success: false,
-            content: `Command aborted. Full output: ${fullOutputPath ?? 'unavailable'}`,
+            content,
             error: 'Command aborted',
             stdout,
             stderr,
             exitCode: -1,
             fullOutputPath,
+            details: createBashDetails({ exitCode: -1, stdout, stderr, fullOutputPath }),
           });
           return;
         }
         if (timedOut) {
+          const content = `Command timed out after ${timeoutSecs} seconds. Full output: ${fullOutputPath ?? 'unavailable'}`;
           finish({
             success: false,
-            content: `Command timed out after ${timeoutSecs} seconds. Full output: ${fullOutputPath ?? 'unavailable'}`,
+            content,
             error: `Command timed out after ${timeoutSecs} seconds`,
             stdout,
             stderr,
             exitCode: -1,
             fullOutputPath,
+            details: createBashDetails({ exitCode: -1, stdout, stderr, fullOutputPath }),
           });
           return;
         }
@@ -378,8 +425,23 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
           if (stderr.trim()) error += `\n${stderr.trim()}`;
         }
 
-        const content = truncateOutput(rawOutput, fullOutputPath);
-        finish({ success, content, error, stdout, stderr, exitCode, fullOutputPath });
+        const output = truncateOutput(rawOutput, fullOutputPath);
+        finish({
+          success,
+          content: output.content,
+          error,
+          stdout,
+          stderr,
+          exitCode,
+          fullOutputPath,
+          details: createBashDetails({
+            exitCode,
+            stdout,
+            stderr,
+            fullOutputPath,
+            truncation: output.truncation,
+          }),
+        });
       });
 
       proc.once('error', (err) => {
@@ -437,7 +499,8 @@ export class BashOutputTool implements Tool<BashOutputInput> {
 
     const newLines = shell.getNewOutput(filter_str);
     const stdout = newLines.join('\n');
-    let content = truncateOutput(stdout);
+    const output = truncateOutput(stdout);
+    let content = output.content;
     content += `\n[status]:\n${shell.status}`;
     content += `\n[bash_id]:\n${shell.bashId}`;
 
@@ -448,6 +511,13 @@ export class BashOutputTool implements Tool<BashOutputInput> {
       stderr: '',
       exitCode: shell.exitCode ?? 0,
       bashId: bash_id,
+      details: {
+        bashId: bash_id,
+        status: shell.status,
+        exitCode: shell.exitCode ?? 0,
+        outputLines: newLines.length,
+        truncation: output.truncation,
+      },
     };
   }
 }
@@ -481,6 +551,12 @@ export class BashKillTool implements Tool<BashKillInput> {
         stderr: '',
         exitCode: terminated.exitCode ?? 0,
         bashId: bash_id,
+        details: {
+          bashId: bash_id,
+          status: terminated.status,
+          exitCode: terminated.exitCode ?? 0,
+          outputLines: remaining.length,
+        },
       };
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('Shell not found')) {

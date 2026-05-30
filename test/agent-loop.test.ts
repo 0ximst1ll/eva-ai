@@ -71,7 +71,7 @@ test('runAgentLoop continues after tool calls and preserves tool result order', 
       isConcurrencySafe: true,
     },
     async execute(args) {
-      return { success: true, content: String(args['text']) };
+      return { success: true, content: String(args['text']), details: { echoed: true } };
     },
   };
   const events: AgentLoopEvent[] = [];
@@ -97,6 +97,10 @@ test('runAgentLoop continues after tool calls and preserves tool result order', 
   assert.deepEqual(
     events.filter((event) => event.type === 'tool_result').map((event) => event.result.toolCallId),
     ['call-1'],
+  );
+  assert.deepEqual(
+    events.find((event) => event.type === 'tool_result')?.result.details,
+    { echoed: true },
   );
 });
 
@@ -147,6 +151,11 @@ test('runAgentLoop applies tool result budget before the next provider request',
   assert.equal(toolResultEvent?.type, 'tool_result');
   assert.equal(toolResultEvent?.result.contentTruncated, true);
   assert.equal(toolResultEvent?.result.originalContentLength, largeOutput.length);
+  assert.deepEqual(toolResultEvent?.result.details?.['toolResultBudget'], {
+    contentTruncated: true,
+    originalContentLength: largeOutput.length,
+    maxContentLength: 120,
+  });
   assert.equal(
     result.messages.find((message) => message.role === 'tool')?.content,
     toolMessage?.content,

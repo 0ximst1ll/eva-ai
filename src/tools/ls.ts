@@ -39,13 +39,18 @@ export class LsTool implements Tool<LsToolInput> {
         .sort();
       if (!entries.length) return { success: true, content: '(empty directory)' };
       const output = entries.join('\n');
+      const truncated = truncateHeadByChars(
+        output,
+        DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+        `[Directory listing truncated: original=${output.length} chars. Use a narrower path.]`,
+      );
       return {
         success: true,
-        content: truncateHeadByChars(
-          output,
-          DEFAULT_TOOL_OUTPUT_MAX_CHARS,
-          `[Directory listing truncated: original=${output.length} chars. Use a narrower path.]`,
-        ).content,
+        content: truncated.content,
+        details: {
+          resultCount: entries.length,
+          truncation: truncated.truncation,
+        },
       };
     } catch (err) {
       return { success: false, content: '', error: String(err) };

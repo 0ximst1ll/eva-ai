@@ -79,6 +79,11 @@ export class FindTool implements Tool<FindToolInput> {
       if (!output) return { success: true, content: 'No matching files found.' };
 
       const limitedByMaxResults = matches.length >= limit;
+      const baseDetails = {
+        resultCount: matches.length,
+        maxResults: limit,
+        limitedByMaxResults,
+      };
       const markerParts = [
         `Find output truncated: original=${output.length} chars.`,
         'Narrow path/pattern or lower max_results to reduce output.',
@@ -89,9 +94,17 @@ export class FindTool implements Tool<FindToolInput> {
         return {
           success: true,
           content: `${output}\n\n[Stopped after max_results=${limit}. Narrow path/pattern to find more specific matches.]`,
+          details: baseDetails,
         };
       }
-      return { success: true, content: truncated.content };
+      return {
+        success: true,
+        content: truncated.content,
+        details: {
+          ...baseDetails,
+          truncation: truncated.truncation,
+        },
+      };
     } catch (err) {
       return { success: false, content: '', error: String(err) };
     }

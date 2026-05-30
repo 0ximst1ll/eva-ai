@@ -5,11 +5,26 @@ import type { BeforeToolCallContext } from './agent-loop.js';
 export type ToolPermissionDecision = 'allow' | 'deny' | 'ask';
 export type PermissionMode = 'default' | 'read-only' | 'full-access';
 
+export interface PermissionExecutionPolicy {
+  allowOutsideWorkspace: boolean;
+  allowNetwork: boolean;
+  allowSystemResources: boolean;
+  sandboxEnforced: false;
+}
+
 export interface ToolPermissionRuleResult {
   decision: ToolPermissionDecision;
   reason?: string;
   toolExecutionContext?: Partial<ToolExecutionContext>;
+  executionPolicy: PermissionExecutionPolicy;
 }
+
+const BASE_EXECUTION_POLICY: PermissionExecutionPolicy = {
+  allowOutsideWorkspace: false,
+  allowNetwork: false,
+  allowSystemResources: false,
+  sandboxEnforced: false,
+};
 
 const PATH_ARG_KEYS = [
   'path',
@@ -68,31 +83,43 @@ export function resolveToolPermission({
   const toolName = context.tool?.name ?? context.toolCall.function.name;
 
   if (mode === 'full-access') {
-    return { decision: 'allow', toolExecutionContext: { allowOutsideWorkspace: true } };
+    return {
+      decision: 'allow',
+      toolExecutionContext: { allowOutsideWorkspace: true },
+      executionPolicy: createExecutionPolicy({
+        allowOutsideWorkspace: true,
+        allowNetwork: true,
+        allowSystemResources: true,
+      }),
+    };
   }
 
   if (!metadata) {
     return {
       decision: mode === 'read-only' ? 'deny' : 'ask',
       reason: `Tool permission ${mode === 'read-only' ? 'denied' : 'required'}: missing metadata for ${toolName}`,
+      executionPolicy: createExecutionPolicy(),
     };
   }
 
   const outsideWorkspacePath = findOutsideWorkspacePath(context.args, workspaceDir);
   if (outsideWorkspacePath) {
+    const allowOutsideWorkspace = mode !== 'read-only';
     return {
       decision: mode === 'read-only' ? 'deny' : 'ask',
       reason: `Tool permission ${mode === 'read-only' ? 'denied' : 'required'}: ${toolName} targets `
         + `outside workspace (${outsideWorkspacePath})`,
-      toolExecutionContext: mode === 'read-only' ? undefined : { allowOutsideWorkspace: true },
+      toolExecutionContext: allowOutsideWorkspace ? { allowOutsideWorkspace: true } : undefined,
+      executionPolicy: createExecutionPolicy({ allowOutsideWorkspace }),
     };
   }
 
   if (mode === 'read-only') {
-    if (metadata.isReadOnly) return { decision: 'allow' };
+    if (metadata.isReadOnly) return { decision: 'allow', executionPolicy: createExecutionPolicy() };
     return {
       decision: 'deny',
       reason: `Tool execution denied by read-only permission mode: ${toolName}`,
+      executionPolicy: createExecutionPolicy(),
     };
   }
 
@@ -100,6 +127,7 @@ export function resolveToolPermission({
     return {
       decision: 'ask',
       reason: `Tool permission required: ${toolName} may access external resources`,
+      executionPolicy: createExecutionPolicy({ allowNetwork: true }),
     };
   }
 
@@ -107,6 +135,7 @@ export function resolveToolPermission({
     return {
       decision: 'ask',
       reason: 'Tool permission required: bash command may access the network',
+      executionPolicy: createExecutionPolicy({ allowNetwork: true }),
     };
   }
 
@@ -114,10 +143,11 @@ export function resolveToolPermission({
     return {
       decision: 'ask',
       reason: 'Tool permission required: bash command may modify system resources',
+      executionPolicy: createExecutionPolicy({ allowSystemResources: true }),
     };
   }
 
-  return { decision: 'allow' };
+  return { decision: 'allow', executionPolicy: createExecutionPolicy() };
 }
 
 export function isLikelyNetworkCommand(args: Record<string, unknown>): boolean {
@@ -130,6 +160,15 @@ function isLikelySensitiveSystemCommand(args: Record<string, unknown>): boolean 
   const command = args['command'];
   if (typeof command !== 'string') return false;
   return SENSITIVE_SYSTEM_COMMAND_PATTERNS.some((pattern) => pattern.test(command));
+}
+
+function createExecutionPolicy(
+  overrides: Partial<Omit<PermissionExecutionPolicy, 'sandboxEnforced'>> = {},
+): PermissionExecutionPolicy {
+  return {
+    ...BASE_EXECUTION_POLICY,
+    ...overrides,
+  };
 }
 
 function findOutsideWorkspacePath(args: Record<string, unknown>, workspaceDir: string): string | null {
