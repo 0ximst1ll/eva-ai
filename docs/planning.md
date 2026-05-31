@@ -120,7 +120,8 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 - 已完成：ToolResult `content + typed details` 最小边界，以及工具级 `renderResult -> displayContent` 展示边界。
 - 已完成：内部 extension-style tool execution hook 最小边界。
 - 已完成：tool-specific collapsed preview 最小边界，`read` / `grep` / `find` / `ls` / `bash` 默认按工具类型展示部分输出。
-- 后续：tool output UX 继续对齐 `pi-mono` 的 TUI expand/collapse、bash streaming accumulator 和 visual-line tail preview。
+- 已完成：TUI 最近工具结果 expand/collapse 最小闭环。
+- 后续：tool output UX 继续对齐 `pi-mono` 的 bash streaming accumulator、visual-line tail preview 和更完整的工具结果选择/焦点模型。
 - 后续：read-only 并发、write/bash 串行、轻量 tool result budget、临时大输出处理、operations injection。
 - 后续：MCP/custom tools 接入同一 registry、metadata 和 hook 模型。
 

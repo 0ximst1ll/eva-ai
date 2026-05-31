@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createEntrySelectItems, handleIdleCtrlCExit, type CtrlCExitState } from '../src/modes/tui-mode.js';
+import {
+  createEntrySelectItems,
+  formatTuiToolResult,
+  handleIdleCtrlCExit,
+  toggleLatestTuiToolResult,
+  updateTuiToolResultRecord,
+  type CtrlCExitState,
+  type TuiToolResultRecord,
+} from '../src/modes/tui-mode.js';
 import { Input } from '../src/tui/components/input.js';
 import { MultilineInput } from '../src/tui/components/multiline-input.js';
 import { Text } from '../src/tui/components/text.js';
@@ -8,6 +16,7 @@ import { StdinBuffer } from '../src/tui/stdin-buffer.js';
 import { TUI } from '../src/tui/tui.js';
 import type { ProcessTerminal } from '../src/tui/terminal.js';
 import { stripAnsi, visibleWidth, wrapText } from '../src/tui/utils.js';
+import type { Tool } from '../src/tools/base.js';
 
 class FakeTerminal {
   writes: string[] = [];
@@ -205,4 +214,38 @@ test('TUI entry selector items preserve entry hierarchy and active markers', () 
   assert.equal(items[1]?.value, 'entry-user-abcdef');
   assert.match(items[1]?.label ?? '', /^  \* entry-user/);
   assert.match(items[1]?.description ?? '', /selected task/);
+});
+
+test('TUI tool result records toggle expanded rendering', () => {
+  const tool: Tool = {
+    name: 'sample_tool',
+    description: 'Sample',
+    parameters: { type: 'object' },
+    async execute() {
+      return { success: true, content: 'raw' };
+    },
+    renderResult(result, options) {
+      return options.expanded ? `expanded:${result.content}` : `collapsed:${result.content}`;
+    },
+  };
+  const record: TuiToolResultRecord = {
+    text: new Text(''),
+    tool,
+    result: {
+      toolCallId: 'call-1',
+      toolName: 'sample_tool',
+      success: true,
+      content: 'raw',
+    },
+    args: {},
+    expanded: false,
+  };
+
+  assert.match(formatTuiToolResult(record), /collapsed:raw/);
+  updateTuiToolResultRecord(record);
+  assert.match(record.text.text, /collapsed:raw/);
+  assert.equal(toggleLatestTuiToolResult([record]), true);
+  assert.equal(record.expanded, true);
+  assert.match(record.text.text, /expanded:raw/);
+  assert.equal(toggleLatestTuiToolResult([]), false);
 });

@@ -32,19 +32,19 @@
 
 - M5 Tool / Permission Governance 继续推进。
 - 当前 ToolResult `content + typed details`、工具级 `renderResult` 和内部 tool execution hook 最小边界已完成。
-- Tool output UX 需要优先对齐 `pi-mono`：当前 Eva 已实现 renderer options、tool args 透传和 tool-specific collapsed preview；尚未达到 `pi-mono` 的 TUI expand/collapse、bash streaming accumulator 和完整 partial update 体验。
+- Tool output UX 需要优先对齐 `pi-mono`：当前 Eva 已实现 renderer options、tool args 透传、tool-specific collapsed preview，以及 TUI 最近工具结果 `Ctrl-T` expand/collapse；尚未达到 `pi-mono` 的 bash streaming accumulator 和完整 partial update 体验。
 
 ## 下一步
 
-- 第一优先级：为 TUI 工具组件增加 expand/collapse 状态和交互，让 `expanded` render option 真正进入用户操作路径。
-- 第二优先级：补 bash streaming accumulator，执行中通过 partial update 展示最新输出，保留有界 tail，并在截断时显示 full output 临时路径。
-- 第三优先级：继续细化 bash tail visual-line preview，目前 Eva 仍是按文本行近似，不是 `pi-mono` 的 terminal-width visual lines。
+- 第一优先级：补 bash streaming accumulator，执行中通过 partial update 展示最新输出，保留有界 tail，并在截断时显示 full output 临时路径。
+- 第二优先级：继续细化 bash tail visual-line preview，目前 Eva 仍是按文本行近似，不是 `pi-mono` 的 terminal-width visual lines。
+- 第三优先级：把 TUI 工具展开从“最近一条 Ctrl-T”升级为可选择的工具结果列表/焦点模型。
 - 后续再进入 MCP lifecycle 最小闭环，接入同一 registry、metadata 和 hook 边界，不直接引入完整 extension system。
 - 保持 permission diagnostics 简单，继续沿用 pending/denied 关键事实；`/diagnostics` 不承载 tool result details 展示。
 
 ## 已知问题
 
-- 工具层大输出已具备 head/tail 基础策略和 tool-specific collapsed line preview，但仍缺 TUI expand/collapse、bash visual-line tail preview、更完整的行/字节统计、streaming accumulator 和 compaction-time tool result micro-compaction。
+- 工具层大输出已具备 head/tail 基础策略、tool-specific collapsed line preview 和 TUI 最近工具结果 expand/collapse，但仍缺 bash visual-line tail preview、更完整的行/字节统计、streaming accumulator 和 compaction-time tool result micro-compaction。
 - Tool Result 已有 `content + typed details` 和工具级 `renderResult` 最小边界；尚未形成 compaction-time micro-compaction。
 - abort lifecycle 已覆盖当前内置工具的主要路径，但仍缺更细的 abort reason 和队列状态；工具执行诊断暂保持 lifecycle event + pending state 的简单边界。
 - operation injection 和 tool execution hook 目前是内部最小边界，尚未提供统一 remote workspace adapter、sandbox adapter 或完整 extension wrapper。

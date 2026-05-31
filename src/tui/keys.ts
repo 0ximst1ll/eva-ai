@@ -21,6 +21,7 @@ export type KeyId =
   | 'ctrl-l'
   | 'ctrl-n'
   | 'ctrl-p'
+  | 'ctrl-t'
   | 'ctrl-u'
   | 'ctrl-w'
   | `char:${string}`;
@@ -58,6 +59,7 @@ const SEQUENCES: [string, KeyId][] = [
   ['\x0c', 'ctrl-l'],
   ['\x0e', 'ctrl-n'],
   ['\x10', 'ctrl-p'],
+  ['\x14', 'ctrl-t'],
   ['\x15', 'ctrl-u'],
   ['\x17', 'ctrl-w'],
 ];

@@ -1,8 +1,8 @@
 import type { RuntimeHost } from '../core/runtime-host.js';
 import type { SessionEntryTreeViewNode } from '../core/session-manager.js';
-import type { AgentSessionEvent } from '../schema.js';
+import type { AgentSessionEvent, ToolExecutionResult } from '../schema.js';
 import type { ToolConfirmationRequest, ToolPermissionDecision } from '../core/runtime.js';
-import { renderToolResult } from '../tools/base.js';
+import { renderToolResult, type Tool } from '../tools/base.js';
 import { TUI } from '../tui/tui.js';
 import { ProcessTerminal } from '../tui/terminal.js';
 import { Container } from '../tui/component.js';
@@ -30,6 +30,14 @@ export interface CtrlCExitState {
 export type CtrlCExitAction = 'prompt' | 'exit';
 
 const CTRL_C_EXIT_WINDOW_MS = 2000;
+
+export interface TuiToolResultRecord {
+  readonly text: Text;
+  readonly tool?: Tool;
+  readonly result: ToolExecutionResult;
+  readonly args: Record<string, unknown>;
+  expanded: boolean;
+}
 
 export function handleIdleCtrlCExit({
   state,
@@ -64,6 +72,40 @@ function formatArg(key: string, value: unknown): string {
   const s = String(value);
   const truncated = s.length > 80 ? s.slice(0, 80) + '…' : s;
   return `  ${Colors.DIM}${key}:${Colors.RESET} ${truncated}`;
+}
+
+export function formatTuiToolResult(record: Omit<TuiToolResultRecord, 'text'>): string {
+  const display = record.tool
+    ? renderToolResult(
+        record.tool,
+        record.result,
+        {
+          toolCallId: record.result.toolCallId,
+          args: record.args,
+        },
+        { expanded: record.expanded, isPartial: false },
+      ) ?? record.result.displayContent
+    : record.result.displayContent;
+  const expandedLabel = record.expanded ? ` ${Colors.DIM}(expanded)${Colors.RESET}` : '';
+
+  if (record.result.success) {
+    const body = display ? `:\n${display}` : '';
+    return `${Colors.BRIGHT_GREEN}✓${Colors.RESET} ${Colors.DIM}${record.result.toolName} completed${expandedLabel}${body}${Colors.RESET}`;
+  }
+
+  return `${Colors.BRIGHT_RED}✗ ${display ?? record.result.error ?? record.result.content}${Colors.RESET}`;
+}
+
+export function updateTuiToolResultRecord(record: TuiToolResultRecord): void {
+  record.text.text = formatTuiToolResult(record);
+}
+
+export function toggleLatestTuiToolResult(records: TuiToolResultRecord[]): boolean {
+  const record = records.at(-1);
+  if (!record) return false;
+  record.expanded = !record.expanded;
+  updateTuiToolResultRecord(record);
+  return true;
 }
 
 export function createEntrySelectItems(
@@ -124,7 +166,7 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
   );
   headerContainer.addChild(
     new Text(
-      `${Colors.DIM}Enter to send · Shift+Enter for newline · /help for commands · Ctrl-C to cancel/exit${Colors.RESET}`,
+      `${Colors.DIM}Enter to send · Shift+Enter for newline · /help for commands · Ctrl-C to cancel/exit · Ctrl-T expand tool${Colors.RESET}`,
       { wrap: false },
     ),
   );
@@ -203,6 +245,7 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
   });
   const toolMap = new Map(host.runtime.tools.map((tool) => [tool.name, tool]));
   const toolArgs = new Map<string, Record<string, unknown>>();
+  const toolResults: TuiToolResultRecord[] = [];
 
   const stopTui = (): void => {
     if (stopped) return;
@@ -255,33 +298,16 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
       case 'tool_result': {
         const r = event.result;
         const tool = toolMap.get(r.toolName);
-        const display = tool
-          ? renderToolResult(
-              tool,
-              r,
-              {
-                toolCallId: r.toolCallId,
-                args: r.args ?? toolArgs.get(r.toolCallId) ?? {},
-              },
-              { expanded: false, isPartial: false },
-            ) ?? r.displayContent
-          : r.displayContent;
-        if (r.success) {
-          const summary = display ? `:\n${display}` : '';
-          chatContainer.addChild(
-            new Text(
-              `${Colors.BRIGHT_GREEN}✓${Colors.RESET} ${Colors.DIM}${r.toolName} completed${summary}${Colors.RESET}`,
-              { wrap: true },
-            ),
-          );
-        } else {
-          chatContainer.addChild(
-            new Text(
-              `${Colors.BRIGHT_RED}✗ ${display ?? r.error ?? r.content}${Colors.RESET}`,
-              { wrap: true },
-            ),
-          );
-        }
+        const record: TuiToolResultRecord = {
+          text: new Text('', { wrap: true }),
+          tool,
+          result: r,
+          args: r.args ?? toolArgs.get(r.toolCallId) ?? {},
+          expanded: false,
+        };
+        updateTuiToolResultRecord(record);
+        toolResults.push(record);
+        chatContainer.addChild(record.text);
         toolArgs.delete(r.toolCallId);
         tui.requestRender();
         break;
@@ -528,6 +554,12 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
     if (matchesKey(data, 'ctrl-d')) {
       if (!abortController && input.value.trim().length === 0) {
         stopTui();
+      }
+      return;
+    }
+    if (matchesKey(data, 'ctrl-t')) {
+      if (toggleLatestTuiToolResult(toolResults)) {
+        tui.requestRender();
       }
     }
   });
