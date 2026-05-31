@@ -33,10 +33,11 @@ const CTRL_C_EXIT_WINDOW_MS = 2000;
 
 export interface TuiToolResultRecord {
   readonly text: Text;
-  readonly tool?: Tool;
-  readonly result: ToolExecutionResult;
-  readonly args: Record<string, unknown>;
+  tool?: Tool;
+  result: ToolExecutionResult;
+  args: Record<string, unknown>;
   expanded: boolean;
+  isPartial?: boolean;
 }
 
 export function handleIdleCtrlCExit({
@@ -83,14 +84,15 @@ export function formatTuiToolResult(record: Omit<TuiToolResultRecord, 'text'>): 
           toolCallId: record.result.toolCallId,
           args: record.args,
         },
-        { expanded: record.expanded, isPartial: false },
+        { expanded: record.expanded, isPartial: record.isPartial ?? false },
       ) ?? record.result.displayContent
     : record.result.displayContent;
   const expandedLabel = record.expanded ? ` ${Colors.DIM}(expanded)${Colors.RESET}` : '';
+  const status = record.isPartial ? 'running' : 'completed';
 
   if (record.result.success) {
     const body = display ? `:\n${display}` : '';
-    return `${Colors.BRIGHT_GREEN}✓${Colors.RESET} ${Colors.DIM}${record.result.toolName} completed${expandedLabel}${body}${Colors.RESET}`;
+    return `${Colors.BRIGHT_GREEN}✓${Colors.RESET} ${Colors.DIM}${record.result.toolName} ${status}${expandedLabel}${body}${Colors.RESET}`;
   }
 
   return `${Colors.BRIGHT_RED}✗ ${display ?? record.result.error ?? record.result.content}${Colors.RESET}`;
@@ -246,6 +248,7 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
   const toolMap = new Map(host.runtime.tools.map((tool) => [tool.name, tool]));
   const toolArgs = new Map<string, Record<string, unknown>>();
   const toolResults: TuiToolResultRecord[] = [];
+  const pendingToolResults = new Map<string, TuiToolResultRecord>();
 
   const stopTui = (): void => {
     if (stopped) return;
@@ -298,17 +301,49 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
       case 'tool_result': {
         const r = event.result;
         const tool = toolMap.get(r.toolName);
-        const record: TuiToolResultRecord = {
+        const record = pendingToolResults.get(r.toolCallId) ?? {
           text: new Text('', { wrap: true }),
           tool,
           result: r,
           args: r.args ?? toolArgs.get(r.toolCallId) ?? {},
           expanded: false,
         };
+        record.tool = tool;
+        record.result = r;
+        record.args = r.args ?? toolArgs.get(r.toolCallId) ?? record.args;
+        record.isPartial = false;
         updateTuiToolResultRecord(record);
-        toolResults.push(record);
-        chatContainer.addChild(record.text);
+        if (!pendingToolResults.has(r.toolCallId)) {
+          toolResults.push(record);
+          chatContainer.addChild(record.text);
+        }
+        pendingToolResults.delete(r.toolCallId);
         toolArgs.delete(r.toolCallId);
+        tui.requestRender();
+        break;
+      }
+
+      case 'tool_execution_update': {
+        const r = event.result;
+        const tool = toolMap.get(r.toolName);
+        const record = pendingToolResults.get(r.toolCallId) ?? {
+          text: new Text('', { wrap: true }),
+          tool,
+          result: r,
+          args: r.args ?? toolArgs.get(r.toolCallId) ?? {},
+          expanded: false,
+          isPartial: true,
+        };
+        record.tool = tool;
+        record.result = r;
+        record.args = r.args ?? toolArgs.get(r.toolCallId) ?? record.args;
+        record.isPartial = true;
+        updateTuiToolResultRecord(record);
+        if (!pendingToolResults.has(r.toolCallId)) {
+          pendingToolResults.set(r.toolCallId, record);
+          toolResults.push(record);
+          chatContainer.addChild(record.text);
+        }
         tui.requestRender();
         break;
       }

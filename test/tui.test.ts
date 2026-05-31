@@ -249,3 +249,36 @@ test('TUI tool result records toggle expanded rendering', () => {
   assert.match(record.text.text, /expanded:raw/);
   assert.equal(toggleLatestTuiToolResult([]), false);
 });
+
+test('TUI tool result records render partial status', () => {
+  const tool: Tool = {
+    name: 'sample_tool',
+    description: 'Sample',
+    parameters: { type: 'object' },
+    async execute() {
+      return { success: true, content: 'raw' };
+    },
+    renderResult(result, options) {
+      return `${options.isPartial ? 'partial' : 'final'}:${result.content}`;
+    },
+  };
+  const record: TuiToolResultRecord = {
+    text: new Text(''),
+    tool,
+    result: {
+      toolCallId: 'call-1',
+      toolName: 'sample_tool',
+      success: true,
+      content: 'raw',
+    },
+    args: {},
+    expanded: false,
+    isPartial: true,
+  };
+
+  assert.match(formatTuiToolResult(record), /sample_tool running/);
+  assert.match(formatTuiToolResult(record), /partial:raw/);
+  record.isPartial = false;
+  assert.match(formatTuiToolResult(record), /sample_tool completed/);
+  assert.match(formatTuiToolResult(record), /final:raw/);
+});

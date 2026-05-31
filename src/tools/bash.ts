@@ -14,6 +14,7 @@ import {
 } from './truncate.js';
 
 const MAX_INLINE_OUTPUT_CHARS = DEFAULT_TOOL_OUTPUT_MAX_CHARS;
+const STREAM_UPDATE_THROTTLE_MS = 120;
 type BashShellStatus = 'running' | 'completed' | 'failed' | 'terminated' | 'error';
 
 export interface BashOutputResult extends ToolResult<BashToolDetails> {
@@ -68,9 +69,18 @@ function ensureLogDir(): string {
   return base;
 }
 
-function writeFullOutput(command: string, stdout: string, stderr: string): string | undefined {
+function createFullOutputPath(): string | undefined {
   try {
-    const filePath = path.join(ensureLogDir(), `${Date.now()}-${randomUUID().slice(0, 8)}.log`);
+    return path.join(ensureLogDir(), `${Date.now()}-${randomUUID().slice(0, 8)}.log`);
+  } catch {
+    return undefined;
+  }
+}
+
+function writeFullOutput(command: string, stdout: string, stderr: string, existingPath?: string): string | undefined {
+  const filePath = existingPath ?? createFullOutputPath();
+  if (!filePath) return undefined;
+  try {
     fs.writeFileSync(filePath, `$ ${command}\n\n[stdout]\n${stdout}\n\n[stderr]\n${stderr}\n`, 'utf-8');
     return filePath;
   } catch {
@@ -330,7 +340,7 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
       if (isToolExecutionAborted(context)) return abortedBashResult();
       const effectiveTimeout = Math.min(Math.max(timeout, 1), 600);
       if (run_in_background) return this._runBackground(command);
-      return this._runForeground(command, effectiveTimeout, context?.signal);
+      return this._runForeground(command, effectiveTimeout, context);
     } catch (err) {
       return {
         success: false,
@@ -378,7 +388,12 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
     };
   }
 
-  private _runForeground(command: string, timeoutSecs: number, signal?: AbortSignal): Promise<BashOutputResult> {
+  private _runForeground(
+    command: string,
+    timeoutSecs: number,
+    context?: ToolExecutionContext,
+  ): Promise<BashOutputResult> {
+    const signal = context?.signal;
     if (this.operations.exec) {
       return this.operations.exec(command, this.workspaceDir, this.isWindows, { signal, timeoutSecs });
     }
@@ -390,13 +405,46 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
       let timedOut = false;
       let aborted = false;
       let settled = false;
+      let updateTimer: ReturnType<typeof setTimeout> | undefined;
+      let fullOutputPath: string | undefined;
+
+      const persistFullOutput = (): string | undefined => {
+        fullOutputPath = writeFullOutput(command, stdout, stderr, fullOutputPath) ?? fullOutputPath;
+        return fullOutputPath;
+      };
 
       const finish = (result: BashOutputResult): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        if (updateTimer) clearTimeout(updateTimer);
         signal?.removeEventListener('abort', onAbort);
         resolve(result);
+      };
+
+      const emitPartialUpdate = (): void => {
+        updateTimer = undefined;
+        if (settled || !context?.onUpdate) return;
+        const rawOutput = formatBashOutput(stdout, stderr, 0);
+        const output = truncateOutput(
+          rawOutput,
+          rawOutput.length > MAX_INLINE_OUTPUT_CHARS ? persistFullOutput() : fullOutputPath,
+        );
+        context.onUpdate({
+          content: output.content,
+          details: createBashDetails({
+            exitCode: -1,
+            stdout,
+            stderr,
+            fullOutputPath,
+            truncation: output.truncation,
+          }),
+        });
+      };
+
+      const schedulePartialUpdate = (): void => {
+        if (!context?.onUpdate || settled || updateTimer) return;
+        updateTimer = setTimeout(emitPartialUpdate, STREAM_UPDATE_THROTTLE_MS);
       };
 
       const timer = setTimeout(() => {
@@ -411,13 +459,23 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
       if (signal?.aborted) onAbort();
       else signal?.addEventListener('abort', onAbort, { once: true });
 
-      proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString('utf-8'); });
-      proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString('utf-8'); });
+      proc.stdout?.on('data', (d: Buffer) => {
+        stdout += d.toString('utf-8');
+        schedulePartialUpdate();
+      });
+      proc.stderr?.on('data', (d: Buffer) => {
+        stderr += d.toString('utf-8');
+        schedulePartialUpdate();
+      });
 
       proc.once('close', (code) => {
+        if (updateTimer) {
+          clearTimeout(updateTimer);
+          emitPartialUpdate();
+        }
         const rawOutput = formatBashOutput(stdout, stderr, code ?? 0);
         const shouldWriteFullOutput = rawOutput.length > MAX_INLINE_OUTPUT_CHARS || aborted || timedOut;
-        const fullOutputPath = shouldWriteFullOutput ? writeFullOutput(command, stdout, stderr) : undefined;
+        if (shouldWriteFullOutput) persistFullOutput();
         if (aborted) {
           const content = `Command aborted. Full output: ${fullOutputPath ?? 'unavailable'}`;
           finish({

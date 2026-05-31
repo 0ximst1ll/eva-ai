@@ -55,6 +55,7 @@ export type AgentLoopEvent =
   | { type: 'content_delta'; text: string }
   | { type: 'tool_call'; tool_call: ToolCall }
   | { type: 'tool_execution_start'; toolCallId: string; toolName: string; args: Record<string, unknown> }
+  | { type: 'tool_execution_update'; result: ToolExecutionResult }
   | { type: 'tool_execution_end'; result: ToolExecutionResult }
   | { type: 'tool_result'; result: ToolExecutionResult }
   | { type: 'usage'; usage: NonNullable<LLMResponse['usage']> }
@@ -174,13 +175,14 @@ function attachToolDisplayContent(
   tool: Tool,
   args: Record<string, unknown>,
   result: ToolExecutionResult,
+  options: { expanded?: boolean; isPartial?: boolean } = {},
 ): ToolExecutionResult {
   const displayContent = renderToolResult(tool, result, {
     toolCallId: result.toolCallId,
     args,
   }, {
-    expanded: false,
-    isPartial: false,
+    expanded: options.expanded ?? false,
+    isPartial: options.isPartial ?? false,
   });
   return displayContent
     ? { ...result, args: result.args ?? args, displayContent }
@@ -252,10 +254,28 @@ async function executeToolCall(
       return result;
     }
 
+    const toolExecutionContext = before?.toolExecutionContext;
     const output = await tool.execute(args, {
-      ...before?.toolExecutionContext,
+      ...toolExecutionContext,
       toolCallId,
       signal: config.signal,
+      onUpdate: (update) => {
+        toolExecutionContext?.onUpdate?.(update);
+        const partial = attachToolDisplayContent(
+          tool,
+          args,
+          {
+            toolCallId,
+            toolName,
+            args,
+            success: true,
+            content: update.content ?? '',
+            details: update.details,
+          },
+          { isPartial: true },
+        );
+        void emit(config.emit, { type: 'tool_execution_update', result: partial });
+      },
     });
     let result: ToolExecutionResult = {
       toolCallId,

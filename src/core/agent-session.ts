@@ -365,6 +365,7 @@ export class AgentSession {
       'thinking_delta',
       'content_delta',
       'tool_call',
+      'tool_execution_update',
       'usage',
       'message_end',
       'error',

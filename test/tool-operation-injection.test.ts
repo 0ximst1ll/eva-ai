@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import type * as cp from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import test from 'node:test';
 import { BashTool, type BashOperations } from '../src/tools/bash.js';
@@ -26,6 +29,17 @@ class FakeDirent implements FileToolDirent {
 
   isFile(): boolean {
     return !this.directory;
+  }
+}
+
+class FakeChildProcess extends EventEmitter {
+  readonly stdout = new EventEmitter();
+  readonly stderr = new EventEmitter();
+  exitCode: number | null = null;
+  pid = 12345;
+
+  kill(): boolean {
+    return true;
   }
 }
 
@@ -110,4 +124,70 @@ test('bash foreground execution can use injected exec operations', async () => {
   assert.equal(result.success, true);
   assert.equal(result.content, 'fake:echo hello');
   assert.deepEqual(calls, [{ command: 'echo hello', cwd: '/workspace', timeoutSecs: 3 }]);
+});
+
+test('bash foreground execution emits partial output updates from spawn streams', async () => {
+  let fakeProcess: FakeChildProcess | undefined;
+  const operations: BashOperations = {
+    spawn() {
+      fakeProcess = new FakeChildProcess();
+      setImmediate(() => {
+        fakeProcess?.stdout.emit('data', Buffer.from('first line\n'));
+        fakeProcess?.stderr.emit('data', Buffer.from('warning\n'));
+        fakeProcess!.exitCode = 0;
+        fakeProcess?.emit('close', 0);
+      });
+      return fakeProcess as unknown as cp.ChildProcess;
+    },
+  };
+  const updates: Array<{ content?: string; details?: Record<string, unknown> }> = [];
+
+  const result = await new BashTool('/workspace', operations).execute(
+    { command: 'echo hello', timeout: 3 },
+    { onUpdate: (update) => updates.push(update) },
+  );
+
+  assert.equal(result.success, true);
+  assert.match(result.content, /first line/);
+  assert.match(result.content, /warning/);
+  assert.equal(updates.length, 1);
+  assert.match(updates[0]?.content ?? '', /first line/);
+  assert.match(updates[0]?.content ?? '', /warning/);
+  assert.deepEqual(
+    {
+      exitCode: updates[0]?.details?.['exitCode'],
+      stdoutChars: updates[0]?.details?.['stdoutChars'],
+      stderrChars: updates[0]?.details?.['stderrChars'],
+    },
+    { exitCode: -1, stdoutChars: 11, stderrChars: 8 },
+  );
+});
+
+test('bash partial output updates include full output path when truncated', async () => {
+  let fakeProcess: FakeChildProcess | undefined;
+  const largeOutput = `${'x'.repeat(30000)}\n`;
+  const operations: BashOperations = {
+    spawn() {
+      fakeProcess = new FakeChildProcess();
+      setImmediate(() => {
+        fakeProcess?.stdout.emit('data', Buffer.from(largeOutput));
+        fakeProcess!.exitCode = 0;
+        fakeProcess?.emit('close', 0);
+      });
+      return fakeProcess as unknown as cp.ChildProcess;
+    },
+  };
+  const updates: Array<{ content?: string; details?: Record<string, unknown> }> = [];
+
+  const result = await new BashTool('/workspace', operations).execute(
+    { command: 'large-output', timeout: 3 },
+    { onUpdate: (update) => updates.push(update) },
+  );
+
+  const updatePath = updates[0]?.details?.['fullOutputPath'];
+  assert.equal(result.success, true);
+  assert.equal(typeof updatePath, 'string');
+  assert.match(updates[0]?.content ?? '', /full output:/);
+  assert.equal(updatePath, result.fullOutputPath);
+  assert.equal(fs.existsSync(updatePath as string), true);
 });

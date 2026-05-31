@@ -98,6 +98,7 @@ export type AgentSessionEvent =
     | { type: 'thinking_delta'; text: string }
     | { type: 'content_delta'; text: string }
     | { type: 'tool_call'; tool_call: ToolCall }
+    | { type: 'tool_execution_update'; result: ToolExecutionResult }
     | { type: 'tool_result'; result: ToolExecutionResult }
     | { type: 'usage'; usage: TokenUsage }
     | {

@@ -117,6 +117,8 @@ export function createCliRenderer(options: CliRendererOptions = {}) {
       return;
     }
 
+    if (event.type === 'tool_execution_update') return;
+
     if (event.type === 'usage') return;
 
     if (event.type === 'message_end') {

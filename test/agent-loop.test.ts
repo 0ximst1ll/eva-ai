@@ -111,6 +111,53 @@ test('runAgentLoop continues after tool calls and preserves tool result order', 
   );
 });
 
+test('runAgentLoop emits partial tool execution updates', async () => {
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-stream', 'streaming_tool', { text: 'hello' })],
+    },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const tool: Tool = {
+    name: 'streaming_tool',
+    description: 'Streaming tool',
+    parameters: { type: 'object' },
+    async execute(_args, context) {
+      context?.onUpdate?.({ content: 'partial output', details: { phase: 'partial' } });
+      return { success: true, content: 'final output', details: { phase: 'final' } };
+    },
+    renderResult(result, options) {
+      return `${options.isPartial ? 'partial' : 'final'}:${result.content}`;
+    },
+  };
+  const events: AgentLoopEvent[] = [];
+
+  await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [tool],
+    maxSteps: 3,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+    emit: (event) => {
+      events.push(event);
+    },
+  });
+
+  const updateIndex = events.findIndex((event) => event.type === 'tool_execution_update');
+  const resultIndex = events.findIndex((event) => event.type === 'tool_result');
+  const update = events.find((event) => event.type === 'tool_execution_update');
+  const result = events.find((event) => event.type === 'tool_result');
+  assert.ok(updateIndex >= 0);
+  assert.ok(resultIndex > updateIndex);
+  assert.equal(update?.type, 'tool_execution_update');
+  assert.equal(update?.result.toolCallId, 'call-stream');
+  assert.equal(update?.result.displayContent, 'partial:partial output');
+  assert.deepEqual(update?.result.details, { phase: 'partial' });
+  assert.equal(result?.type, 'tool_result');
+  assert.equal(result?.result.displayContent, 'final:final output');
+});
+
 test('runAgentLoop applies extension-style tool execution hooks', async () => {
   const llm = new ScriptedLLM([
     {
