@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
+import { createAbortedToolResult, formatToolResultDisplay, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
 import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
 import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars, type ToolOutputTruncationDetails } from './truncate.js';
@@ -61,13 +61,17 @@ export class GrepTool implements Tool<GrepToolInput, SearchToolDetails> {
     private readonly operations: FileToolOperations = localFileToolOperations,
   ) {}
 
-  renderResult(result: ToolResult<SearchToolDetails>): string | undefined {
+  renderResult(result: ToolResult<SearchToolDetails>, options = {}): string | undefined {
     if (!result.success || !result.details) return undefined;
     const { matchCount, maxResults, limitedByMaxResults, truncation } = result.details;
     const parts = [`${matchCount} matches`];
     if (limitedByMaxResults) parts.push(`stopped at max_results=${maxResults}`);
     if (truncation?.truncated) parts.push(`truncated ${truncation.shownChars}/${truncation.originalChars} chars`);
-    return parts.join('; ');
+    return formatToolResultDisplay(parts.join('; '), result, {
+      ...options,
+      maxPreviewLines: 15,
+      maxPreviewChars: 4000,
+    });
   }
 
   async execute(

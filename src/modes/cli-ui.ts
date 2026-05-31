@@ -1,22 +1,31 @@
 import { type AgentSessionEvent } from '../schema.js';
 import type { RuntimeDiagnostic, ToolConfirmationRequest, ToolPermissionDecision } from '../core/runtime.js';
+import { renderToolResult, type Tool } from '../tools/base.js';
 import { Colors, calculateDisplayWidth } from '../utils/terminal.js';
 
 const BOX_WIDTH = 58;
+const TOOL_RESULT_PREVIEW_MAX_CHARS = 4000;
 
 type RenderState = {
   printedThinkingHeader: boolean;
   printedAssistantHeader: boolean;
   working: boolean;
+  toolArgs: Map<string, Record<string, unknown>>;
 };
 
 export type CliPrompt = (question: string) => Promise<string>;
 
-export function createCliRenderer() {
+export interface CliRendererOptions {
+  tools?: Tool[];
+}
+
+export function createCliRenderer(options: CliRendererOptions = {}) {
+  const toolMap = new Map((options.tools ?? []).map((tool) => [tool.name, tool]));
   let state: RenderState = {
     printedThinkingHeader: false,
     printedAssistantHeader: false,
     working: false,
+    toolArgs: new Map(),
   };
 
   return (event: AgentSessionEvent): void => {
@@ -64,6 +73,7 @@ export function createCliRenderer() {
     }
 
     if (event.type === 'tool_call') {
+      state.toolArgs.set(event.tool_call.id, event.tool_call.function.arguments);
       console.log(
         `\n${Colors.BRIGHT_YELLOW}🔧 Tool Call:${Colors.RESET} ${Colors.BOLD}${Colors.CYAN}${event.tool_call.function.name}${Colors.RESET}`,
       );
@@ -81,8 +91,21 @@ export function createCliRenderer() {
 
     if (event.type === 'tool_result') {
       if (event.result.success) {
-        let text = event.result.displayContent ?? event.result.content;
-        if (text.length > 300) text = text.slice(0, 300) + `${Colors.DIM}...${Colors.RESET}`;
+        const tool = toolMap.get(event.result.toolName);
+        let text = tool
+          ? renderToolResult(
+              tool,
+              event.result,
+              {
+                toolCallId: event.result.toolCallId,
+                args: event.result.args ?? state.toolArgs.get(event.result.toolCallId) ?? {},
+              },
+              { expanded: false, isPartial: false },
+            ) ?? event.result.displayContent ?? event.result.content
+          : event.result.displayContent ?? event.result.content;
+        if (text.length > TOOL_RESULT_PREVIEW_MAX_CHARS) {
+          text = text.slice(0, TOOL_RESULT_PREVIEW_MAX_CHARS) + `${Colors.DIM}...${Colors.RESET}`;
+        }
         console.log(`${Colors.BRIGHT_GREEN}✓ Result:${Colors.RESET} ${text}`);
       } else {
         const text = event.result.displayContent ?? event.result.error ?? event.result.content;
@@ -90,6 +113,7 @@ export function createCliRenderer() {
           `${Colors.BRIGHT_RED}✗ Error:${Colors.RESET} ${Colors.RED}${text}${Colors.RESET}`,
         );
       }
+      state.toolArgs.delete(event.result.toolCallId);
       return;
     }
 

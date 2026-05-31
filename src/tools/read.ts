@@ -1,4 +1,4 @@
-import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
+import { createAbortedToolResult, formatToolResultDisplay, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
 import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
 import { createToolOutputTruncation, DEFAULT_TOOL_OUTPUT_MAX_CHARS, type ToolOutputTruncationDetails } from './truncate.js';
@@ -42,13 +42,17 @@ export class ReadTool implements Tool<ReadToolInput, ReadToolDetails> {
     private readonly operations: FileToolOperations = localFileToolOperations,
   ) {}
 
-  renderResult(result: ToolResult<ReadToolDetails>): string | undefined {
+  renderResult(result: ToolResult<ReadToolDetails>, options = {}): string | undefined {
     if (!result.success || !result.details) return undefined;
     const { startLine, endLine, totalLines, shownLines, nextOffset, truncation } = result.details;
     const parts = [`read ${shownLines} lines (${startLine}-${endLine} of ${totalLines})`];
     if (nextOffset !== null) parts.push(`continue with offset=${nextOffset}`);
     if (truncation?.truncated) parts.push(`truncated ${truncation.shownChars}/${truncation.originalChars} chars`);
-    return parts.join('; ');
+    return formatToolResultDisplay(parts.join('; '), result, {
+      ...options,
+      maxPreviewLines: 10,
+      maxPreviewChars: 4000,
+    });
   }
 
   async execute({ path: filePath, offset, limit }: ReadToolInput, context?: ToolExecutionContext): Promise<ToolResult<ReadToolDetails>> {

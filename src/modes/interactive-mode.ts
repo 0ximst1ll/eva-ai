@@ -754,7 +754,7 @@ export async function runInteractiveMode({
   host,
   setToolConfirmationHandler,
 }: InteractiveModeOptions): Promise<void> {
-  const renderEvent = createCliRenderer();
+  const renderEvent = createCliRenderer({ tools: host.runtime.tools });
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,

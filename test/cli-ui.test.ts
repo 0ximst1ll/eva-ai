@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { RuntimeDiagnostic } from '../src/diagnostics.js';
 import { createCliRenderer, renderRuntimeDiagnostics } from '../src/modes/cli-ui.js';
+import type { Tool } from '../src/tools/base.js';
 
 function captureConsoleLog(fn: () => void): string[] {
   const original = console.log;
@@ -127,4 +128,64 @@ test('createCliRenderer prefers tool display content for result output', () => {
 
   assert.match(output, /read 2 lines/);
   assert.doesNotMatch(output, /raw file content/);
+});
+
+test('createCliRenderer keeps longer tool display previews', () => {
+  const render = createCliRenderer();
+  const preview = 'x'.repeat(800);
+
+  const output = captureConsoleAndStdout(() => {
+    render({
+      type: 'tool_result',
+      result: {
+        toolCallId: 'call-1',
+        toolName: 'bash',
+        success: true,
+        content: 'raw',
+        displayContent: `exit=0\n\n${preview}`,
+      },
+    });
+  });
+
+  assert.match(output, new RegExp(`x{${preview.length}}`));
+});
+
+test('createCliRenderer can render tool results from tool definitions', () => {
+  const tool: Tool = {
+    name: 'sample_tool',
+    description: 'Sample',
+    parameters: { type: 'object' },
+    async execute() {
+      return { success: true, content: 'raw' };
+    },
+    renderResult(result, options, context) {
+      return `${context.args['path']} ${options.expanded ? 'expanded' : 'collapsed'} ${result.content}`;
+    },
+  };
+  const render = createCliRenderer({ tools: [tool] });
+
+  const output = captureConsoleAndStdout(() => {
+    render({
+      type: 'tool_call',
+      tool_call: {
+        id: 'call-1',
+        type: 'function',
+        function: {
+          name: 'sample_tool',
+          arguments: { path: 'file.txt' },
+        },
+      },
+    });
+    render({
+      type: 'tool_result',
+      result: {
+        toolCallId: 'call-1',
+        toolName: 'sample_tool',
+        success: true,
+        content: 'raw',
+      },
+    });
+  });
+
+  assert.match(output, /file\.txt collapsed raw/);
 });

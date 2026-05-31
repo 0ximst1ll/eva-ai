@@ -178,8 +178,13 @@ function attachToolDisplayContent(
   const displayContent = renderToolResult(tool, result, {
     toolCallId: result.toolCallId,
     args,
+  }, {
+    expanded: false,
+    isPartial: false,
   });
-  return displayContent ? { ...result, displayContent } : result;
+  return displayContent
+    ? { ...result, args: result.args ?? args, displayContent }
+    : { ...result, args: result.args ?? args };
 }
 
 function createToolExecutionHooks(config: AgentLoopConfig): ToolExecutionHook[] {
@@ -216,6 +221,7 @@ async function executeToolCall(
         toolCallId,
         toolName,
         success: false,
+        args,
         content: '',
         error: `Unknown tool: ${toolName}`,
       },
@@ -254,6 +260,7 @@ async function executeToolCall(
     let result: ToolExecutionResult = {
       toolCallId,
       toolName,
+      args,
       success: output.success,
       content: output.content,
       error: output.error,

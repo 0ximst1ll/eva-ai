@@ -8,7 +8,7 @@ export interface PrintModeOptions {
 }
 
 export async function runPrintMode({ host, task }: PrintModeOptions): Promise<void> {
-  const renderEvent = createCliRenderer();
+  const renderEvent = createCliRenderer({ tools: host.runtime.tools });
   console.log(
     `\n${Colors.BRIGHT_BLUE}Agent${Colors.RESET} ${Colors.DIM}›${Colors.RESET} ${Colors.DIM}Executing task...${Colors.RESET}\n`,
   );

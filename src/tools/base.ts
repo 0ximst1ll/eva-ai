@@ -20,12 +20,18 @@ export interface ToolRenderResultContext<
   readonly args: Input;
 }
 
+export interface ToolRenderResultOptions {
+  readonly expanded?: boolean;
+  readonly isPartial?: boolean;
+}
+
 export type ToolResultRenderer<
   Input extends Record<string, unknown> = Record<string, unknown>,
   TDetails extends ToolResultDetails = ToolResultDetails,
 > = {
   bivarianceHack(
     result: ToolResult<TDetails>,
+    options: ToolRenderResultOptions,
     context: ToolRenderResultContext<Input>,
   ): string | undefined;
 }['bivarianceHack'];
@@ -133,11 +139,55 @@ export function renderToolResult<
   tool: Tool<Input, TDetails>,
   result: ToolResult<TDetails>,
   context: Omit<ToolRenderResultContext<Input>, 'toolName'>,
+  options: ToolRenderResultOptions = {},
 ): string | undefined {
-  return tool.renderResult?.(result, {
-    ...context,
-    toolName: tool.name,
-  });
+  return tool.renderResult?.(
+    result,
+    options,
+    {
+      ...context,
+      toolName: tool.name,
+    },
+  );
+}
+
+export interface FormatToolResultDisplayOptions {
+  maxPreviewChars?: number;
+  maxPreviewLines?: number;
+  previewMode?: 'head' | 'tail';
+  expanded?: boolean;
+  moreLabel?: string;
+}
+
+export function formatToolResultDisplay(
+  summary: string,
+  result: Pick<ToolResult, 'content' | 'error'>,
+  options: FormatToolResultDisplayOptions = {},
+): string {
+  const maxPreviewChars = options.expanded ? undefined : options.maxPreviewChars ?? 1200;
+  const maxPreviewLines = options.maxPreviewLines;
+  const previewMode = options.previewMode ?? 'head';
+  const previewSource = result.content || result.error || '';
+  const preview = previewSource.trim();
+  if (!preview) return summary;
+
+  let shown = preview;
+  let omittedLines = 0;
+  const lines = preview.split('\n');
+  if (!options.expanded && maxPreviewLines !== undefined && lines.length > maxPreviewLines) {
+    omittedLines = lines.length - maxPreviewLines;
+    shown = (previewMode === 'tail' ? lines.slice(-maxPreviewLines) : lines.slice(0, maxPreviewLines)).join('\n');
+  }
+
+  if (maxPreviewChars !== undefined && shown.length > maxPreviewChars) {
+    shown = `${shown.slice(0, maxPreviewChars).trimEnd()}\n[preview truncated: ${shown.length} chars shown, ${preview.length} chars total]`;
+  }
+  if (omittedLines > 0) {
+    const label = options.moreLabel ?? (previewMode === 'tail' ? 'earlier lines' : 'more lines');
+    const marker = `[... ${omittedLines} ${label}]`;
+    shown = previewMode === 'tail' ? `${marker}\n${shown}` : `${shown}\n${marker}`;
+  }
+  return `${summary}\n\n${shown}`;
 }
 
 // Convert a Tool to Anthropic's tool schema format.

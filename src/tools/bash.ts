@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createAbortedToolResult, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
+import { createAbortedToolResult, formatToolResultDisplay, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
 import {
   DEFAULT_TOOL_OUTPUT_MAX_CHARS,
   truncateTailByChars,
@@ -118,7 +118,7 @@ function createBashDetails({
   };
 }
 
-function renderBashResult(result: ToolResult<BashToolDetails>): string | undefined {
+function renderBashResult(result: ToolResult<BashToolDetails>, options = {}): string | undefined {
   const details = result.details;
   if (!details) return undefined;
   const parts: string[] = [];
@@ -134,7 +134,12 @@ function renderBashResult(result: ToolResult<BashToolDetails>): string | undefin
     parts.push(`truncated ${details.truncation.shownChars}/${details.truncation.originalChars} chars`);
   }
   if (details.fullOutputPath) parts.push(`full output: ${details.fullOutputPath}`);
-  return parts.length ? parts.join('; ') : undefined;
+  return parts.length ? formatToolResultDisplay(parts.join('; '), result, {
+    ...options,
+    maxPreviewLines: 5,
+    maxPreviewChars: 4000,
+    previewMode: 'tail',
+  }) : undefined;
 }
 
 function killProcessTree(proc: cp.ChildProcess, isWindows: boolean): void {

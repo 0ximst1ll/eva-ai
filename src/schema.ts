@@ -75,6 +75,7 @@ export type LLMStreamEvent =
 export interface ToolExecutionResult {
     toolCallId: string;
     toolName: string;
+    args?: Record<string, unknown>;
     success: boolean;
     content: string;
     displayContent?: string;

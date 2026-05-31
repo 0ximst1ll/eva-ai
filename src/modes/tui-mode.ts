@@ -2,6 +2,7 @@ import type { RuntimeHost } from '../core/runtime-host.js';
 import type { SessionEntryTreeViewNode } from '../core/session-manager.js';
 import type { AgentSessionEvent } from '../schema.js';
 import type { ToolConfirmationRequest, ToolPermissionDecision } from '../core/runtime.js';
+import { renderToolResult } from '../tools/base.js';
 import { TUI } from '../tui/tui.js';
 import { ProcessTerminal } from '../tui/terminal.js';
 import { Container } from '../tui/component.js';
@@ -200,6 +201,8 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
   const stoppedPromise = new Promise<void>((resolve) => {
     resolveStopped = resolve;
   });
+  const toolMap = new Map(host.runtime.tools.map((tool) => [tool.name, tool]));
+  const toolArgs = new Map<string, Record<string, unknown>>();
 
   const stopTui = (): void => {
     if (stopped) return;
@@ -237,6 +240,7 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
 
       case 'tool_call': {
         const name = event.tool_call.function.name;
+        toolArgs.set(event.tool_call.id, event.tool_call.function.arguments);
         const icon = toolIcon(name);
         chatContainer.addChild(
           new Text(
@@ -250,8 +254,20 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
 
       case 'tool_result': {
         const r = event.result;
+        const tool = toolMap.get(r.toolName);
+        const display = tool
+          ? renderToolResult(
+              tool,
+              r,
+              {
+                toolCallId: r.toolCallId,
+                args: r.args ?? toolArgs.get(r.toolCallId) ?? {},
+              },
+              { expanded: false, isPartial: false },
+            ) ?? r.displayContent
+          : r.displayContent;
         if (r.success) {
-          const summary = r.displayContent ? `: ${r.displayContent}` : '';
+          const summary = display ? `:\n${display}` : '';
           chatContainer.addChild(
             new Text(
               `${Colors.BRIGHT_GREEN}✓${Colors.RESET} ${Colors.DIM}${r.toolName} completed${summary}${Colors.RESET}`,
@@ -261,11 +277,12 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
         } else {
           chatContainer.addChild(
             new Text(
-              `${Colors.BRIGHT_RED}✗ ${r.displayContent ?? r.error ?? r.content}${Colors.RESET}`,
+              `${Colors.BRIGHT_RED}✗ ${display ?? r.error ?? r.content}${Colors.RESET}`,
               { wrap: true },
             ),
           );
         }
+        toolArgs.delete(r.toolCallId);
         tui.requestRender();
         break;
       }
