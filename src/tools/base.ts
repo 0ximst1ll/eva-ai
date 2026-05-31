@@ -3,6 +3,8 @@
 // The `toSchema` / `toOpenaiSchema` methods are kept as standalone functions
 // so tools don't need to carry them as instance methods.
 
+import { calculateDisplayWidth } from '../utils/terminal.js';
+
 export type ToolResultDetails = Record<string, unknown>;
 
 export interface ToolResult<TDetails extends ToolResultDetails = ToolResultDetails> {
@@ -23,6 +25,7 @@ export interface ToolRenderResultContext<
 export interface ToolRenderResultOptions {
   readonly expanded?: boolean;
   readonly isPartial?: boolean;
+  readonly terminalColumns?: number;
 }
 
 export type ToolResultRenderer<
@@ -155,8 +158,43 @@ export interface FormatToolResultDisplayOptions {
   maxPreviewChars?: number;
   maxPreviewLines?: number;
   previewMode?: 'head' | 'tail';
+  previewLineMode?: 'text' | 'visual';
+  previewWidth?: number;
   expanded?: boolean;
   moreLabel?: string;
+}
+
+function wrapVisualLine(line: string, width: number): string[] {
+  if (width <= 0) return [line];
+  const chunks: string[] = [];
+  const segmentRe = /(\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])|[\s\S])/g;
+  let current = '';
+  let currentWidth = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = segmentRe.exec(line)) !== null) {
+    const segment = match[1];
+    if (segment.startsWith('\x1b')) {
+      current += segment;
+      continue;
+    }
+
+    const segmentWidth = calculateDisplayWidth(segment);
+    if (currentWidth > 0 && currentWidth + segmentWidth > width) {
+      chunks.push(current);
+      current = '';
+      currentWidth = 0;
+    }
+    current += segment;
+    currentWidth += segmentWidth;
+  }
+
+  if (current.length > 0 || chunks.length === 0) chunks.push(current);
+  return chunks;
+}
+
+function splitVisualLines(content: string, width: number): string[] {
+  return content.split('\n').flatMap((line) => wrapVisualLine(line, width));
 }
 
 export function formatToolResultDisplay(
@@ -173,7 +211,15 @@ export function formatToolResultDisplay(
 
   let shown = preview;
   let omittedLines = 0;
-  const lines = preview.split('\n');
+  const previewWidth = typeof options.previewWidth === 'number' ? options.previewWidth : undefined;
+  const useVisualLines = !options.expanded
+    && options.previewLineMode === 'visual'
+    && previewWidth !== undefined
+    && Number.isFinite(previewWidth)
+    && previewWidth > 0;
+  const lines = useVisualLines
+    ? splitVisualLines(preview, Math.floor(previewWidth ?? 0))
+    : preview.split('\n');
   if (!options.expanded && maxPreviewLines !== undefined && lines.length > maxPreviewLines) {
     omittedLines = lines.length - maxPreviewLines;
     shown = (previewMode === 'tail' ? lines.slice(-maxPreviewLines) : lines.slice(0, maxPreviewLines)).join('\n');

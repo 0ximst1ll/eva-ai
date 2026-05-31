@@ -38,6 +38,7 @@ export interface TuiToolResultRecord {
   args: Record<string, unknown>;
   expanded: boolean;
   isPartial?: boolean;
+  terminalColumns?: number;
 }
 
 export function handleIdleCtrlCExit({
@@ -84,7 +85,11 @@ export function formatTuiToolResult(record: Omit<TuiToolResultRecord, 'text'>): 
           toolCallId: record.result.toolCallId,
           args: record.args,
         },
-        { expanded: record.expanded, isPartial: record.isPartial ?? false },
+        {
+          expanded: record.expanded,
+          isPartial: record.isPartial ?? false,
+          terminalColumns: record.terminalColumns,
+        },
       ) ?? record.result.displayContent
     : record.result.displayContent;
   const expandedLabel = record.expanded ? ` ${Colors.DIM}(expanded)${Colors.RESET}` : '';
@@ -249,6 +254,7 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
   const toolArgs = new Map<string, Record<string, unknown>>();
   const toolResults: TuiToolResultRecord[] = [];
   const pendingToolResults = new Map<string, TuiToolResultRecord>();
+  const getToolPreviewColumns = (): number => Math.max(20, terminal.getSize().columns - 4);
 
   const stopTui = (): void => {
     if (stopped) return;
@@ -312,6 +318,7 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
         record.result = r;
         record.args = r.args ?? toolArgs.get(r.toolCallId) ?? record.args;
         record.isPartial = false;
+        record.terminalColumns = getToolPreviewColumns();
         updateTuiToolResultRecord(record);
         if (!pendingToolResults.has(r.toolCallId)) {
           toolResults.push(record);
@@ -338,6 +345,7 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
         record.result = r;
         record.args = r.args ?? toolArgs.get(r.toolCallId) ?? record.args;
         record.isPartial = true;
+        record.terminalColumns = getToolPreviewColumns();
         updateTuiToolResultRecord(record);
         if (!pendingToolResults.has(r.toolCallId)) {
           pendingToolResults.set(r.toolCallId, record);

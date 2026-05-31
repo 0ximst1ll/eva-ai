@@ -22,6 +22,7 @@
 - ToolResult `content + typed details` 最小闭环已实现：agent-loop 会透传工具结构化 details，`read_file`、`bash`、`grep_files`、`find_files`、`list_files` 已输出工具专属 details 类型，包含 truncation、行数/结果数、exit code、full output path 等结构化信息。
 - 工具级 `renderResult` 最小边界已实现：工具定义可基于 typed details 生成 `displayContent`，CLI/TUI 优先展示该字段；模型写回和 session 持久化仍使用原始 `content`。
 - Bash streaming partial update 最小闭环已实现：foreground bash 会通过 `tool_execution_update` 透传有界 tail preview，TUI 对同一个 tool call 原地刷新 running/completed 状态，截断时复用同一个系统临时 full output log 路径。
+- Bash visual-line tail preview 最小闭环已实现：TUI/CLI 会把终端宽度传给工具 renderer，bash collapsed/partial preview 可按 terminal-width visual lines 取尾部输出。
 - 超大工具输出 session sidecar artifact 路径已拆除：tool result 不再保存 artifact reference、不再写 `tool_result_artifact` internal entry，session storage 不再暴露 tool result artifact API。
 - 工具层大输出截断已开始按工具类型收敛：`read_file` 保留 head 并提示 offset continuation，`bash` 保留 tail 并只在截断/中断时写系统临时 log，`grep_files` / `find_files` / `list_files` 保留 head 并提示缩小范围。
 - 工具执行 abort lifecycle 已收敛：agent-loop 在工具批次边界停止后续执行，foreground bash 会响应 abort，已 abort 的同步文件工具不会继续读写。
@@ -32,20 +33,20 @@
 ## 进行中
 
 - M5 Tool / Permission Governance 继续推进。
-- 当前 ToolResult `content + typed details`、工具级 `renderResult`、内部 tool execution hook 和 bash streaming partial update 最小边界已完成。
-- Tool output UX 继续对齐 `pi-mono`：当前 Eva 已实现 renderer options、tool args 透传、tool-specific collapsed preview、TUI 最近工具结果 `Ctrl-T` expand/collapse，以及 foreground bash partial update；尚未达到 `pi-mono` 的 visual-line tail preview 和工具结果焦点选择体验。
+- 当前 ToolResult `content + typed details`、工具级 `renderResult`、内部 tool execution hook、bash streaming partial update 和 bash visual-line tail preview 最小边界已完成。
+- Tool output UX 继续对齐 `pi-mono`：下一步重点从 bash 输出裁剪转向 TUI 工具结果选择/焦点模型。
 
 ## 下一步
 
-- 第一优先级：继续细化 bash tail visual-line preview，目前 Eva 仍是按文本行近似，不是 `pi-mono` 的 terminal-width visual lines。
-- 第二优先级：把 TUI 工具展开从“最近一条 Ctrl-T”升级为可选择的工具结果列表/焦点模型。
-- 第三优先级：评估 RPC 客户端侧如何消费 `tool_execution_update`；默认 CLI 仍保持低噪音并忽略 partial update。
+- 第一优先级：把 TUI 工具展开从“最近一条 Ctrl-T”升级为可选择的工具结果列表/焦点模型。
+- 第二优先级：评估 RPC 客户端侧如何消费 `tool_execution_update`；默认 CLI 仍保持低噪音并忽略 partial update。
+- 第三优先级：继续补工具输出更完整的行/字节统计和 compaction-time tool result micro-compaction。
 - 后续再进入 MCP lifecycle 最小闭环，接入同一 registry、metadata 和 hook 边界，不直接引入完整 extension system。
 - 保持 permission diagnostics 简单，继续沿用 pending/denied 关键事实；`/diagnostics` 不承载 tool result details 展示。
 
 ## 已知问题
 
-- 工具层大输出已具备 head/tail 基础策略、tool-specific collapsed line preview、TUI 最近工具结果 expand/collapse 和 bash streaming partial update，但仍缺 bash visual-line tail preview、更完整的行/字节统计和 compaction-time tool result micro-compaction。
+- 工具层大输出已具备 head/tail 基础策略、tool-specific collapsed line preview、TUI 最近工具结果 expand/collapse、bash streaming partial update 和 bash visual-line tail preview，但仍缺更完整的行/字节统计和 compaction-time tool result micro-compaction。
 - Tool Result 已有 `content + typed details` 和工具级 `renderResult` 最小边界；尚未形成 compaction-time micro-compaction。
 - abort lifecycle 已覆盖当前内置工具的主要路径，但仍缺更细的 abort reason 和队列状态；工具执行诊断暂保持 lifecycle event + pending state 的简单边界。
 - operation injection 和 tool execution hook 目前是内部最小边界，尚未提供统一 remote workspace adapter、sandbox adapter 或完整 extension wrapper。

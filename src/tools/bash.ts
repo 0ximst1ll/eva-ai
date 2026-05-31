@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createAbortedToolResult, formatToolResultDisplay, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
+import { createAbortedToolResult, formatToolResultDisplay, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolRenderResultOptions, type ToolResult, type ToolResultDetails } from './base.js';
 import {
   DEFAULT_TOOL_OUTPUT_MAX_CHARS,
   truncateTailByChars,
@@ -128,7 +128,7 @@ function createBashDetails({
   };
 }
 
-function renderBashResult(result: ToolResult<BashToolDetails>, options = {}): string | undefined {
+function renderBashResult(result: ToolResult<BashToolDetails>, options: ToolRenderResultOptions = {}): string | undefined {
   const details = result.details;
   if (!details) return undefined;
   const parts: string[] = [];
@@ -149,6 +149,9 @@ function renderBashResult(result: ToolResult<BashToolDetails>, options = {}): st
     maxPreviewLines: 5,
     maxPreviewChars: 4000,
     previewMode: 'tail',
+    previewLineMode: options.terminalColumns ? 'visual' : 'text',
+    previewWidth: options.terminalColumns,
+    moreLabel: options.terminalColumns ? 'earlier visual lines' : undefined,
   }) : undefined;
 }
 

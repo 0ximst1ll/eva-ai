@@ -7,6 +7,7 @@ import {
   toolFromDefinition,
   type Tool,
 } from '../src/tools/base.js';
+import { BashTool } from '../src/tools/bash.js';
 
 const metadata = {
   category: 'read',
@@ -90,4 +91,50 @@ test('formatToolResultDisplay supports tail previews for bash-style output', () 
   assert.match(display, /2 earlier lines/);
   assert.doesNotMatch(display, /one/);
   assert.match(display, /three\nfour/);
+});
+
+test('formatToolResultDisplay supports tail previews by visual line width', () => {
+  const display = formatToolResultDisplay(
+    'exit=0',
+    { content: 'abcdefghijklmnopqrstuvwxyz' },
+    {
+      maxPreviewLines: 2,
+      maxPreviewChars: 200,
+      previewMode: 'tail',
+      previewLineMode: 'visual',
+      previewWidth: 10,
+      moreLabel: 'earlier visual lines',
+    },
+  );
+
+  assert.match(display, /1 earlier visual lines/);
+  assert.doesNotMatch(display, /abcdefghij/);
+  assert.match(display, /klmnopqrst\nuvwxyz/);
+});
+
+test('bash renderer uses terminal width for collapsed visual-line tails', () => {
+  const tool = new BashTool('/workspace');
+  const display = renderToolResult(
+    tool,
+    {
+      success: true,
+      content: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+      details: {
+        exitCode: 0,
+        stdoutChars: 62,
+        stderrChars: 0,
+      },
+    },
+    {
+      toolCallId: 'call-1',
+      args: { command: 'echo hello' },
+    },
+    {
+      terminalColumns: 10,
+    },
+  );
+
+  assert.match(display ?? '', /2 earlier visual lines/);
+  assert.doesNotMatch(display ?? '', /abcdefghij/);
+  assert.match(display ?? '', /uvwxyzABCD\nEFGHIJKLMN\nOPQRSTUVWX\nYZ01234567\n89/);
 });

@@ -100,7 +100,7 @@ export function createCliRenderer(options: CliRendererOptions = {}) {
                 toolCallId: event.result.toolCallId,
                 args: event.result.args ?? state.toolArgs.get(event.result.toolCallId) ?? {},
               },
-              { expanded: false, isPartial: false },
+              { expanded: false, isPartial: false, terminalColumns: process.stdout.columns },
             ) ?? event.result.displayContent ?? event.result.content
           : event.result.displayContent ?? event.result.content;
         if (text.length > TOOL_RESULT_PREVIEW_MAX_CHARS) {
