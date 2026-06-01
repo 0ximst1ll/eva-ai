@@ -219,6 +219,60 @@ test('runAgentLoop applies extension-style tool execution hooks', async () => {
   assert.equal(toolResultEvent?.result.displayContent, 'display from hook');
 });
 
+test('runAgentLoop validates tool arguments before hooks and execute', async () => {
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-invalid', 'write_file', { file_path: 'wrong.txt', content: 'data' })],
+    },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  let executed = false;
+  let hookCalled = false;
+  const tool: Tool = {
+    name: 'write_file',
+    description: 'Write file',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        content: { type: 'string' },
+      },
+      required: ['path', 'content'],
+    },
+    async execute() {
+      executed = true;
+      return { success: true, content: 'should not run' };
+    },
+  };
+  const events: AgentLoopEvent[] = [];
+
+  const result = await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [tool],
+    maxSteps: 3,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+    beforeToolCall() {
+      hookCalled = true;
+      return undefined;
+    },
+    emit: (event) => {
+      events.push(event);
+    },
+  });
+
+  const toolResultEvent = events.find((event) => event.type === 'tool_result');
+  assert.equal(result.finalContent, 'done');
+  assert.equal(executed, false);
+  assert.equal(hookCalled, false);
+  assert.equal(toolResultEvent?.type, 'tool_result');
+  assert.equal(toolResultEvent?.result.success, false);
+  assert.match(toolResultEvent?.result.error ?? '', /Validation failed for tool "write_file"/);
+  assert.match(toolResultEvent?.result.error ?? '', /path: required property is missing/);
+  assert.deepEqual(toolResultEvent?.result.args, { file_path: 'wrong.txt', content: 'data' });
+});
+
 test('runAgentLoop applies tool result budget before the next provider request', async () => {
   const largeOutput = 'x'.repeat(500);
   const llm = new ScriptedLLM([

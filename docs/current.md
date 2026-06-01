@@ -22,6 +22,7 @@
 - ToolResult `content + typed details` 最小闭环已实现：agent-loop 会透传工具结构化 details，`read_file`、`bash`、`grep_files`、`find_files`、`list_files` 已输出工具专属 details 类型，包含 truncation、行数/结果数、exit code、full output path 等结构化信息。
 - 工具级 `renderResult` 最小边界已实现：工具定义可基于 typed details 生成 `displayContent`，CLI/TUI 优先展示该字段；模型写回和 session 持久化仍使用原始 `content`。
 - Tool call renderer 边界已对齐 `pi-mono`：工具定义可提供 `renderCall(args)`，TUI 通过工具 renderer 展示 bash `$ command`、read path、grep pattern/path 等关键参数，未知工具保留 fallback 摘要。
+- 工具运行时 schema 校验最小闭环已对齐 `pi-mono`：agent-loop 会在 hooks/execute 前校验 tool arguments，非法参数返回工具错误，不再进入具体工具执行。
 - TUI 工具输出展开/折叠已对齐 `pi-mono` 的全局模式：`Ctrl-T` 切换所有工具结果，新增工具结果继承当前全局展开状态。
 - Bash streaming partial update 最小闭环已实现：foreground bash 会通过 `tool_execution_update` 透传有界 tail preview，TUI 对同一个 tool call 原地刷新 running/completed 状态，截断时复用同一个系统临时 full output log 路径。
 - Bash visual-line tail preview 最小闭环已实现：TUI/CLI 会把终端宽度传给工具 renderer，bash collapsed/partial preview 可按 terminal-width visual lines 取尾部输出。

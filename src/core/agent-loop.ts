@@ -3,6 +3,7 @@ import { formatProviderError } from '../llm/provider-errors.js';
 import { RetryExhaustedError } from '../retry.js';
 import type { AgentMessage, LLMResponse, LlmMessage, ToolCall, ToolExecutionResult } from '../schema.js';
 import { renderToolResult, type Tool } from '../tools/base.js';
+import { validateToolArguments } from '../tools/validation.js';
 import {
   runAfterToolCallHooks,
   runBeforeToolCallHooks,
@@ -208,13 +209,11 @@ async function executeToolCall(
   config: AgentLoopConfig,
 ): Promise<ToolExecutionResult> {
   const { id: toolCallId, function: fn } = toolCall;
-  const { name: toolName, arguments: args } = fn;
+  const { name: toolName, arguments: rawArgs } = fn;
 
   if (config.signal?.aborted) {
     return applyToolResultBudget(createAbortedToolResult(toolCall), config.toolResultBudget);
   }
-
-  await emit(config.emit, { type: 'tool_execution_start', toolCallId, toolName, args });
 
   const tool = toolMap.get(toolName);
   if (!tool) {
@@ -223,7 +222,7 @@ async function executeToolCall(
         toolCallId,
         toolName,
         success: false,
-        args,
+        args: rawArgs,
         content: '',
         error: `Unknown tool: ${toolName}`,
       },
@@ -232,6 +231,32 @@ async function executeToolCall(
     await emit(config.emit, { type: 'tool_execution_end', result });
     return result;
   }
+
+  let args: Record<string, unknown>;
+  try {
+    args = validateToolArguments(tool, rawArgs);
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    const result = attachToolDisplayContent(
+      tool,
+      rawArgs,
+      applyToolResultBudget(
+        {
+          toolCallId,
+          toolName,
+          success: false,
+          args: rawArgs,
+          content: '',
+          error: err.message,
+        },
+        config.toolResultBudget,
+      ),
+    );
+    await emit(config.emit, { type: 'tool_execution_end', result });
+    return result;
+  }
+
+  await emit(config.emit, { type: 'tool_execution_start', toolCallId, toolName, args });
 
   try {
     const hooks = createToolExecutionHooks(config);

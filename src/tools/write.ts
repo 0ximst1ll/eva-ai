@@ -9,8 +9,8 @@ export interface WriteToolInput extends Record<string, unknown> {
   content: string;
 }
 
-function renderWriteCall({ path }: WriteToolInput): string {
-  return `write ${path || '...'}`;
+function renderWriteCall(input: WriteToolInput & { file_path?: string }): string {
+  return `write ${input.file_path ?? input.path ?? '...'}`;
 }
 
 export class WriteTool implements Tool<WriteToolInput> {
