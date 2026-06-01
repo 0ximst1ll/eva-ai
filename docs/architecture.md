@@ -124,7 +124,7 @@ manual `/compact`、auto compaction、prompt-too-long compact-and-retry、post-c
 
 工具结果当前采用 `content + typed details + displayContent` 最小边界。`content` 仍是写回模型和 session 的文本，`details` 承载工具结构化信息，例如截断统计、bash exit code、full output path、行数或结果数。工具定义可通过 `renderResult` 基于 details 和 `expanded/isPartial` render options 生成 `displayContent`，agent-loop 会透传给 TUI/CLI 展示和后续 compaction 使用；`/diagnostics` 不作为 tool details 的主要消费路径。
 
-当前内置工具 renderer 已开始按 `pi-mono` 风格做 tool-specific collapsed preview：`read_file` 展示前 10 行，`grep_files` 展示前 15 行，`find_files` / `list_files` 展示前 20 行，`bash` 按 terminal-width visual lines 展示 tail 5 行。TUI/CLI 展示层可用 tool definition 和 tool args 重新渲染结果；TUI 已支持通过 `Ctrl-T` 切换最近工具结果的 collapsed/expanded 展示。foreground bash 已支持 streaming partial update，并在截断时写系统临时 full output log。
+当前内置工具 renderer 已开始按 `pi-mono` 风格做 tool-specific collapsed preview：`read_file` 展示前 10 行，`grep_files` 展示前 15 行，`find_files` / `list_files` 展示前 20 行，`bash` 按 terminal-width visual lines 展示 tail 5 行。TUI/CLI 展示层可用 tool definition 和 tool args 重新渲染结果；TUI 已支持通过 `Ctrl-T` 全局切换工具结果的 collapsed/expanded 展示。foreground bash 已支持 streaming partial update，并在截断时写系统临时 full output log。
 
 agent-loop 支持内部 `ToolExecutionHook[]` 边界。hook 可在 tool call 前合并 execution context，也可在 tool result 后补充受限结果字段，例如 details、displayContent、content/error 覆盖。当前 runtime permission governance 已作为命名 hook 接入；该边界仍是内部机制，不是完整 extension API。
 

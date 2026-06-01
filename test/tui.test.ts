@@ -4,7 +4,7 @@ import {
   createEntrySelectItems,
   formatTuiToolResult,
   handleIdleCtrlCExit,
-  toggleLatestTuiToolResult,
+  setTuiToolResultsExpanded,
   updateTuiToolResultRecord,
   type CtrlCExitState,
   type TuiToolResultRecord,
@@ -216,7 +216,7 @@ test('TUI entry selector items preserve entry hierarchy and active markers', () 
   assert.match(items[1]?.description ?? '', /selected task/);
 });
 
-test('TUI tool result records toggle expanded rendering', () => {
+test('TUI tool result records toggle global expanded rendering', () => {
   const tool: Tool = {
     name: 'sample_tool',
     description: 'Sample',
@@ -228,26 +228,35 @@ test('TUI tool result records toggle expanded rendering', () => {
       return options.expanded ? `expanded:${result.content}` : `collapsed:${result.content}`;
     },
   };
-  const record: TuiToolResultRecord = {
+  const createRecord = (toolCallId: string): TuiToolResultRecord => ({
     text: new Text(''),
     tool,
     result: {
-      toolCallId: 'call-1',
+      toolCallId,
       toolName: 'sample_tool',
       success: true,
       content: 'raw',
     },
     args: {},
     expanded: false,
-  };
+  });
+  const first = createRecord('call-1');
+  const second = createRecord('call-2');
 
-  assert.match(formatTuiToolResult(record), /collapsed:raw/);
-  updateTuiToolResultRecord(record);
-  assert.match(record.text.text, /collapsed:raw/);
-  assert.equal(toggleLatestTuiToolResult([record]), true);
-  assert.equal(record.expanded, true);
-  assert.match(record.text.text, /expanded:raw/);
-  assert.equal(toggleLatestTuiToolResult([]), false);
+  assert.match(formatTuiToolResult(first), /collapsed:raw/);
+  updateTuiToolResultRecord(first);
+  updateTuiToolResultRecord(second);
+  assert.match(first.text.text, /collapsed:raw/);
+  assert.match(second.text.text, /collapsed:raw/);
+  assert.equal(setTuiToolResultsExpanded([first, second], true), true);
+  assert.equal(first.expanded, true);
+  assert.equal(second.expanded, true);
+  assert.match(first.text.text, /expanded:raw/);
+  assert.match(second.text.text, /expanded:raw/);
+  assert.equal(setTuiToolResultsExpanded([first, second], false), true);
+  assert.match(first.text.text, /collapsed:raw/);
+  assert.match(second.text.text, /collapsed:raw/);
+  assert.equal(setTuiToolResultsExpanded([], true), false);
 });
 
 test('TUI tool result records render partial status', () => {

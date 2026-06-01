@@ -107,11 +107,12 @@ export function updateTuiToolResultRecord(record: TuiToolResultRecord): void {
   record.text.text = formatTuiToolResult(record);
 }
 
-export function toggleLatestTuiToolResult(records: TuiToolResultRecord[]): boolean {
-  const record = records.at(-1);
-  if (!record) return false;
-  record.expanded = !record.expanded;
-  updateTuiToolResultRecord(record);
+export function setTuiToolResultsExpanded(records: TuiToolResultRecord[], expanded: boolean): boolean {
+  if (!records.length) return false;
+  for (const record of records) {
+    record.expanded = expanded;
+    updateTuiToolResultRecord(record);
+  }
   return true;
 }
 
@@ -173,7 +174,7 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
   );
   headerContainer.addChild(
     new Text(
-      `${Colors.DIM}Enter to send · Shift+Enter for newline · /help for commands · Ctrl-C to cancel/exit · Ctrl-T expand tool${Colors.RESET}`,
+      `${Colors.DIM}Enter to send · Shift+Enter for newline · /help for commands · Ctrl-C to cancel/exit · Ctrl-T expand tools${Colors.RESET}`,
       { wrap: false },
     ),
   );
@@ -254,6 +255,7 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
   const toolArgs = new Map<string, Record<string, unknown>>();
   const toolResults: TuiToolResultRecord[] = [];
   const pendingToolResults = new Map<string, TuiToolResultRecord>();
+  let toolOutputExpanded = false;
   const getToolPreviewColumns = (): number => Math.max(20, terminal.getSize().columns - 4);
 
   const stopTui = (): void => {
@@ -312,7 +314,7 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
           tool,
           result: r,
           args: r.args ?? toolArgs.get(r.toolCallId) ?? {},
-          expanded: false,
+          expanded: toolOutputExpanded,
         };
         record.tool = tool;
         record.result = r;
@@ -338,7 +340,7 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
           tool,
           result: r,
           args: r.args ?? toolArgs.get(r.toolCallId) ?? {},
-          expanded: false,
+          expanded: toolOutputExpanded,
           isPartial: true,
         };
         record.tool = tool;
@@ -601,7 +603,8 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
       return;
     }
     if (matchesKey(data, 'ctrl-t')) {
-      if (toggleLatestTuiToolResult(toolResults)) {
+      toolOutputExpanded = !toolOutputExpanded;
+      if (setTuiToolResultsExpanded(toolResults, toolOutputExpanded)) {
         tui.requestRender();
       }
     }
