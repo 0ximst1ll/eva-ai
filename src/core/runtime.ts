@@ -345,6 +345,13 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
     maxSteps: options.maxSteps === undefined ? config.agent.maxSteps : options.maxSteps,
     contextBuilder,
     contextManager: services.contextManager,
+    autoRetry: {
+      enabled: config.llm.retry.enabled,
+      maxRetries: config.llm.retry.maxRetries,
+      initialDelayMs: config.llm.retry.initialDelay * 1000,
+      maxDelayMs: config.llm.retry.maxDelay * 1000,
+      exponentialBase: config.llm.retry.exponentialBase,
+    },
     toolHooks: [createToolGovernanceExecutionHook(config, options, { sessionManager, sessionId })],
     sessionManager,
     sessionId,

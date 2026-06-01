@@ -94,6 +94,8 @@ export type ToolExecutionDetails = Record<string, unknown>;
 export type AgentSessionEvent =
     | { type: 'agent_start' }
     | { type: 'agent_end'; messages: AgentMessage[]; finalContent: string }
+    | { type: 'auto_retry_start'; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
+    | { type: 'auto_retry_end'; success: boolean; attempt: number; finalError?: string }
     | { type: 'message_start'; step: number; maxSteps?: number | null }
     | { type: 'thinking_delta'; text: string }
     | { type: 'content_delta'; text: string }

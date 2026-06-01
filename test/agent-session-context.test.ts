@@ -142,6 +142,54 @@ test('AgentSession forwards agent lifecycle events to the UI boundary', async ()
   assert.equal(events.at(-1), 'agent_end');
 });
 
+test('AgentSession auto-retries transient provider errors without ending the task', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-1');
+  const providerError = new Error(
+    'ApiError: {"error":{"message":"{\\n  \\"error\\": {\\n    \\"code\\": 503,\\n    \\"message\\": \\"This model is currently experiencing high demand. Please try again later.\\",\\n    \\"status\\": \\"UNAVAILABLE\\"\\n  }\\n}\\n","code":503,"status":"Service Unavailable"}}',
+  );
+  const llm = new ScriptedLLM([
+    providerError,
+    { content: 'done after retry', finish_reason: 'stop' },
+  ]);
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [],
+    maxSteps: 3,
+    autoRetry: { maxRetries: 2, initialDelayMs: 0 },
+    sessionManager,
+    sessionId,
+  });
+  const events: AgentSessionEvent[] = [];
+
+  await session.addUserMessage('run');
+  assert.equal(await session.run({ onEvent: (event) => events.push(event) }), 'done after retry');
+
+  assert.equal(llm.calls.length, 2);
+  assert.deepEqual(
+    events.map((event) => event.type).filter((type) => type === 'error'),
+    [],
+  );
+  assert.deepEqual(
+    events.map((event) => event.type).filter((type) => type === 'agent_end'),
+    ['agent_end'],
+  );
+  const retryStart = events.find((event) => event.type === 'auto_retry_start');
+  assert.equal(retryStart?.type, 'auto_retry_start');
+  assert.equal(retryStart.attempt, 1);
+  assert.match(retryStart.errorMessage, /Provider unavailable|high demand/);
+  const retryEnd = events.find((event) => event.type === 'auto_retry_end');
+  assert.deepEqual(retryEnd, { type: 'auto_retry_end', success: true, attempt: 1 });
+  assert.deepEqual(
+    session.messages.map((message) => message.content),
+    ['system', 'run', 'done after retry'],
+  );
+});
+
 test('AgentSession keeps large tool results as truncated preview without artifacts', async () => {
   const sessionManager = new SessionManager({
     workspaceDir: '/workspace',

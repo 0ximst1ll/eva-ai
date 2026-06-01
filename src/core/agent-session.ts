@@ -1,4 +1,5 @@
 import type { LLMClient } from '../llm/llm-client.js';
+import { formatProviderError } from '../llm/provider-errors.js';
 import type { AgentMessage, AgentSessionEvent, Message } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { Agent } from './agent.js';
@@ -32,7 +33,25 @@ type AgentRunAttempt = {
   result: string;
   contextOverflowError?: Extract<AgentLoopEvent, { type: 'error' }>;
   contextOverflowEnd?: Extract<AgentLoopEvent, { type: 'agent_end' }>;
+  retryableError?: Extract<AgentLoopEvent, { type: 'error' }>;
+  retryableEnd?: Extract<AgentLoopEvent, { type: 'agent_end' }>;
 };
+
+export interface AgentSessionAutoRetryOptions {
+  enabled?: boolean;
+  maxRetries?: number;
+  initialDelayMs?: number;
+  maxDelayMs?: number;
+  exponentialBase?: number;
+}
+
+const DEFAULT_AUTO_RETRY_OPTIONS = {
+  enabled: true,
+  maxRetries: 3,
+  initialDelayMs: 2000,
+  maxDelayMs: 60000,
+  exponentialBase: 2,
+} satisfies Required<AgentSessionAutoRetryOptions>;
 
 function isContextOverflowErrorMessage(message: string): boolean {
   return [
@@ -47,6 +66,40 @@ function isContextOverflowErrorMessage(message: string): boolean {
     /too many tokens/i,
     /request too large/i,
   ].some((pattern) => pattern.test(message));
+}
+
+function isRetryableProviderErrorMessage(message: string): boolean {
+  const formatted = formatProviderError(message);
+  return formatted.retryable && formatted.category !== 'context_overflow';
+}
+
+function normalizeAutoRetryOptions(options?: AgentSessionAutoRetryOptions): Required<AgentSessionAutoRetryOptions> {
+  return {
+    enabled: options?.enabled ?? DEFAULT_AUTO_RETRY_OPTIONS.enabled,
+    maxRetries: options?.maxRetries ?? DEFAULT_AUTO_RETRY_OPTIONS.maxRetries,
+    initialDelayMs: options?.initialDelayMs ?? DEFAULT_AUTO_RETRY_OPTIONS.initialDelayMs,
+    maxDelayMs: options?.maxDelayMs ?? DEFAULT_AUTO_RETRY_OPTIONS.maxDelayMs,
+    exponentialBase: options?.exponentialBase ?? DEFAULT_AUTO_RETRY_OPTIONS.exponentialBase,
+  };
+}
+
+function calculateAutoRetryDelay(options: Required<AgentSessionAutoRetryOptions>, attempt: number): number {
+  const delay = options.initialDelayMs * Math.pow(options.exponentialBase, attempt - 1);
+  return Math.min(delay, options.maxDelayMs);
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  if (signal?.aborted) return Promise.reject(new Error('Retry cancelled'));
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(resolve, ms);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(new Error('Retry cancelled'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function createCompactionSummaryMarker({
@@ -74,6 +127,7 @@ export class AgentSession {
   private readonly llmClient: LLMClient;
   private readonly sessionManager: SessionManager;
   private readonly contextManager?: ContextManager;
+  private readonly autoRetry: Required<AgentSessionAutoRetryOptions>;
   private _systemPrompt: string;
   private readonly _maxSteps?: number | null;
   private readonly toolResultBudget?: ToolResultBudgetOptions;
@@ -91,6 +145,7 @@ export class AgentSession {
     toolHooks,
     contextBuilder,
     contextManager,
+    autoRetry,
     beforeToolCall,
     afterToolCall,
     sessionManager,
@@ -105,6 +160,7 @@ export class AgentSession {
     toolHooks?: ToolExecutionHook[];
     contextBuilder?: ContextBuilder;
     contextManager?: ContextManager;
+    autoRetry?: AgentSessionAutoRetryOptions;
     beforeToolCall?: BeforeToolCallHook;
     afterToolCall?: AfterToolCallHook;
     sessionManager: SessionManager;
@@ -114,6 +170,7 @@ export class AgentSession {
     this.llmClient = llmClient;
     this.sessionManager = sessionManager;
     this.contextManager = contextManager;
+    this.autoRetry = normalizeAutoRetryOptions(autoRetry);
     this._maxSteps = maxSteps;
     this.toolResultBudget = toolResultBudget;
     this.sessionId = sessionId;
@@ -231,10 +288,86 @@ export class AgentSession {
     onEvent?: (event: AgentSessionEvent) => void;
   } = {}): Promise<string> {
     await this.compactIfRecommended();
-    const firstAttempt = await this.runAgentOnce({ signal, onEvent, suppressContextOverflowError: true });
+    let retryAttemptCount = 0;
+    let attempt = await this.runAgentOnceWithContextOverflowRecovery({
+      signal,
+      onEvent,
+      suppressAgentStart: false,
+      suppressRetryableError: this.autoRetry.enabled && this.autoRetry.maxRetries > 0,
+    });
+
+    while (
+      this.autoRetry.enabled
+      && attempt.retryableError
+      && retryAttemptCount < this.autoRetry.maxRetries
+      && !signal?.aborted
+    ) {
+      retryAttemptCount += 1;
+      const delayMs = calculateAutoRetryDelay(this.autoRetry, retryAttemptCount);
+      onEvent?.({
+        type: 'auto_retry_start',
+        attempt: retryAttemptCount,
+        maxAttempts: this.autoRetry.maxRetries,
+        delayMs,
+        errorMessage: attempt.retryableError.message,
+      });
+
+      try {
+        await sleep(delayMs, signal);
+      } catch {
+        onEvent?.({
+          type: 'auto_retry_end',
+          success: false,
+          attempt: retryAttemptCount,
+          finalError: 'Retry cancelled',
+        });
+        this.syncUsageFromSession();
+        return 'Task cancelled by user.';
+      }
+
+      attempt = await this.runAgentOnceWithContextOverflowRecovery({
+        signal,
+        onEvent,
+        suppressAgentStart: true,
+        suppressRetryableError: retryAttemptCount < this.autoRetry.maxRetries,
+      });
+    }
+
+    if (retryAttemptCount > 0) {
+      const finalError = attempt.retryableError?.message;
+      onEvent?.({
+        type: 'auto_retry_end',
+        success: !attempt.retryableError,
+        attempt: retryAttemptCount,
+        ...(finalError ? { finalError } : {}),
+      });
+    }
+
+    this.syncUsageFromSession();
+    return attempt.result;
+  }
+
+  private async runAgentOnceWithContextOverflowRecovery({
+    signal,
+    onEvent,
+    suppressAgentStart,
+    suppressRetryableError,
+  }: {
+    signal?: AbortSignal;
+    onEvent?: (event: AgentSessionEvent) => void;
+    suppressAgentStart: boolean;
+    suppressRetryableError: boolean;
+  }): Promise<AgentRunAttempt> {
+    const firstAttempt = await this.runAgentOnce({
+      signal,
+      onEvent,
+      suppressContextOverflowError: true,
+      suppressRetryableError,
+      suppressAgentStart,
+    });
     if (!firstAttempt.contextOverflowError) {
       this.syncUsageFromSession();
-      return firstAttempt.result;
+      return firstAttempt;
     }
 
     try {
@@ -243,48 +376,62 @@ export class AgentSession {
       onEvent?.(firstAttempt.contextOverflowError);
       if (firstAttempt.contextOverflowEnd) onEvent?.(firstAttempt.contextOverflowEnd);
       this.syncUsageFromSession();
-      return firstAttempt.result;
+      return firstAttempt;
     }
 
     const retryAttempt = await this.runAgentOnce({
       signal,
       onEvent,
       suppressContextOverflowError: false,
+      suppressRetryableError,
       suppressAgentStart: true,
     });
     this.syncUsageFromSession();
-    return retryAttempt.result;
+    return retryAttempt;
   }
 
   private async runAgentOnce({
     signal,
     onEvent,
     suppressContextOverflowError,
+    suppressRetryableError,
     suppressAgentStart,
   }: {
     signal?: AbortSignal;
     onEvent?: (event: AgentSessionEvent) => void;
     suppressContextOverflowError: boolean;
+    suppressRetryableError: boolean;
     suppressAgentStart?: boolean;
   }): Promise<AgentRunAttempt> {
     let contextOverflowError: Extract<AgentLoopEvent, { type: 'error' }> | undefined;
     let contextOverflowEnd: Extract<AgentLoopEvent, { type: 'agent_end' }> | undefined;
+    let retryableError: Extract<AgentLoopEvent, { type: 'error' }> | undefined;
+    let retryableEnd: Extract<AgentLoopEvent, { type: 'agent_end' }> | undefined;
     const unsubscribe = this.agent.subscribe(async (event) => {
-      if (event.type === 'error' && isContextOverflowErrorMessage(`${event.message}\n${event.error ?? ''}`)) {
-        contextOverflowError = event;
+      if (event.type === 'error') {
+        const errorText = `${event.message}\n${event.error ?? ''}`;
+        if (isContextOverflowErrorMessage(errorText)) {
+          contextOverflowError = event;
+        } else if (isRetryableProviderErrorMessage(errorText)) {
+          retryableError = event;
+        }
       }
       if (event.type === 'agent_end' && contextOverflowError) {
         contextOverflowEnd = event;
       }
+      if (event.type === 'agent_end' && retryableError) {
+        retryableEnd = event;
+      }
 
       const shouldSuppress = (event.type === 'agent_start' && suppressAgentStart)
-        || (suppressContextOverflowError && (event === contextOverflowError || event === contextOverflowEnd));
+        || (suppressContextOverflowError && (event === contextOverflowError || event === contextOverflowEnd))
+        || (suppressRetryableError && (event === retryableError || event === retryableEnd));
       await this.handleAgentEvent(event, shouldSuppress ? undefined : onEvent);
     });
 
     try {
       const result = await this.agent.continue({ signal });
-      return { result, contextOverflowError, contextOverflowEnd };
+      return { result, contextOverflowError, contextOverflowEnd, retryableError, retryableEnd };
     } finally {
       unsubscribe();
     }
@@ -357,7 +504,7 @@ export class AgentSession {
     }
   }
 
-  private isLegacySessionEvent(event: AgentLoopEvent): event is AgentSessionEvent {
+  private isLegacySessionEvent(event: AgentLoopEvent): event is AgentLoopEvent & AgentSessionEvent {
     return [
       'agent_start',
       'agent_end',

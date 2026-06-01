@@ -42,6 +42,16 @@ export function createCliRenderer(options: CliRendererOptions = {}) {
       return;
     }
 
+    if (event.type === 'auto_retry_start') {
+      const seconds = Math.ceil(event.delayMs / 1000);
+      console.log(
+        `${Colors.DIM}Retrying provider request in ${seconds}s (${event.attempt}/${event.maxAttempts})...${Colors.RESET}`,
+      );
+      return;
+    }
+
+    if (event.type === 'auto_retry_end') return;
+
     if (event.type === 'message_start') {
       state = { ...state, printedThinkingHeader: false, printedAssistantHeader: false };
       const stepLabel = event.maxSteps ? `Step ${event.step}/${event.maxSteps}` : `Step ${event.step}`;

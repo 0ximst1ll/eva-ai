@@ -416,6 +416,17 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
         break;
       }
 
+      case 'auto_retry_start': {
+        const seconds = Math.ceil(event.delayMs / 1000);
+        setRunning(true, `Retrying in ${seconds}s (${event.attempt}/${event.maxAttempts})…  Ctrl-C to cancel`);
+        break;
+      }
+
+      case 'auto_retry_end': {
+        if (!event.success) setRunning(false);
+        break;
+      }
+
       case 'error': {
         chatContainer.addChild(
           new Text(`${Colors.BRIGHT_RED}✗ Error: ${event.message}${Colors.RESET}`, { wrap: true }),

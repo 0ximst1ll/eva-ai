@@ -189,16 +189,24 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 
 长期边界：
 
-- provider adapters 和 streaming normalization 留在 `llm` 层。
+- provider adapters 和 streaming normalization 留在 `llm` 层，但不把模型能力、认证、请求参数和错误恢复全部塞进单个 client。
+- provider subsystem 应逐步对齐 `pi-mono` 的成熟设计：模型注册/解析、认证解析、请求选项、provider adapter 和 session-level retry/recovery 分层。
+- `ProviderModel` / `ModelSpec` 记录 provider、api protocol、model id、baseUrl、context window、max output、reasoning/thinking support 和 provider-specific compatibility metadata。
+- `ProviderAuthResolver` 统一解析 config/env/runtime auth，当前优先支持 API key，后续再决定是否接入 OAuth 或 provider-specific auth storage。
+- `ProviderRequestOptions` 统一承载 reasoning level、temperature、maxTokens、timeout、headers、sessionId、retry cap 和 provider diagnostics hooks。
+- Google provider 应按 model metadata 和 reasoning option 生成 `thinkingConfig`：不要无条件开启 `includeThoughts`；Gemini 3.x Flash/Pro 等模型按 provider-specific `thinkingLevel` 或 budget 映射处理。
 - config/settings 由 RuntimeServices 读取并校验。
 - diagnostics 在 core 收集，在 mode 展示。
+- provider request lifecycle 应覆盖 provider/SDK retry、session auto-retry、Retry-After/timeout/abort 和用户可理解错误展示。
 - usage/cost/timing 通过稳定结构暴露。
 
 里程碑：
 
 - 已完成：Anthropic/OpenAI/Gemini provider adapter 基础边界。
 - 已完成：runtime diagnostics 统一结构。
-- 已完成：provider usage persistence 和 provider error display 收敛。
+- 已完成：provider usage persistence、provider error display 和 session-level retryable provider error auto-retry 最小闭环。
+- 后续：ProviderModel / ProviderRequestOptions / ProviderAuthResolver 最小骨架。
+- 后续：Google thinking/reasoning request 构建对齐 `pi-mono`，修正 Gemini 3.x Flash/Pro 等模型的 thinkingConfig 策略。
 - 后续：更完整 usage/cost/timing observability、config 命名收敛、model selection policy。
 
 ## Stage Roadmap
@@ -238,6 +246,12 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 目标：完善工具编排、轻量结果预算和权限规则。
 
 状态：已有基础 metadata/governance/pending approval，后续进入更完整 rule/mode/budget，并将超大工具输出从 durable artifact 设计收敛为 `pi-mono` 风格的 preview/临时输出。
+
+### M5.5 Provider Reliability And Request Lifecycle
+
+目标：把 provider 从直接 client wrapper 升级为可解释、可配置、可恢复的请求生命周期边界，优先解决真实使用中的 Gemini high-demand、thinking 配置和 provider retry 体验问题。
+
+状态：session-level retryable provider error auto-retry 最小闭环已完成；下一步补 ProviderModel / ProviderRequestOptions / ProviderAuthResolver，并优先对齐 Google thinking/reasoning 构建。
 
 ### M6 Resources / MCP / Extensions
 
