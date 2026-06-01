@@ -41,6 +41,11 @@ export interface FindToolDetails extends ToolResultDetails {
   truncation?: ToolOutputTruncationDetails;
 }
 
+function renderFindCall({ pattern, path = '.', max_results }: FindToolInput): string {
+  const limit = max_results !== undefined ? ` limit ${max_results}` : '';
+  return `find ${pattern || ''} in ${path || '.'}${limit}`;
+}
+
 export class FindTool implements Tool<FindToolInput, FindToolDetails> {
   readonly name = 'find_files';
   readonly description = 'Find files by filename substring or regular expression inside the workspace. Prefer this over bash find.';
@@ -58,6 +63,8 @@ export class FindTool implements Tool<FindToolInput, FindToolDetails> {
     private readonly workspaceDir: string = '.',
     private readonly operations: FileToolOperations = localFileToolOperations,
   ) {}
+
+  renderCall = renderFindCall;
 
   renderResult(result: ToolResult<FindToolDetails>, options = {}): string | undefined {
     if (!result.success || !result.details) return undefined;

@@ -9,6 +9,10 @@ export interface WriteToolInput extends Record<string, unknown> {
   content: string;
 }
 
+function renderWriteCall({ path }: WriteToolInput): string {
+  return `write ${path || '...'}`;
+}
+
 export class WriteTool implements Tool<WriteToolInput> {
   readonly name = 'write_file';
   readonly description =
@@ -26,6 +30,8 @@ export class WriteTool implements Tool<WriteToolInput> {
     private readonly workspaceDir: string = '.',
     private readonly operations: FileToolOperations = localFileToolOperations,
   ) {}
+
+  renderCall = renderWriteCall;
 
   async execute({ path: filePath, content }: WriteToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
     try {

@@ -2,7 +2,7 @@ import type { RuntimeHost } from '../core/runtime-host.js';
 import type { SessionEntryTreeViewNode } from '../core/session-manager.js';
 import type { AgentSessionEvent, ToolExecutionResult } from '../schema.js';
 import type { ToolConfirmationRequest, ToolPermissionDecision } from '../core/runtime.js';
-import { renderToolResult, type Tool } from '../tools/base.js';
+import { renderToolCall, renderToolResult, type Tool } from '../tools/base.js';
 import { TUI } from '../tui/tui.js';
 import { ProcessTerminal } from '../tui/terminal.js';
 import { Container } from '../tui/component.js';
@@ -74,6 +74,46 @@ function formatArg(key: string, value: unknown): string {
   const s = String(value);
   const truncated = s.length > 80 ? s.slice(0, 80) + '…' : s;
   return `  ${Colors.DIM}${key}:${Colors.RESET} ${truncated}`;
+}
+
+function compactValue(value: unknown, fallback = '...'): string {
+  if (typeof value === 'string') return value.trim() || fallback;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return fallback;
+}
+
+function shortenDisplayValue(value: string, maxLength = 80): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength).trimEnd()}…` : value;
+}
+
+function formatFallbackTuiToolCall(toolName: string, args: Record<string, unknown>): string {
+  const entries = Object.entries(args).slice(0, 3);
+  const renderedArgs = entries
+    .map(([key, value]) => `${key}=${shortenDisplayValue(compactValue(value), 40)}`)
+    .join(', ');
+  return renderedArgs ? `${toolName}(${renderedArgs})` : toolName;
+}
+
+function colorizeToolCallSummary(summary: string): string {
+  const [head, ...rest] = summary.split(' ');
+  return `${Colors.BOLD}${head}${Colors.RESET}${rest.length ? ` ${rest.join(' ')}` : ''}`;
+}
+
+export function formatTuiToolCall(
+  toolName: string,
+  args: Record<string, unknown>,
+  tool?: Tool,
+  options: { expanded?: boolean; terminalColumns?: number; toolCallId?: string } = {},
+): string {
+  const rendered = tool
+    ? renderToolCall(
+        tool,
+        args,
+        { toolCallId: options.toolCallId },
+        { expanded: options.expanded, terminalColumns: options.terminalColumns },
+      )
+    : undefined;
+  return colorizeToolCallSummary(rendered ?? formatFallbackTuiToolCall(toolName, args));
 }
 
 export function formatTuiToolResult(record: Omit<TuiToolResultRecord, 'text'>): string {
@@ -294,11 +334,17 @@ export async function runTuiMode({ host, setToolConfirmationHandler }: TuiModeOp
 
       case 'tool_call': {
         const name = event.tool_call.function.name;
-        toolArgs.set(event.tool_call.id, event.tool_call.function.arguments);
+        const args = event.tool_call.function.arguments;
+        const tool = toolMap.get(name);
+        toolArgs.set(event.tool_call.id, args);
         const icon = toolIcon(name);
         chatContainer.addChild(
           new Text(
-            `${Colors.BRIGHT_YELLOW}${icon} ${Colors.BOLD}${name}${Colors.RESET}`,
+            `${Colors.BRIGHT_YELLOW}${icon}${Colors.RESET} ${formatTuiToolCall(name, args, tool, {
+              expanded: toolOutputExpanded,
+              terminalColumns: getToolPreviewColumns(),
+              toolCallId: event.tool_call.id,
+            })}`,
             { wrap: false },
           ),
         );

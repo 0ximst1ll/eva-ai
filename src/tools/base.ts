@@ -28,6 +28,29 @@ export interface ToolRenderResultOptions {
   readonly terminalColumns?: number;
 }
 
+export interface ToolRenderCallContext<
+  Input extends Record<string, unknown> = Record<string, unknown>,
+> {
+  readonly toolCallId?: string;
+  readonly toolName: string;
+  readonly args: Input;
+}
+
+export interface ToolRenderCallOptions {
+  readonly expanded?: boolean;
+  readonly terminalColumns?: number;
+}
+
+export type ToolCallRenderer<
+  Input extends Record<string, unknown> = Record<string, unknown>,
+> = {
+  bivarianceHack(
+    args: Input,
+    options: ToolRenderCallOptions,
+    context: ToolRenderCallContext<Input>,
+  ): string | undefined;
+}['bivarianceHack'];
+
 export type ToolResultRenderer<
   Input extends Record<string, unknown> = Record<string, unknown>,
   TDetails extends ToolResultDetails = ToolResultDetails,
@@ -81,6 +104,7 @@ export interface ToolDefinition<
   readonly metadata: ToolMetadata;
   prepareArguments?(args: Record<string, unknown>): Input;
   execute(args: Input, context?: ToolExecutionContext): Promise<ToolResult<TDetails>>;
+  renderCall?: ToolCallRenderer<Input>;
   renderResult?: ToolResultRenderer<Input, TDetails>;
 }
 
@@ -95,6 +119,7 @@ export interface Tool<
   readonly parameters: JsonSchema;
   readonly metadata?: ToolMetadata;
   execute(args: Input, context?: ToolExecutionContext): Promise<ToolResult<TDetails>>;
+  renderCall?: ToolCallRenderer<Input>;
   renderResult?: ToolResultRenderer<Input, TDetails>;
 }
 
@@ -115,6 +140,7 @@ export function createToolDefinition<
     parameters: tool.parameters,
     metadata,
     execute: (args, context) => tool.execute(args, context),
+    renderCall: tool.renderCall,
     renderResult: tool.renderResult,
   };
 }
@@ -131,8 +157,26 @@ export function toolFromDefinition<
     parameters: definition.parameters,
     metadata: definition.metadata,
     execute: (args, context) => definition.execute(definition.prepareArguments?.(args) ?? (args as Input), context),
+    renderCall: definition.renderCall,
     renderResult: definition.renderResult,
   };
+}
+
+export function renderToolCall<Input extends Record<string, unknown>>(
+  tool: Tool<Input>,
+  args: Input,
+  context: Omit<ToolRenderCallContext<Input>, 'toolName' | 'args'> = {},
+  options: ToolRenderCallOptions = {},
+): string | undefined {
+  return tool.renderCall?.(
+    args,
+    options,
+    {
+      ...context,
+      toolName: tool.name,
+      args,
+    },
+  );
 }
 
 export function renderToolResult<

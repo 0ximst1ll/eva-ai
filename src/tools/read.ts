@@ -21,6 +21,13 @@ export interface ReadToolDetails extends ToolResultDetails {
   truncation?: ToolOutputTruncationDetails;
 }
 
+function renderReadCall({ path, offset, limit }: ReadToolInput): string {
+  if (offset === undefined && limit === undefined) return `read ${path || '...'}`;
+  const start = offset ?? 1;
+  const end = limit !== undefined ? start + limit - 1 : undefined;
+  return `read ${path || '...'}:${start}${end !== undefined ? `-${end}` : ''}`;
+}
+
 export class ReadTool implements Tool<ReadToolInput, ReadToolDetails> {
   readonly name = 'read_file';
   readonly description =
@@ -41,6 +48,8 @@ export class ReadTool implements Tool<ReadToolInput, ReadToolDetails> {
     private readonly workspaceDir: string = '.',
     private readonly operations: FileToolOperations = localFileToolOperations,
   ) {}
+
+  renderCall = renderReadCall;
 
   renderResult(result: ToolResult<ReadToolDetails>, options = {}): string | undefined {
     if (!result.success || !result.details) return undefined;

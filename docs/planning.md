@@ -103,12 +103,12 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 
 - tool registry 管理 builtin、MCP 和 custom tools。
 - tool metadata 承载 source、category、risk、read-only、confirmation 等信息。
-- tool definition 后续应逐步吸收 `pi-mono` 的设计：把 LLM schema、metadata、prompt snippet/guidelines、execution mode、typed details 和 UI render boundary 收敛到同一工具定义边界。
+- tool definition 后续应逐步吸收 `pi-mono` 的设计：把 LLM schema、metadata、prompt snippet/guidelines、execution mode、typed details、`renderCall` 和 `renderResult` UI boundary 收敛到同一工具定义边界。
 - read-only tools 可并发；write/bash tools 应串行。
 - execution mode 默认可由 metadata 推断，但应允许工具显式声明 `parallel` / `sequential`，避免复杂工具被全局策略误判。
 - tool result ordering 和预算由统一 orchestration 管理。
 - tool result 应从纯文本结果逐步升级为 `content + details`：截断统计、full output path、bash exit code、grep match count 等结构化信息进入 details，工具级 renderer、TUI/CLI 和后续 compaction 不解析文本；`/diagnostics` 不作为 tool details 的主要消费路径。
-- tool output UX 应对齐 `pi-mono`：工具展示不是只显示 summary，也不是无界打印完整输出；默认 collapsed 展示工具专属 partial output，expanded 展示更多已返回内容，并用 details 展示 truncation/full output/limit warnings。
+- tool output UX 应对齐 `pi-mono`：工具调用阶段展示工具自己的 call summary，结果阶段默认 collapsed 展示工具专属 partial output，expanded 展示更多已返回内容，并用 details 展示 truncation/full output/limit warnings。
 - tool-specific preview 策略应由 renderer 决定：`read` 默认展示约 10 行，`grep` 约 15 行，`find`/`ls` 约 20 行，`bash` 展示 tail visual lines；后续 TUI 需要支持 expand/collapse。
 - bash 输出应逐步对齐 `pi-mono` 的 streaming accumulator：执行中通过 partial update 刷新输出，内存只保留有界 tail，必要时写临时 full output 文件，并展示 elapsed/took 和 truncation/full output 提示。
 - 大工具输出默认在工具层或 request view 层截断；bash 等流式输出可写临时文件供当前运行查看，但不作为通用 session artifact 长期保存。
@@ -117,11 +117,11 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 里程碑：
 
 - 已完成：builtin tool registry、metadata 和 governance hook。
-- 已完成：ToolResult `content + typed details` 最小边界，以及工具级 `renderResult -> displayContent` 展示边界。
+- 已完成：ToolResult `content + typed details` 最小边界，以及工具级 `renderCall` / `renderResult -> displayContent` 展示边界。
 - 已完成：内部 extension-style tool execution hook 最小边界。
 - 已完成：tool-specific collapsed preview 最小边界，`read` / `grep` / `find` / `ls` / `bash` 默认按工具类型展示部分输出。
 - 已完成：TUI 最近工具结果 expand/collapse 最小闭环。
-- 后续：tool output UX 继续对齐 `pi-mono` 的 bash streaming accumulator、visual-line tail preview 和更完整的工具结果选择/焦点模型。
+- 后续：tool output UX 继续补齐更完整的行/字节统计、RPC partial update 策略和 compaction-time tool result micro-compaction。
 - 后续：read-only 并发、write/bash 串行、轻量 tool result budget、临时大输出处理、operations injection。
 - 后续：MCP/custom tools 接入同一 registry、metadata 和 hook 模型。
 

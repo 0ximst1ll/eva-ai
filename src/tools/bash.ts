@@ -155,6 +155,21 @@ function renderBashResult(result: ToolResult<BashToolDetails>, options: ToolRend
   }) : undefined;
 }
 
+function renderBashCall({ command, timeout, run_in_background }: BashInput): string {
+  const commandDisplay = command?.trim() || '...';
+  const timeoutSuffix = timeout ? ` (timeout ${timeout}s)` : '';
+  const backgroundSuffix = run_in_background ? ' (background)' : '';
+  return `$ ${commandDisplay}${timeoutSuffix}${backgroundSuffix}`;
+}
+
+function renderBashOutputCall({ bash_id }: BashOutputInput): string {
+  return `bash_output ${bash_id || '...'}`;
+}
+
+function renderBashKillCall({ bash_id }: BashKillInput): string {
+  return `bash_kill ${bash_id || '...'}`;
+}
+
 function killProcessTree(proc: cp.ChildProcess, isWindows: boolean): void {
   if (!proc.pid) return;
   try {
@@ -334,6 +349,8 @@ For background commands, monitor with bash_output and terminate with bash_kill.`
   };
 
   renderResult = renderBashResult;
+
+  renderCall = renderBashCall;
 
   async execute(
     { command, timeout = 120, run_in_background = false }: BashInput,
@@ -575,6 +592,8 @@ export class BashOutputTool implements Tool<BashOutputInput, BashToolDetails> {
 
   renderResult = renderBashResult;
 
+  renderCall = renderBashOutputCall;
+
   async execute({ bash_id, filter_str }: BashOutputInput, context?: ToolExecutionContext): Promise<BashOutputResult> {
     if (isToolExecutionAborted(context)) return abortedBashResult();
     const shell = getShell(bash_id);
@@ -631,6 +650,8 @@ export class BashKillTool implements Tool<BashKillInput, BashToolDetails> {
   };
 
   renderResult = renderBashResult;
+
+  renderCall = renderBashKillCall;
 
   async execute({ bash_id }: BashKillInput, context?: ToolExecutionContext): Promise<BashOutputResult> {
     try {

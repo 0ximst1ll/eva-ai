@@ -14,6 +14,10 @@ export interface ListToolDetails extends ToolResultDetails {
   truncation?: ToolOutputTruncationDetails;
 }
 
+function renderLsCall({ path = '.' }: LsToolInput): string {
+  return `ls ${path || '.'}`;
+}
+
 export class LsTool implements Tool<LsToolInput, ListToolDetails> {
   readonly name = 'list_files';
   readonly description = 'List files and directories under a workspace path. Prefer this over bash ls/find.';
@@ -28,6 +32,8 @@ export class LsTool implements Tool<LsToolInput, ListToolDetails> {
     private readonly workspaceDir: string = '.',
     private readonly operations: FileToolOperations = localFileToolOperations,
   ) {}
+
+  renderCall = renderLsCall;
 
   renderResult(result: ToolResult<ListToolDetails>, options = {}): string | undefined {
     if (!result.success || !result.details) return undefined;

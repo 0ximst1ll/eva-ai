@@ -42,6 +42,12 @@ export interface SearchToolDetails extends ToolResultDetails {
   truncation?: ToolOutputTruncationDetails;
 }
 
+function renderGrepCall({ pattern, path = '.', max_results, case_sensitive = true }: GrepToolInput): string {
+  const limit = max_results !== undefined ? ` limit ${max_results}` : '';
+  const caseMode = case_sensitive === false ? ' insensitive' : '';
+  return `grep /${pattern || ''}/ in ${path || '.'}${limit}${caseMode}`;
+}
+
 export class GrepTool implements Tool<GrepToolInput, SearchToolDetails> {
   readonly name = 'grep_files';
   readonly description = 'Search text content in workspace files. Prefer this over bash grep/rg for code search.';
@@ -60,6 +66,8 @@ export class GrepTool implements Tool<GrepToolInput, SearchToolDetails> {
     private readonly workspaceDir: string = '.',
     private readonly operations: FileToolOperations = localFileToolOperations,
   ) {}
+
+  renderCall = renderGrepCall;
 
   renderResult(result: ToolResult<SearchToolDetails>, options = {}): string | undefined {
     if (!result.success || !result.details) return undefined;

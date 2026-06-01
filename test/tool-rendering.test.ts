@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   createToolDefinition,
   formatToolResultDisplay,
+  renderToolCall,
   renderToolResult,
   toolFromDefinition,
   type Tool,
@@ -17,13 +18,16 @@ const metadata = {
   isConcurrencySafe: true,
 } as const;
 
-test('tool definitions preserve result renderers', () => {
+test('tool definitions preserve call and result renderers', () => {
   const tool: Tool = {
     name: 'sample',
     description: 'Sample tool',
     parameters: { type: 'object' },
     async execute() {
       return { success: true, content: 'raw', details: { count: 2 } };
+    },
+    renderCall(args) {
+      return `call:${String(args['text'])}`;
     },
     renderResult(result) {
       return `count=${result.details?.['count']}`;
@@ -32,6 +36,7 @@ test('tool definitions preserve result renderers', () => {
 
   const definition = createToolDefinition(tool, metadata);
   const wrapped = toolFromDefinition(definition);
+  const callDisplay = renderToolCall(wrapped, { text: 'hello' });
   const display = renderToolResult(
     wrapped,
     { success: true, content: 'raw', details: { count: 2 } },
@@ -41,6 +46,7 @@ test('tool definitions preserve result renderers', () => {
     },
   );
 
+  assert.equal(callDisplay, 'call:hello');
   assert.equal(display, 'count=2');
 });
 

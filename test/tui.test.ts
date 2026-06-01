@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createEntrySelectItems,
+  formatTuiToolCall,
   formatTuiToolResult,
   handleIdleCtrlCExit,
   setTuiToolResultsExpanded,
@@ -16,7 +17,14 @@ import { StdinBuffer } from '../src/tui/stdin-buffer.js';
 import { TUI } from '../src/tui/tui.js';
 import type { ProcessTerminal } from '../src/tui/terminal.js';
 import { stripAnsi, visibleWidth, wrapText } from '../src/tui/utils.js';
+import { BashTool } from '../src/tools/bash.js';
 import type { Tool } from '../src/tools/base.js';
+import { EditTool } from '../src/tools/edit.js';
+import { FindTool } from '../src/tools/find.js';
+import { GrepTool } from '../src/tools/grep.js';
+import { LsTool } from '../src/tools/ls.js';
+import { ReadTool } from '../src/tools/read.js';
+import { WriteTool } from '../src/tools/write.js';
 
 class FakeTerminal {
   writes: string[] = [];
@@ -214,6 +222,20 @@ test('TUI entry selector items preserve entry hierarchy and active markers', () 
   assert.equal(items[1]?.value, 'entry-user-abcdef');
   assert.match(items[1]?.label ?? '', /^  \* entry-user/);
   assert.match(items[1]?.description ?? '', /selected task/);
+});
+
+test('TUI tool calls show pi-style argument summaries', () => {
+  assert.equal(stripAnsi(formatTuiToolCall('bash', { command: 'git status', timeout: 3 }, new BashTool())), '$ git status (timeout 3s)');
+  assert.equal(stripAnsi(formatTuiToolCall('read_file', { path: 'src/index.ts', offset: 3, limit: 5 }, new ReadTool())), 'read src/index.ts:3-7');
+  assert.equal(
+    stripAnsi(formatTuiToolCall('grep_files', { pattern: 'TODO', path: 'src', max_results: 20, case_sensitive: false }, new GrepTool())),
+    'grep /TODO/ in src limit 20 insensitive',
+  );
+  assert.equal(stripAnsi(formatTuiToolCall('find_files', { pattern: 'test', path: 'src', max_results: 5 }, new FindTool())), 'find test in src limit 5');
+  assert.equal(stripAnsi(formatTuiToolCall('list_files', { path: 'docs' }, new LsTool())), 'ls docs');
+  assert.equal(stripAnsi(formatTuiToolCall('write_file', { path: 'out.txt', content: 'hidden' }, new WriteTool())), 'write out.txt');
+  assert.equal(stripAnsi(formatTuiToolCall('edit_file', { path: 'app.ts', old_str: 'a', new_str: 'b' }, new EditTool())), 'edit app.ts');
+  assert.equal(stripAnsi(formatTuiToolCall('custom_tool', { path: 'x', limit: 2 })), 'custom_tool(path=x, limit=2)');
 });
 
 test('TUI tool result records toggle global expanded rendering', () => {

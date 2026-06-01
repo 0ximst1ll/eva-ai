@@ -9,6 +9,10 @@ export interface EditToolInput extends Record<string, unknown> {
   new_str: string;
 }
 
+function renderEditCall({ path }: EditToolInput): string {
+  return `edit ${path || '...'}`;
+}
+
 export class EditTool implements Tool<EditToolInput> {
   readonly name = 'edit_file';
   readonly description =
@@ -27,6 +31,8 @@ export class EditTool implements Tool<EditToolInput> {
     private readonly workspaceDir: string = '.',
     private readonly operations: FileToolOperations = localFileToolOperations,
   ) {}
+
+  renderCall = renderEditCall;
 
   async execute({ path: filePath, old_str, new_str }: EditToolInput, context?: ToolExecutionContext): Promise<ToolResult> {
     try {
