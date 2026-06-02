@@ -32,6 +32,7 @@
 - Provider request lifecycle 测试已补最小覆盖：auth resolver 优先级、OpenAI/Anthropic/Gemini transport options、timeout error 分类、session-level retry cap 和成功 auto-retry 路径已被测试固定。
 - Provider abort propagation 最小闭环已实现：agent-loop 会把 run `AbortSignal` 传入 LLM request options，OpenAI/Anthropic adapter 会转交 SDK request options，Google adapter 会在请求前和 stream 消费中 fail-fast；AbortError 不再进入通用 retry，agent-loop 会归一为用户取消结果。
 - Provider Retry-After 最小闭环已实现：provider error formatter 会从常见 header/json/text 结构解析 `retryAfterMs`，AgentSession auto-retry 会优先使用该 delay，并继续受 `maxDelayMs` 上限保护。
+- Google stream provider retry 已补最小边界：当 `generateContentStream()` 已返回 generator、但首个 chunk 获取阶段抛出 transient error 时，provider retry 会重新打开 stream；已输出内容后的中途失败仍交给 AgentSession 任务级 retry。
 - TUI 工具输出展开/折叠已对齐 `pi-mono` 的全局模式：`Ctrl-T` 切换所有工具结果，新增工具结果继承当前全局展开状态。
 - Bash streaming partial update 最小闭环已实现：foreground bash 会通过 `tool_execution_update` 透传有界 tail preview，TUI 对同一个 tool call 原地刷新 running/completed 状态，截断时复用同一个系统临时 full output log 路径。
 - RPC 已将 `tool_execution_update` 作为稳定 JSONL event 边界透出，保留 partial result 的 `content`、`displayContent`、`details` 和 tool args，客户端可按 `toolCallId` 消费 partial update。
@@ -48,11 +49,11 @@
 ## 进行中
 
 - Provider Reliability 根据真实使用反馈完成一轮修复。
-- 当前已将 Google 默认 thinking 和 retry 分层向 `pi-mono` 收敛；后续需要用真实 Gemini 运行观察 high-demand 错误是否明显减少。
+- 当前已将 Google 默认 thinking、retry 分层、Google stream 首包 retry 和 AgentSession 默认 retry delay 向 `pi-mono` 收敛；后续需要用真实 Gemini 运行观察 high-demand 错误是否明显减少。
 
 ## 下一步
 
-- 第一优先级：用真实 Gemini 运行验证默认 hidden/minimal thinking 是否改善 overload/high-demand 体验；如仍失败，再补 Google stream consumption 阶段的 retry/retry-after 处理。
+- 第一优先级：用真实 Gemini 运行验证默认 hidden/minimal thinking、2s 起步 agent retry 和 Google stream 首包 retry 是否改善 overload/high-demand 体验；如仍失败，再对比 pi-mono 的 Google auth/baseUrl/provider variant。
 - 第二优先级：继续 M5 Tool output UX 收口，评估是否需要把 tool result details 持久化进 session schema，或先进入 MCP lifecycle 最小闭环。
 - 第三优先级：根据真实使用反馈决定是否需要暴露 reasoning 配置；默认保持 `pi-mono` 风格的 reasoning-off/hidden-minimal 行为。
 - 第四优先级：后续进入 MCP lifecycle 最小闭环，接入同一 registry、metadata 和 hook 边界，不直接引入完整 extension system。
@@ -60,7 +61,7 @@
 
 ## 已知问题
 
-- Provider 层仍偏薄：模型能力、认证解析和请求选项已有最小结构化边界，OpenAI/Anthropic/Gemini 已消费主要 ProviderRequestOptions；Google 默认 thinking 和 retry 分层已向 `pi-mono` 收敛，abort propagation 和 Retry-After 已有最小闭环，但 Google stream consumption 阶段 provider retry 仍未形成完整边界。
+- Provider 层仍偏薄：模型能力、认证解析和请求选项已有最小结构化边界，OpenAI/Anthropic/Gemini 已消费主要 ProviderRequestOptions；Google 默认 thinking、retry 分层和 stream 首包 retry 已向 `pi-mono` 收敛，abort propagation 和 Retry-After 已有最小闭环，但 Google auth/baseUrl/provider variant 仍可能与 pi-mono 实际运行路径不同。
 - Provider auth 当前已有 API key resolver，支持 runtime/config/env 优先级；尚未支持 OAuth 或 provider-specific auth storage。
 - 工具层大输出已具备 head/tail 基础策略、lines/bytes truncation details、compaction-time lightweight tool result normalization、tool-specific collapsed line preview、TUI 全局工具结果 expand/collapse、bash streaming partial update、RPC partial update event 和 bash visual-line tail preview；如果后续要更完整消费 details，需要扩展 durable tool message schema。
 - Tool Result 已有 `content + typed details` 和工具级 `renderResult` 最小边界；当前 details 主要用于运行时展示，尚未持久化进 session message。

@@ -480,15 +480,25 @@ export class GoogleClient extends LLMClientBase {
     };
 
     let stream: AsyncGenerator<GenerateContentResponse>;
+    let firstChunk: IteratorResult<GenerateContentResponse>;
     if (this.retryConfig.enabled) {
       const wrapped = withRetry(
-        (si: string | null, c: Content[], t?: Tool[] | null) => this._makeApiStreamRequest(si, c, t, options),
+        async (si: string | null, c: Content[], t?: Tool[] | null) => {
+          const openedStream = await this._makeApiStreamRequest(si, c, t, options);
+          return {
+            stream: openedStream,
+            firstChunk: await openedStream.next(),
+          };
+        },
         this.retryConfig,
         this.retryCallback ?? undefined,
       );
-      stream = await wrapped(systemInstruction, contents, tools);
+      const opened = await wrapped(systemInstruction, contents, tools);
+      stream = opened.stream;
+      firstChunk = opened.firstChunk;
     } else {
       stream = await this._makeApiStreamRequest(systemInstruction, contents, tools, options);
+      firstChunk = await stream.next();
     }
 
     let fullContent = '';
@@ -498,7 +508,8 @@ export class GoogleClient extends LLMClientBase {
     const toolCalls: ToolCall[] = [];
     const seenToolCalls = new Set<string>();
 
-    for await (const chunk of stream) {
+    const chunks = prependFirstChunk(firstChunk, stream);
+    for await (const chunk of chunks) {
       throwIfAborted(options?.signal);
       usage = this._parseUsage(chunk.usageMetadata) ?? usage;
       if (usage) {
@@ -572,4 +583,12 @@ export class GoogleClient extends LLMClientBase {
       total_tokens: meta.totalTokenCount ?? (promptTokens + completionTokens),
     };
   }
+}
+
+async function* prependFirstChunk<T>(
+  firstChunk: IteratorResult<T>,
+  stream: AsyncGenerator<T>,
+): AsyncGenerator<T, void, void> {
+  if (!firstChunk.done) yield firstChunk.value;
+  yield* stream;
 }

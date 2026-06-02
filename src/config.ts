@@ -172,7 +172,7 @@ export class Config {
         retry: {
           enabled: retry.enabled ?? true,
           maxRetries: retry.max_retries ?? 3,
-          initialDelay: retry.initial_delay ?? 1.0,
+          initialDelay: retry.initial_delay ?? 2.0,
           maxDelay: retry.max_delay ?? 60.0,
           exponentialBase: retry.exponential_base ?? 2.0,
           provider: {

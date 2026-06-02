@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { GenerateContentResponse, HttpOptions } from '@google/genai';
 import { GoogleClient } from '../src/llm/google-client.js';
 import { createProviderModel, type ProviderRequestOptions } from '../src/llm/provider.js';
+import { RetryConfig } from '../src/retry.js';
 import type { Message } from '../src/schema.js';
 import { LLMProvider } from '../src/schema.js';
 
@@ -211,6 +212,48 @@ test('GoogleClient stops before SDK request when abort signal is already aborted
     /aborted/i,
   );
   assert.equal(called, false);
+});
+
+test('GoogleClient retries stream failures before the first chunk', async () => {
+  const client = new GoogleClient(
+    'test-key',
+    '',
+    'gemini-test',
+    new RetryConfig({ maxRetries: 1, initialDelay: 0, maxDelay: 0 }),
+  );
+  const retryEvents: Array<{ message: string; attempt: number }> = [];
+  client.retryCallback = (error, attempt) => retryEvents.push({ message: error.message, attempt });
+  let attempts = 0;
+  const inspectable = client as unknown as {
+    client: {
+      models: {
+        generateContentStream: (body: Record<string, unknown>) => Promise<AsyncGenerator<GenerateContentResponse>>;
+      };
+    };
+  };
+  inspectable.client.models.generateContentStream = () => {
+    return Promise.resolve((async function* () {
+      attempts += 1;
+      if (attempts === 1) throw new Error('503 model overloaded');
+      yield {
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      } as unknown as GenerateContentResponse;
+    })());
+  };
+
+  const events = [];
+  for await (const event of client.generateStream([{ role: 'user', content: 'hello' }])) {
+    events.push(event);
+  }
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(retryEvents, [{ message: '503 model overloaded', attempt: 1 }]);
+  assert.deepEqual(events.map((event) => event.type), ['content_delta', 'done']);
 });
 
 test('GoogleClient countTokens uses Google countTokens API shape', async () => {
