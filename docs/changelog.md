@@ -293,6 +293,8 @@
 
 - provider 差异、配置加载、工具加载、resource 加载和 session 状态的错误展示较分散。
 - 启动输出容易噪音过多，完整 diagnostics 又不易追踪。
+- provider client 更像直接 SDK wrapper，模型能力、认证来源、请求选项和 provider error recovery 缺少结构化边界。
+- Gemini thinking/reasoning 配置、provider retry、任务级 retry 和用户 abort 行为没有形成清晰 lifecycle。
 
 升级后：
 
@@ -300,9 +302,17 @@
 - `RuntimeServices` 收集 config/provider/resource/context/session/tools diagnostics。
 - mode 层通过统一 renderer 展示 startup diagnostics，并通过 `/diagnostics` 查看完整信息。
 - provider usage 持久化，provider 错误展示收敛。
+- 引入 `ProviderModel` / `ProviderAuthResolver` / `ProviderRequestOptions` 最小结构化边界。
+- `RuntimeServices` 创建 provider runtime context，`LLMClient` 将 provider model、auth 和 request options 传入具体 adapter。
+- Google provider 按模型 metadata 生成 thinking config：Gemini 3.x 使用 `thinkingLevel`，Gemini 2.5 使用 `thinkingBudget`，不再无条件开启 visible thoughts。
+- OpenAI、Anthropic 和 Gemini adapter 消费统一 request options，包括 temperature、max tokens、headers、timeout 和 retry cap。
+- provider error lifecycle 增加 retryable 分类、session-level auto-retry、abort propagation 和 Retry-After delay 接入。
 
 优势：
 
 - provider 差异不泄漏到 session 或 mode。
 - diagnostics 在 core 收集、mode 展示，减少业务逻辑和终端输出耦合。
 - 用户能看到关键 warning/error，同时保留完整排查入口。
+- provider 能力、认证和请求选项从 ad hoc client 参数变成可解释、可测试的 runtime context。
+- Gemini high-demand、rate limit、timeout 和 abort 不再只是一次性失败；任务级 retry 能继续同一个 run，同时仍受 retry cap、max delay 和用户取消控制。
+- Google thinking 配置与模型 family 对齐，降低因 provider-specific API 差异导致请求失败的风险。
