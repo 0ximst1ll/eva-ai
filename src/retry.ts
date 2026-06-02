@@ -45,6 +45,10 @@ export class RetryExhaustedError extends Error {
     }
 }
 
+function isAbortError(error: Error): boolean {
+    return error.name === 'AbortError'
+        || /abort(?:ed)?|cancelled|canceled/i.test(error.message);
+}
 
 type OnRetryCallback = (error: Error, attempt: number) => void;
 
@@ -62,6 +66,9 @@ export function withRetry<TArgs extends unknown[], TReturn> ( //泛型约束TArg
                 return await fn(...args);
             } catch (err) {
                 lastError = err instanceof Error ? err : new Error(String(err));
+                if (isAbortError(lastError)) {
+                    throw lastError;
+                }
                 const retryAttempt = attempt + 1;
 
                 // maxRetries 表示“最多重试次数”，总尝试次数 = 1 + maxRetries

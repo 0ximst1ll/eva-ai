@@ -177,6 +177,30 @@ test('GoogleClient applies provider transport options to httpOptions', () => {
   });
 });
 
+test('GoogleClient stops before SDK request when abort signal is already aborted', async () => {
+  const client = new GoogleClient('test-key', '', 'gemini-test');
+  const controller = new AbortController();
+  controller.abort();
+  let called = false;
+  const inspectable = client as unknown as {
+    client: {
+      models: {
+        generateContent: (body: Record<string, unknown>) => Promise<GenerateContentResponse>;
+      };
+    };
+  };
+  inspectable.client.models.generateContent = async () => {
+    called = true;
+    return { text: 'should not call' } as unknown as GenerateContentResponse;
+  };
+
+  await assert.rejects(
+    () => client.generate([{ role: 'user', content: 'hello' }], null, { signal: controller.signal }),
+    /aborted/i,
+  );
+  assert.equal(called, false);
+});
+
 test('GoogleClient countTokens uses Google countTokens API shape', async () => {
   const client = new GoogleClient('test-key', '', 'gemini-test');
   let requestBody: Record<string, unknown> | undefined;

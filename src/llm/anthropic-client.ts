@@ -5,7 +5,7 @@ import type { LLMResponse, LLMStreamEvent, Message, TokenUsage, ToolCall } from 
 import type { Tool } from '../tools/base.js';
 import { toAnthropicSchema } from '../tools/base.js';
 import { RetryConfig, withRetry } from '../retry.js';
-import { LLMClientBase } from './base.js';
+import { LLMClientBase, type LLMRequestOptions } from './base.js';
 import type { ProviderRequestOptions } from './provider.js';
 
 type AnthropicMessage = Anthropic.Message;
@@ -42,6 +42,7 @@ export class AnthropicClient extends LLMClientBase {
     systemMessage: string | null,
     apiMessages: Record<string, unknown>[],
     tools?: Tool[] | null,
+    options?: LLMRequestOptions,
   ): Promise<AnthropicMessage> {
     const params: Record<string, unknown> = {
       model: this.model,
@@ -57,6 +58,7 @@ export class AnthropicClient extends LLMClientBase {
 
     return this.client.messages.create(
       params as unknown as Anthropic.MessageCreateParamsNonStreaming,
+      { signal: options?.signal },
     ) as Promise<AnthropicMessage>;
   }
 
@@ -64,6 +66,7 @@ export class AnthropicClient extends LLMClientBase {
     systemMessage: string | null,
     apiMessages: Record<string, unknown>[],
     tools?: Tool[] | null,
+    options?: LLMRequestOptions,
   ): Promise<AsyncGenerator<Record<string, unknown>>> {
     const params: Record<string, unknown> = {
       model: this.model,
@@ -80,6 +83,7 @@ export class AnthropicClient extends LLMClientBase {
 
     return this.client.messages.create(
       params as unknown as Anthropic.MessageCreateParamsStreaming,
+      { signal: options?.signal },
     ) as unknown as AsyncGenerator<Record<string, unknown>>;
   }
 
@@ -211,7 +215,11 @@ export class AnthropicClient extends LLMClientBase {
     };
   }
 
-  async generate(messages: Message[], tools?: Tool[] | null): Promise<LLMResponse> {
+  async generate(
+    messages: Message[],
+    tools?: Tool[] | null,
+    options?: LLMRequestOptions,
+  ): Promise<LLMResponse> {
     const { systemMessage, apiMessages } = this._prepareRequest(messages, tools) as {
       systemMessage: string | null;
       apiMessages: Record<string, unknown>[];
@@ -222,13 +230,13 @@ export class AnthropicClient extends LLMClientBase {
     if (this.retryConfig.enabled) {
       const wrapped = withRetry(
         (sm: string | null, am: Record<string, unknown>[], t?: Tool[] | null) =>
-          this._makeApiRequest(sm, am, t),
+          this._makeApiRequest(sm, am, t, options),
         this.retryConfig,
         this.retryCallback ?? undefined,
       );
       response = await wrapped(systemMessage, apiMessages, tools);
     } else {
-      response = await this._makeApiRequest(systemMessage, apiMessages, tools);
+      response = await this._makeApiRequest(systemMessage, apiMessages, tools, options);
     }
 
     return this._parseResponse(response);
@@ -259,6 +267,7 @@ export class AnthropicClient extends LLMClientBase {
   async *generateStream(
     messages: Message[],
     tools?: Tool[] | null,
+    options?: LLMRequestOptions,
   ): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
     const { systemMessage, apiMessages } = this._prepareRequest(messages, tools) as {
       systemMessage: string | null;
@@ -269,13 +278,13 @@ export class AnthropicClient extends LLMClientBase {
     if (this.retryConfig.enabled) {
       const wrapped = withRetry(
         (sm: string | null, am: Record<string, unknown>[], t?: Tool[] | null) =>
-          this._makeApiStreamRequest(sm, am, t),
+          this._makeApiStreamRequest(sm, am, t, options),
         this.retryConfig,
         this.retryCallback ?? undefined,
       );
       stream = await wrapped(systemMessage, apiMessages, tools);
     } else {
-      stream = await this._makeApiStreamRequest(systemMessage, apiMessages, tools);
+      stream = await this._makeApiStreamRequest(systemMessage, apiMessages, tools, options);
     }
 
     let fullContent = '';

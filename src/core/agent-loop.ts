@@ -105,11 +105,13 @@ async function generateResponseWithStreaming({
   llmClient,
   messages,
   tools,
+  signal,
   emit: eventSink,
 }: {
   llmClient: LLMClient;
   messages: LlmMessage[];
   tools: Tool[];
+  signal?: AbortSignal;
   emit?: AgentLoopEventSink;
 }): Promise<LLMResponse> {
   let streamedResponse: LLMResponse | null = null;
@@ -118,7 +120,7 @@ async function generateResponseWithStreaming({
   const toolCalls: ToolCall[] = [];
   let usage = undefined as LLMResponse['usage'];
 
-  for await (const event of llmClient.generateStream(messages, tools)) {
+  for await (const event of llmClient.generateStream(messages, tools, { signal })) {
     if (event.type === 'thinking_delta') {
       thinking += event.text;
       await emit(eventSink, { type: 'thinking_delta', text: event.text });
@@ -527,9 +529,16 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           llmClient: config.llmClient,
           messages: requestMessages,
           tools: config.tools,
+          signal: config.signal,
           emit: config.emit,
         });
       } catch (e) {
+        if (config.signal?.aborted) {
+          const message = 'Task cancelled by user.';
+          await emit(config.emit, { type: 'error', message });
+          await emit(config.emit, { type: 'agent_end', messages, finalContent: message });
+          return abortResult(messages, message, apiTotalTokens);
+        }
         let message: string;
         let rawError: string;
         if (e instanceof RetryExhaustedError) {

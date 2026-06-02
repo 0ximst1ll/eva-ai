@@ -44,3 +44,16 @@ test('withRetry throws RetryExhaustedError after max retries are exhausted', asy
   );
 });
 
+test('withRetry does not retry abort errors', async () => {
+  let attempts = 0;
+  const wrapped = withRetry(
+    async () => {
+      attempts += 1;
+      throw new DOMException('aborted by user', 'AbortError');
+    },
+    new RetryConfig({ maxRetries: 3, initialDelay: 0, maxDelay: 0 }),
+  );
+
+  await assert.rejects(wrapped(), /aborted by user/);
+  assert.equal(attempts, 1);
+});

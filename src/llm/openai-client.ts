@@ -3,7 +3,7 @@ import type { LLMResponse, LLMStreamEvent, Message, TokenUsage, ToolCall } from 
 import type { Tool } from '../tools/base.js';
 import { toOpenAISchema } from '../tools/base.js';
 import { RetryConfig, withRetry } from '../retry.js';
-import { LLMClientBase } from './base.js';
+import { LLMClientBase, type LLMRequestOptions } from './base.js';
 import type { ProviderRequestOptions } from './provider.js';
 
 
@@ -38,6 +38,7 @@ export class OpenAIClient extends LLMClientBase {
     private async _makeApiRequest(
         apiMessages: Record<string, unknown>[],
         tools?: Tool[] | null,
+        options?: LLMRequestOptions,
     ): Promise<ChatCompletion> {
         const params: Record<string, unknown> = {
             model: this.model,
@@ -56,12 +57,14 @@ export class OpenAIClient extends LLMClientBase {
 
         return this.client.chat.completions.create(
             params as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
+            { signal: options?.signal },
         ) as Promise<ChatCompletion>;
     }
 
     private async _makeApiStreamRequest(
         apiMessages: Record<string, unknown>[],
         tools?: Tool[] | null,
+        options?: LLMRequestOptions,
     ): Promise<AsyncGenerator<ChatCompletionChunk>> {
         const params: Record<string, unknown> = {
             model: this.model,
@@ -81,6 +84,7 @@ export class OpenAIClient extends LLMClientBase {
 
         return this.client.chat.completions.create(
             params as unknown as OpenAI.Chat.ChatCompletionCreateParamsStreaming,
+            { signal: options?.signal },
         ) as unknown as AsyncGenerator<ChatCompletionChunk>;
     }
 
@@ -198,7 +202,11 @@ export class OpenAIClient extends LLMClientBase {
         };
     }
 
-    async generate(message: Message[], tools?: Tool[] | null): Promise<LLMResponse> {
+    async generate(
+        message: Message[],
+        tools?: Tool[] | null,
+        options?: LLMRequestOptions,
+    ): Promise<LLMResponse> {
         const { apiMessages } = this._prepareRequest(message, tools) as {
             apiMessages: Record<string, unknown>[];
         };
@@ -207,14 +215,14 @@ export class OpenAIClient extends LLMClientBase {
 
         if (this.retryConfig.enabled) {
             const wrapped = withRetry(
-                (am: Record<string, unknown>[], t?: Tool[] | null) => this._makeApiRequest(am, t),
+                (am: Record<string, unknown>[], t?: Tool[] | null) => this._makeApiRequest(am, t, options),
                 this.retryConfig,
                 this.retryCallback ?? undefined,
             );
 
             response = await wrapped(apiMessages, tools);
         } else{
-            response = await this._makeApiRequest(apiMessages, tools);
+            response = await this._makeApiRequest(apiMessages, tools, options);
 
         }
 
@@ -225,6 +233,7 @@ export class OpenAIClient extends LLMClientBase {
     async *generateStream(
         messages: Message[],
         tools?: Tool[] | null,
+        options?: LLMRequestOptions,
     ): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
         const { apiMessages } = this._prepareRequest(messages, tools) as {
             apiMessages: Record<string, unknown>[];
@@ -233,13 +242,13 @@ export class OpenAIClient extends LLMClientBase {
         let stream: AsyncGenerator<ChatCompletionChunk>;
         if (this.retryConfig.enabled) {
             const wrapped = withRetry(
-                (am: Record<string, unknown>[], t?: Tool[] | null) => this._makeApiStreamRequest(am, t),
+                (am: Record<string, unknown>[], t?: Tool[] | null) => this._makeApiStreamRequest(am, t, options),
                 this.retryConfig,
                 this.retryCallback ?? undefined,
             );
             stream = await wrapped(apiMessages, tools);
         } else {
-            stream = await this._makeApiStreamRequest(apiMessages, tools);
+            stream = await this._makeApiStreamRequest(apiMessages, tools, options);
         }
 
         let fullContent = '';

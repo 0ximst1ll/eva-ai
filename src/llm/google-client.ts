@@ -18,7 +18,7 @@ import type {
 } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { RetryConfig, withRetry } from '../retry.js';
-import { LLMClientBase } from './base.js';
+import { LLMClientBase, type LLMRequestOptions } from './base.js';
 import {
   createProviderModel,
   type ProviderModel,
@@ -40,6 +40,11 @@ function toGoogleSchema(tool: Tool): FunctionDeclaration {
 
 type GoogleThinkingLevel = 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH';
 type GoogleBudgetReasoningLevel = Exclude<ProviderReasoningLevel, 'off' | 'xhigh'>;
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw new DOMException('LLM request aborted', 'AbortError');
+}
 
 export class GoogleClient extends LLMClientBase {
   private readonly client: GoogleGenAI;
@@ -223,7 +228,9 @@ export class GoogleClient extends LLMClientBase {
     systemInstruction: string | null,
     contents: Content[],
     tools?: Tool[] | null,
+    options?: LLMRequestOptions,
   ): Promise<GenerateContentResponse> {
+    throwIfAborted(options?.signal);
     const config = this._buildConfig(systemInstruction, tools);
 
     return this.client.models.generateContent({
@@ -237,7 +244,9 @@ export class GoogleClient extends LLMClientBase {
     systemInstruction: string | null,
     contents: Content[],
     tools?: Tool[] | null,
+    options?: LLMRequestOptions,
   ): Promise<AsyncGenerator<GenerateContentResponse>> {
+    throwIfAborted(options?.signal);
     const config = this._buildConfig(systemInstruction, tools);
 
     return this.client.models.generateContentStream({
@@ -409,7 +418,11 @@ export class GoogleClient extends LLMClientBase {
     };
   }
 
-  async generate(messages: Message[], tools?: Tool[] | null): Promise<LLMResponse> {
+  async generate(
+    messages: Message[],
+    tools?: Tool[] | null,
+    options?: LLMRequestOptions,
+  ): Promise<LLMResponse> {
     const { systemInstruction, contents } = this._prepareRequest(messages, tools) as {
       systemInstruction: string | null;
       contents: Content[];
@@ -420,13 +433,13 @@ export class GoogleClient extends LLMClientBase {
     if (this.retryConfig.enabled) {
       const wrapped = withRetry(
         (si: string | null, c: Content[], t?: Tool[] | null) =>
-          this._makeApiRequest(si, c, t),
+          this._makeApiRequest(si, c, t, options),
         this.retryConfig,
         this.retryCallback ?? undefined,
       );
       response = await wrapped(systemInstruction, contents, tools);
     } else {
-      response = await this._makeApiRequest(systemInstruction, contents, tools);
+      response = await this._makeApiRequest(systemInstruction, contents, tools, options);
     }
 
     return this._parseResponse(response);
@@ -457,6 +470,7 @@ export class GoogleClient extends LLMClientBase {
   async *generateStream(
     messages: Message[],
     tools?: Tool[] | null,
+    options?: LLMRequestOptions,
   ): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
     const { systemInstruction, contents } = this._prepareRequest(messages, tools) as {
       systemInstruction: string | null;
@@ -466,13 +480,13 @@ export class GoogleClient extends LLMClientBase {
     let stream: AsyncGenerator<GenerateContentResponse>;
     if (this.retryConfig.enabled) {
       const wrapped = withRetry(
-        (si: string | null, c: Content[], t?: Tool[] | null) => this._makeApiStreamRequest(si, c, t),
+        (si: string | null, c: Content[], t?: Tool[] | null) => this._makeApiStreamRequest(si, c, t, options),
         this.retryConfig,
         this.retryCallback ?? undefined,
       );
       stream = await wrapped(systemInstruction, contents, tools);
     } else {
-      stream = await this._makeApiStreamRequest(systemInstruction, contents, tools);
+      stream = await this._makeApiStreamRequest(systemInstruction, contents, tools, options);
     }
 
     let fullContent = '';
@@ -483,6 +497,7 @@ export class GoogleClient extends LLMClientBase {
     const seenToolCalls = new Set<string>();
 
     for await (const chunk of stream) {
+      throwIfAborted(options?.signal);
       usage = this._parseUsage(chunk.usageMetadata) ?? usage;
       if (usage) {
         yield { type: 'usage', usage };

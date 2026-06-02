@@ -4,7 +4,7 @@ import type { LLMResponse, LLMStreamEvent, LlmMessage } from '../schema.js';
 import { LLMProvider } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { RetryConfig } from '../retry.js';
-import { LLMClientBase } from './base.js';
+import { LLMClientBase, type LLMRequestOptions } from './base.js';
 import { AnthropicClient } from './anthropic-client.js';
 import { OpenAIClient } from './openai-client.js';
 import { GoogleClient } from './google-client.js';
@@ -102,8 +102,12 @@ export class LLMClient {
     }
   }
 
-  async generate(messages: LlmMessage[], tools?: Tool[] | null): Promise<LLMResponse> {
-    return this._client.generate(messages, tools);
+  async generate(
+    messages: LlmMessage[],
+    tools?: Tool[] | null,
+    options?: LLMRequestOptions,
+  ): Promise<LLMResponse> {
+    return this._client.generate(messages, tools, options);
   }
 
   async countTokens(messages: LlmMessage[], tools?: Tool[] | null): Promise<number | null> {
@@ -113,7 +117,8 @@ export class LLMClient {
   async *generateStream(
     messages: LlmMessage[],
     tools?: Tool[] | null,
+    options?: LLMRequestOptions,
   ): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
-    return yield* this._client.generateStream(messages, tools);
+    return yield* this._client.generateStream(messages, tools, options);
   }
 }

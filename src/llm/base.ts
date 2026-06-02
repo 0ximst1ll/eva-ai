@@ -2,6 +2,9 @@ import type { LLMResponse, LLMStreamEvent, LlmMessage } from "../schema.js";
 import type {Tool} from "../tools/base.js";
 import { RetryConfig } from "../retry.js";
 
+export interface LLMRequestOptions {
+    signal?: AbortSignal;
+}
 
 export abstract class LLMClientBase {
     readonly apiKey: string;
@@ -23,7 +26,11 @@ export abstract class LLMClientBase {
         this.retryConfig = retryConfig || new RetryConfig() ;
     }
 
-    abstract generate(messages: LlmMessage[], tool?: Tool[] | null): Promise<LLMResponse>;
+    abstract generate(
+        messages: LlmMessage[],
+        tool?: Tool[] | null,
+        options?: LLMRequestOptions,
+    ): Promise<LLMResponse>;
 
     async countTokens(_messages: LlmMessage[], _tool?: Tool[] | null): Promise<number | null> {
         return null;
@@ -32,8 +39,9 @@ export abstract class LLMClientBase {
     async *generateStream(
         messages: LlmMessage[],
         tool?: Tool[] | null,
+        options?: LLMRequestOptions,
     ): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
-        const response = await this.generate(messages, tool);
+        const response = await this.generate(messages, tool, options);
 
         if (response.thinking) {
             yield { type: 'thinking_delta', text: response.thinking };

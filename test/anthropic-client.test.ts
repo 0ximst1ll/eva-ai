@@ -44,6 +44,31 @@ test('AnthropicClient applies provider request options to message params', async
   assert.equal(requestBody?.['temperature'], 0.3);
 });
 
+test('AnthropicClient forwards abort signal to SDK request options', async () => {
+  const client = new InspectableAnthropicClient('test-key', 'https://example.test', 'claude-test');
+  const controller = new AbortController();
+  let requestOptions: Record<string, unknown> | undefined;
+  const inspectable = client as unknown as {
+    client: {
+      messages: {
+        create: (body: Record<string, unknown>, options?: Record<string, unknown>) => Promise<unknown>;
+      };
+    };
+  };
+  inspectable.client.messages.create = async (_body, options) => {
+    requestOptions = options;
+    return {
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { input_tokens: 1, output_tokens: 2 },
+      stop_reason: 'end_turn',
+    };
+  };
+
+  await client.generate([{ role: 'user', content: 'hello' }], null, { signal: controller.signal });
+
+  assert.equal(requestOptions?.['signal'], controller.signal);
+});
+
 test('AnthropicClient applies provider transport options to SDK client options', () => {
   const client = new InspectableAnthropicClient(
     'test-key',

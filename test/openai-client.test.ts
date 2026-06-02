@@ -45,6 +45,32 @@ test('OpenAIClient applies provider request options to chat completion params', 
   assert.equal(requestBody?.['max_tokens'], 1024);
 });
 
+test('OpenAIClient forwards abort signal to SDK request options', async () => {
+  const client = new InspectableOpenAIClient('test-key', 'https://example.test', 'openai-test');
+  const controller = new AbortController();
+  let requestOptions: Record<string, unknown> | undefined;
+  const inspectable = client as unknown as {
+    client: {
+      chat: {
+        completions: {
+          create: (body: Record<string, unknown>, options?: Record<string, unknown>) => Promise<unknown>;
+        };
+      };
+    };
+  };
+  inspectable.client.chat.completions.create = async (_body, options) => {
+    requestOptions = options;
+    return {
+      choices: [{ message: { content: 'ok' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+    };
+  };
+
+  await client.generate([{ role: 'user', content: 'hello' }], null, { signal: controller.signal });
+
+  assert.equal(requestOptions?.['signal'], controller.signal);
+});
+
 test('OpenAIClient applies provider transport options to SDK client options', () => {
   const client = new InspectableOpenAIClient(
     'test-key',

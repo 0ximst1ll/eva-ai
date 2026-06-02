@@ -3,6 +3,7 @@ import test from 'node:test';
 import { createInternalAgentMessage, defaultConvertToLlm } from '../src/core/agent-messages.js';
 import { createContextBuilder } from '../src/core/context-builder.js';
 import { runAgentLoop, type AgentLoopEvent } from '../src/core/agent-loop.js';
+import type { LLMRequestOptions } from '../src/llm/base.js';
 import type { LLMClient } from '../src/llm/llm-client.js';
 import type { AgentMessage, LLMResponse, LLMStreamEvent, LlmMessage } from '../src/schema.js';
 import type { Tool } from '../src/tools/base.js';
@@ -19,16 +20,38 @@ function toolCall(id: string, name: string, args: Record<string, unknown> = {}) 
 
 class ScriptedLLM {
   calls: LlmMessage[][] = [];
+  requestOptions: Array<LLMRequestOptions | undefined> = [];
 
   constructor(private readonly responses: ScriptedLLMStep[]) {}
 
-  async *generateStream(messages: LlmMessage[]): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
+  async *generateStream(
+    messages: LlmMessage[],
+    _tools?: Tool[] | null,
+    options?: LLMRequestOptions,
+  ): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
     this.calls.push(messages.map((message) => ({ ...message })) as LlmMessage[]);
+    this.requestOptions.push(options);
     const response = this.responses.shift();
     if (!response) throw new Error('No scripted response');
     if (response instanceof Error) throw response;
     yield { type: 'done', response };
     return response;
+  }
+}
+
+class AbortingLLM {
+  requestOptions: Array<LLMRequestOptions | undefined> = [];
+
+  constructor(private readonly abort: () => void) {}
+
+  async *generateStream(
+    _messages: LlmMessage[],
+    _tools?: Tool[] | null,
+    options?: LLMRequestOptions,
+  ): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
+    this.requestOptions.push(options);
+    this.abort();
+    throw new DOMException('aborted by test', 'AbortError');
   }
 }
 
@@ -109,6 +132,43 @@ test('runAgentLoop continues after tool calls and preserves tool result order', 
     events.find((event) => event.type === 'tool_result')?.result.displayContent,
     'echo rendered from details',
   );
+});
+
+test('runAgentLoop passes abort signal to provider requests', async () => {
+  const controller = new AbortController();
+  const llm = new ScriptedLLM([{ content: 'done', finish_reason: 'stop' }]);
+
+  const result = await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [],
+    maxSteps: 1,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+    signal: controller.signal,
+  });
+
+  assert.equal(result.finalContent, 'done');
+  assert.equal(llm.requestOptions[0]?.signal, controller.signal);
+});
+
+test('runAgentLoop normalizes provider abort errors as user cancellation', async () => {
+  const controller = new AbortController();
+  const llm = new AbortingLLM(() => controller.abort());
+  const events: AgentLoopEvent[] = [];
+
+  const result = await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [],
+    maxSteps: 1,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+    signal: controller.signal,
+    emit: (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.equal(llm.requestOptions[0]?.signal, controller.signal);
+  assert.equal(result.finalContent, 'Task cancelled by user.');
+  assert.equal(events.find((event) => event.type === 'error')?.message, 'Task cancelled by user.');
 });
 
 test('runAgentLoop emits partial tool execution updates', async () => {
