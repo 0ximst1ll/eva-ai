@@ -32,6 +32,7 @@
 - Provider Retry-After 最小闭环已实现：provider error formatter 会从常见 header/json/text 结构解析 `retryAfterMs`，AgentSession auto-retry 会优先使用该 delay，并继续受 `maxDelayMs` 上限保护。
 - TUI 工具输出展开/折叠已对齐 `pi-mono` 的全局模式：`Ctrl-T` 切换所有工具结果，新增工具结果继承当前全局展开状态。
 - Bash streaming partial update 最小闭环已实现：foreground bash 会通过 `tool_execution_update` 透传有界 tail preview，TUI 对同一个 tool call 原地刷新 running/completed 状态，截断时复用同一个系统临时 full output log 路径。
+- RPC 已将 `tool_execution_update` 作为稳定 JSONL event 边界透出，保留 partial result 的 `content`、`displayContent`、`details` 和 tool args，客户端可按 `toolCallId` 消费 partial update。
 - Bash visual-line tail preview 最小闭环已实现：TUI/CLI 会把终端宽度传给工具 renderer，bash collapsed/partial preview 可按 terminal-width visual lines 取尾部输出。
 - 超大工具输出 session sidecar artifact 路径已拆除：tool result 不再保存 artifact reference、不再写 `tool_result_artifact` internal entry，session storage 不再暴露 tool result artifact API。
 - 工具层大输出截断已开始按工具类型收敛：`read_file` 保留 head 并提示 offset continuation，`bash` 保留 tail 并只在截断/中断时写系统临时 log，`grep_files` / `find_files` / `list_files` 保留 head 并提示缩小范围。
@@ -48,7 +49,7 @@
 
 ## 下一步
 
-- 第一优先级：回到 Tool output UX 后续项，评估 RPC 客户端侧如何消费 `tool_execution_update`，并继续补行/字节统计和 compaction-time tool result micro-compaction。
+- 第一优先级：继续 Tool output UX 后续项，补工具结果行数/字节数统计，并为 compaction-time tool result micro-compaction 做准备。
 - 第二优先级：根据真实使用反馈决定是否需要暴露 reasoning 配置；默认仍使用模型 metadata 的 conservative default。
 - 第三优先级：后续进入 MCP lifecycle 最小闭环，接入同一 registry、metadata 和 hook 边界，不直接引入完整 extension system。
 - 保持 permission diagnostics 简单，继续沿用 pending/denied 关键事实；`/diagnostics` 不承载 tool result details 展示。
@@ -57,7 +58,7 @@
 
 - Provider 层仍偏薄：模型能力、认证解析和请求选项已有最小结构化边界，OpenAI/Anthropic/Gemini 已消费主要 ProviderRequestOptions；abort propagation 和 Retry-After 已有最小闭环，但 provider-specific error metadata 仍未形成完整 lifecycle 边界。
 - Provider auth 当前已有 API key resolver，支持 runtime/config/env 优先级；尚未支持 OAuth 或 provider-specific auth storage。
-- 工具层大输出已具备 head/tail 基础策略、tool-specific collapsed line preview、TUI 全局工具结果 expand/collapse、bash streaming partial update 和 bash visual-line tail preview，但仍缺更完整的行/字节统计和 compaction-time tool result micro-compaction。
+- 工具层大输出已具备 head/tail 基础策略、tool-specific collapsed line preview、TUI 全局工具结果 expand/collapse、bash streaming partial update、RPC partial update event 和 bash visual-line tail preview，但仍缺更完整的行/字节统计和 compaction-time tool result micro-compaction。
 - Tool Result 已有 `content + typed details` 和工具级 `renderResult` 最小边界；尚未形成 compaction-time micro-compaction。
 - abort lifecycle 已覆盖当前内置工具的主要路径，但仍缺更细的 abort reason 和队列状态；工具执行诊断暂保持 lifecycle event + pending state 的简单边界。
 - operation injection 和 tool execution hook 目前是内部最小边界，尚未提供统一 remote workspace adapter、sandbox adapter 或完整 extension wrapper。

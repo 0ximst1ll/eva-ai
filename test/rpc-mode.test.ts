@@ -238,6 +238,61 @@ test('RPC prompt emits session events and final response', async () => {
   assert.equal(stats.runCalls, 1);
 });
 
+test('RPC prompt forwards tool execution update events', async () => {
+  const { host } = createHost({
+    async run({ onEvent }) {
+      onEvent?.({ type: 'agent_start' });
+      onEvent?.({
+        type: 'tool_execution_update',
+        result: {
+          toolCallId: 'call-bash',
+          toolName: 'bash',
+          args: { command: 'npm test' },
+          success: true,
+          content: 'partial output',
+          displayContent: '$ npm test\npartial output',
+          details: {
+            kind: 'bash',
+            exitCode: null,
+            lineCount: 1,
+            truncated: false,
+          },
+        },
+      });
+      onEvent?.({ type: 'agent_end', messages: [], finalContent: 'done' });
+      return 'done';
+    },
+  });
+  const output = new JsonlOutput();
+
+  await handleRpcRequest({
+    host,
+    state: createState(),
+    request: { id: 'prompt-update', method: 'prompt', params: { prompt: 'run tests' } },
+    output: output as unknown as NodeJS.WritableStream,
+  });
+
+  const updateEnvelope = output.envelopes().find((envelope) => {
+    const event = envelope['event'] as Record<string, unknown> | undefined;
+    return event?.['type'] === 'tool_execution_update';
+  })!;
+  assert.equal(updateEnvelope['id'], 'prompt-update');
+  assert.equal(updateEnvelope['type'], 'event');
+  const event = updateEnvelope['event'] as Record<string, unknown>;
+  const result = event['result'] as Record<string, unknown>;
+  assert.equal(result['toolCallId'], 'call-bash');
+  assert.equal(result['toolName'], 'bash');
+  assert.deepEqual(result['args'], { command: 'npm test' });
+  assert.equal(result['content'], 'partial output');
+  assert.equal(result['displayContent'], '$ npm test\npartial output');
+  assert.deepEqual(result['details'], {
+    kind: 'bash',
+    exitCode: null,
+    lineCount: 1,
+    truncated: false,
+  });
+});
+
 test('RPC session commands use RuntimeHost session operations', async () => {
   const { host, stats } = createHost();
   const output = new JsonlOutput();

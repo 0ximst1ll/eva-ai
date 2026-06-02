@@ -22,14 +22,14 @@ export type RpcMethod =
 
 type RpcPermissionMode = 'fail_closed' | 'request';
 
-interface RpcPermissionPendingEvent {
+export interface RpcPermissionPendingEvent {
   type: 'permission_pending';
   permission: RpcPermissionPending;
 }
 
-type RpcEvent = AgentSessionEvent | RpcPermissionPendingEvent;
+export type RpcEvent = AgentSessionEvent | RpcPermissionPendingEvent;
 
-interface RpcPermissionPending {
+export interface RpcPermissionPending {
   permission_id: string;
   tool_call_id: string;
   tool_name: string;
