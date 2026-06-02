@@ -7,6 +7,7 @@ import type {
   Part,
   FunctionDeclaration,
   GenerateContentResponseUsageMetadata,
+  HttpOptions,
 } from '@google/genai';
 import type {
   LLMResponse,
@@ -61,15 +62,31 @@ export class GoogleClient extends LLMClientBase {
       baseUrl: apiBase,
     });
     this.requestOptions = requestOptions;
+    const httpOptions = this._buildHttpOptions();
     this.client = new GoogleGenAI({
       apiKey,
-      ...(apiBase ? { httpOptions: { baseUrl: apiBase } } : {}),
+      ...(httpOptions ? { httpOptions } : {}),
     });
   }
 
   /**
    * 核心 API 请求 — 提取出来以便 withRetry 可以包装它
    */
+  protected _buildHttpOptions(): HttpOptions | undefined {
+    const httpOptions: HttpOptions = {};
+
+    if (this.apiBase) httpOptions.baseUrl = this.apiBase;
+    if (this.requestOptions.headers) httpOptions.headers = this.requestOptions.headers;
+    if (this.requestOptions.timeoutMs !== undefined) {
+      httpOptions.timeout = this.requestOptions.timeoutMs;
+    }
+    if (this.requestOptions.maxRetries !== undefined) {
+      httpOptions.retryOptions = { attempts: this.requestOptions.maxRetries + 1 };
+    }
+
+    return Object.keys(httpOptions).length ? httpOptions : undefined;
+  }
+
   protected _buildConfig(
     systemInstruction: string | null,
     tools?: Tool[] | null,

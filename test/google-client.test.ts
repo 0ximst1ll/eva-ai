@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { GenerateContentResponse } from '@google/genai';
+import type { GenerateContentResponse, HttpOptions } from '@google/genai';
 import { GoogleClient } from '../src/llm/google-client.js';
 import { createProviderModel, type ProviderRequestOptions } from '../src/llm/provider.js';
 import type { Message } from '../src/schema.js';
@@ -13,6 +13,10 @@ class InspectableGoogleClient extends GoogleClient {
 
   buildConfig(systemInstruction: string | null = null) {
     return this._buildConfig(systemInstruction);
+  }
+
+  buildHttpOptions(): HttpOptions | undefined {
+    return this._buildHttpOptions();
   }
 
   parse(response: GenerateContentResponse) {
@@ -135,6 +139,42 @@ test('GoogleClient omits thinkingConfig for non-reasoning Google models', () => 
   const client = createInspectableGoogleClient('gemini-2.0-flash', { reasoning: 'high' });
 
   assert.equal(client.buildConfig()['thinkingConfig'], undefined);
+});
+
+test('GoogleClient applies provider request options to generateContent config', () => {
+  const client = createInspectableGoogleClient('gemini-3.5-flash', {
+    reasoning: 'off',
+    temperature: 0.2,
+    maxTokens: 1024,
+  });
+
+  const config = client.buildConfig('system prompt');
+
+  assert.equal(config['systemInstruction'], 'system prompt');
+  assert.equal(config['temperature'], 0.2);
+  assert.equal(config['maxOutputTokens'], 1024);
+});
+
+test('GoogleClient applies provider transport options to httpOptions', () => {
+  const client = new InspectableGoogleClient(
+    'test-key',
+    'https://example.test',
+    'gemini-3.5-flash',
+    undefined,
+    undefined,
+    {
+      headers: { 'x-eva-session': 'session-1' },
+      timeoutMs: 30000,
+      maxRetries: 3,
+    },
+  );
+
+  assert.deepEqual(client.buildHttpOptions(), {
+    baseUrl: 'https://example.test',
+    headers: { 'x-eva-session': 'session-1' },
+    timeout: 30000,
+    retryOptions: { attempts: 4 },
+  });
 });
 
 test('GoogleClient countTokens uses Google countTokens API shape', async () => {

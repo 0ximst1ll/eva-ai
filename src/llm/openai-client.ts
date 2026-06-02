@@ -1,9 +1,10 @@
-import OpenAI from 'openai';
+import OpenAI, { type ClientOptions } from 'openai';
 import type { LLMResponse, LLMStreamEvent, Message, TokenUsage, ToolCall } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { toOpenAISchema } from '../tools/base.js';
 import { RetryConfig, withRetry } from '../retry.js';
 import { LLMClientBase } from './base.js';
+import type { ProviderRequestOptions } from './provider.js';
 
 
 type ChatCompletion = OpenAI.Chat.ChatCompletion;
@@ -12,15 +13,22 @@ type ChatCompletionChunk = OpenAI.Chat.ChatCompletionChunk;
 export class OpenAIClient extends LLMClientBase {
 
     private readonly client: OpenAI;
+    private readonly requestOptions: ProviderRequestOptions;
 
     constructor(
         apiKey: string,
         apiBase: string = '',
         model: string = '',
         retryConfig?: RetryConfig,
+        requestOptions: ProviderRequestOptions = {},
     ){
         super(apiKey, apiBase, model, retryConfig);
-        this.client = new OpenAI({ apiKey, baseURL: apiBase });
+        this.requestOptions = requestOptions;
+        const clientOptions: ClientOptions = { apiKey, baseURL: apiBase };
+        if (requestOptions.timeoutMs !== undefined) clientOptions.timeout = requestOptions.timeoutMs;
+        if (requestOptions.maxRetries !== undefined) clientOptions.maxRetries = requestOptions.maxRetries;
+        if (requestOptions.headers) clientOptions.defaultHeaders = requestOptions.headers;
+        this.client = new OpenAI(clientOptions);
     }
 
 
@@ -35,6 +43,12 @@ export class OpenAIClient extends LLMClientBase {
             extra_body: {reasoning_split: true},
         };
 
+        if (this.requestOptions.temperature !== undefined) {
+            params['temperature'] = this.requestOptions.temperature;
+        }
+        if (this.requestOptions.maxTokens !== undefined) {
+            params['max_tokens'] = this.requestOptions.maxTokens;
+        }
         if (tools?.length) params['tools'] = tools?.map(toOpenAISchema);
 
         return this.client.chat.completions.create(
@@ -54,6 +68,12 @@ export class OpenAIClient extends LLMClientBase {
             stream_options: { include_usage: true },
         };
 
+        if (this.requestOptions.temperature !== undefined) {
+            params['temperature'] = this.requestOptions.temperature;
+        }
+        if (this.requestOptions.maxTokens !== undefined) {
+            params['max_tokens'] = this.requestOptions.maxTokens;
+        }
         if (tools?.length) params['tools'] = tools.map(toOpenAISchema);
 
         return this.client.chat.completions.create(

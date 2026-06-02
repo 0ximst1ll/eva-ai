@@ -1,29 +1,36 @@
 // Anthropic LLM client — mirrors eva_ai/llm/anthropic_client.py
 
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic, { type ClientOptions } from '@anthropic-ai/sdk';
 import type { LLMResponse, LLMStreamEvent, Message, TokenUsage, ToolCall } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { toAnthropicSchema } from '../tools/base.js';
 import { RetryConfig, withRetry } from '../retry.js';
 import { LLMClientBase } from './base.js';
+import type { ProviderRequestOptions } from './provider.js';
 
 type AnthropicMessage = Anthropic.Message;
 
 export class AnthropicClient extends LLMClientBase {
   private readonly client: Anthropic;
+  private readonly requestOptions: ProviderRequestOptions;
 
   constructor(
     apiKey: string,
     apiBase: string = '',
     model: string = '',
     retryConfig?: RetryConfig,
+    requestOptions: ProviderRequestOptions = {},
   ) {
     super(apiKey, apiBase, model, retryConfig);
-    this.client = new Anthropic({
+    this.requestOptions = requestOptions;
+    const clientOptions: ClientOptions = {
       baseURL: apiBase,
       apiKey,
-      defaultHeaders: { Authorization: `Bearer ${apiKey}` },
-    });
+      defaultHeaders: { Authorization: `Bearer ${apiKey}`, ...requestOptions.headers },
+    };
+    if (requestOptions.timeoutMs !== undefined) clientOptions.timeout = requestOptions.timeoutMs;
+    if (requestOptions.maxRetries !== undefined) clientOptions.maxRetries = requestOptions.maxRetries;
+    this.client = new Anthropic(clientOptions);
   }
 
   // Core API request — extracted so withRetry can wrap it
@@ -34,11 +41,14 @@ export class AnthropicClient extends LLMClientBase {
   ): Promise<AnthropicMessage> {
     const params: Record<string, unknown> = {
       model: this.model,
-      max_tokens: 16384,
+      max_tokens: this.requestOptions.maxTokens ?? 16384,
       messages: apiMessages,
     };
 
     if (systemMessage) params['system'] = systemMessage;
+    if (this.requestOptions.temperature !== undefined) {
+      params['temperature'] = this.requestOptions.temperature;
+    }
     if (tools?.length) params['tools'] = tools.map(toAnthropicSchema);
 
     return this.client.messages.create(
@@ -53,12 +63,15 @@ export class AnthropicClient extends LLMClientBase {
   ): Promise<AsyncGenerator<Record<string, unknown>>> {
     const params: Record<string, unknown> = {
       model: this.model,
-      max_tokens: 16384,
+      max_tokens: this.requestOptions.maxTokens ?? 16384,
       messages: apiMessages,
       stream: true,
     };
 
     if (systemMessage) params['system'] = systemMessage;
+    if (this.requestOptions.temperature !== undefined) {
+      params['temperature'] = this.requestOptions.temperature;
+    }
     if (tools?.length) params['tools'] = tools.map(toAnthropicSchema);
 
     return this.client.messages.create(

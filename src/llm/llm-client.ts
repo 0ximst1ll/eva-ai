@@ -73,9 +73,21 @@ export class LLMClient {
     this.apiBase = fullApiBase;
 
     if (this.provider === LLMProvider.ANTHROPIC) {
-      this._client = new AnthropicClient(effectiveApiKey, fullApiBase, effectiveModel, retryConfig);
+      this._client = new AnthropicClient(
+        effectiveApiKey,
+        fullApiBase,
+        effectiveModel,
+        retryConfig,
+        providerRequestOptions,
+      );
     } else if (this.provider === LLMProvider.OPENAI) {
-      this._client = new OpenAIClient(effectiveApiKey, fullApiBase, effectiveModel, retryConfig);
+      this._client = new OpenAIClient(
+        effectiveApiKey,
+        fullApiBase,
+        effectiveModel,
+        retryConfig,
+        providerRequestOptions,
+      );
     } else if (this.provider === LLMProvider.GOOGLE) {
       this._client = new GoogleClient(
         effectiveApiKey,
