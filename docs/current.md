@@ -37,6 +37,7 @@
 - 超大工具输出 session sidecar artifact 路径已拆除：tool result 不再保存 artifact reference、不再写 `tool_result_artifact` internal entry，session storage 不再暴露 tool result artifact API。
 - 工具层大输出截断已开始按工具类型收敛：`read_file` 保留 head 并提示 offset continuation，`bash` 保留 tail 并只在截断/中断时写系统临时 log，`grep_files` / `find_files` / `list_files` 保留 head 并提示缩小范围。
 - 工具输出截断元数据已对齐 `pi-mono` 的 lines/bytes 双限制模型：`truncation` details 同时保留 Eva 旧 renderer 兼容字段和 `truncatedBy`、`totalLines`、`outputLines`、`totalBytes`、`outputBytes`、`maxLines`、`maxBytes` 等结构化字段。
+- Compaction preparation 已按 `pi-mono` 思路补最小闭环：manual/auto/prompt-too-long compaction 共享同一路径，summary prompt 只消费轻量规范化后的旧 tool result，并附加 read/modified files 这类长期有用事实。
 - 工具执行 abort lifecycle 已收敛：agent-loop 在工具批次边界停止后续执行，foreground bash 会响应 abort，已 abort 的同步文件工具不会继续读写。
 - Tool operation injection 最小边界已实现：文件工具可注入 `FileToolOperations`，foreground bash 可注入 `BashOperations.exec`，background bash 可注入 `BashOperations.spawn`，默认实现仍使用本地 fs/shell。
 - 工具执行状态保持 pi-mono 风格的 lifecycle event 归约：`Agent` 基于 `tool_execution_start/end` 维护 `pendingToolCalls`，暂不引入独立 tool execution diagnostics 聚合层。
@@ -45,11 +46,11 @@
 ## 进行中
 
 - M5 Tool output UX 继续收口。
-- 当前已完成工具输出截断元数据对齐；后续进入 compaction-time tool result micro-compaction 前置设计。
+- 当前已完成 compaction preparation 的轻量 tool result normalization 和 file operations tracking；不引入通用 artifact store 或重型 micro-compaction subsystem。
 
 ## 下一步
 
-- 第一优先级：继续 Tool output UX 后续项，为 compaction-time tool result micro-compaction 做准备。
+- 第一优先级：继续 M5 Tool output UX 收口，评估是否需要把 tool result details 持久化进 session schema，或先进入 MCP lifecycle 最小闭环。
 - 第二优先级：根据真实使用反馈决定是否需要暴露 reasoning 配置；默认仍使用模型 metadata 的 conservative default。
 - 第三优先级：后续进入 MCP lifecycle 最小闭环，接入同一 registry、metadata 和 hook 边界，不直接引入完整 extension system。
 - 保持 permission diagnostics 简单，继续沿用 pending/denied 关键事实；`/diagnostics` 不承载 tool result details 展示。
@@ -58,8 +59,8 @@
 
 - Provider 层仍偏薄：模型能力、认证解析和请求选项已有最小结构化边界，OpenAI/Anthropic/Gemini 已消费主要 ProviderRequestOptions；abort propagation 和 Retry-After 已有最小闭环，但 provider-specific error metadata 仍未形成完整 lifecycle 边界。
 - Provider auth 当前已有 API key resolver，支持 runtime/config/env 优先级；尚未支持 OAuth 或 provider-specific auth storage。
-- 工具层大输出已具备 head/tail 基础策略、lines/bytes truncation details、tool-specific collapsed line preview、TUI 全局工具结果 expand/collapse、bash streaming partial update、RPC partial update event 和 bash visual-line tail preview，但仍缺 compaction-time tool result micro-compaction。
-- Tool Result 已有 `content + typed details` 和工具级 `renderResult` 最小边界；尚未形成 compaction-time micro-compaction。
+- 工具层大输出已具备 head/tail 基础策略、lines/bytes truncation details、compaction-time lightweight tool result normalization、tool-specific collapsed line preview、TUI 全局工具结果 expand/collapse、bash streaming partial update、RPC partial update event 和 bash visual-line tail preview；如果后续要更完整消费 details，需要扩展 durable tool message schema。
+- Tool Result 已有 `content + typed details` 和工具级 `renderResult` 最小边界；当前 details 主要用于运行时展示，尚未持久化进 session message。
 - abort lifecycle 已覆盖当前内置工具的主要路径，但仍缺更细的 abort reason 和队列状态；工具执行诊断暂保持 lifecycle event + pending state 的简单边界。
 - operation injection 和 tool execution hook 目前是内部最小边界，尚未提供统一 remote workspace adapter、sandbox adapter 或完整 extension wrapper。
 - `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。

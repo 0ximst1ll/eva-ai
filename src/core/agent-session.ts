@@ -6,6 +6,7 @@ import { Agent } from './agent.js';
 import {
   buildCompactionMessages,
   extractCompactionSummary,
+  prepareCompactionInput,
   type CompactionResult,
 } from './compaction.js';
 import { createInternalAgentMessage } from './agent-messages.js';
@@ -53,6 +54,7 @@ const DEFAULT_AUTO_RETRY_OPTIONS = {
   maxDelayMs: 60000,
   exponentialBase: 2,
 } satisfies Required<AgentSessionAutoRetryOptions>;
+const DEFAULT_KEEP_RECENT_MESSAGES_AFTER_COMPACTION = 8;
 
 function isContextOverflowErrorMessage(message: string): boolean {
   return [
@@ -256,9 +258,17 @@ export class AgentSession {
     if (messages.length <= 2) {
       throw new Error('Nothing to compact (session too small)');
     }
+    const prepared = prepareCompactionInput({
+      messages,
+      keepRecentMessages: DEFAULT_KEEP_RECENT_MESSAGES_AFTER_COMPACTION,
+    });
 
     const response = await this.llmClient.generate(
-      buildCompactionMessages({ messages, customInstructions }),
+      buildCompactionMessages({
+        messages: prepared.messages,
+        customInstructions,
+        fileOperations: prepared.fileOperations,
+      }),
       null,
     );
     const summary = extractCompactionSummary(response);
@@ -266,6 +276,7 @@ export class AgentSession {
       sessionId: this.sessionId,
       summary,
       customInstructions,
+      keepRecentMessages: DEFAULT_KEEP_RECENT_MESSAGES_AFTER_COMPACTION,
     });
 
     this.agent.setMessages([
