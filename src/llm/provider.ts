@@ -109,8 +109,9 @@ export function createProviderModel({
 
 export function createProviderRequestOptions(config: ConfigData): ProviderRequestOptions {
   return {
-    maxRetries: config.llm.retry.maxRetries,
-    maxRetryDelayMs: config.llm.retry.maxDelay * 1000,
+    timeoutMs: config.llm.retry.provider.timeoutMs,
+    maxRetries: config.llm.retry.provider.maxRetries,
+    maxRetryDelayMs: config.llm.retry.provider.maxRetryDelayMs,
   };
 }
 
@@ -168,10 +169,10 @@ function resolveReasoning(
   if (provider !== LLMProvider.GOOGLE) return { supported: false };
   const normalized = model.toLowerCase();
   if (/gemini-3(?:\.\d+)?-(?:flash|pro)/.test(normalized)) {
-    return { supported: true, defaultLevel: 'high' };
+    return { supported: true };
   }
   if (/gemini-2\.5-(?:flash|pro)/.test(normalized)) {
-    return { supported: true, defaultLevel: 'high' };
+    return { supported: true };
   }
   return { supported: false };
 }

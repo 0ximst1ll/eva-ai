@@ -12,6 +12,13 @@ export interface RetryConfigData {
   initialDelay: number;
   maxDelay: number;
   exponentialBase: number;
+  provider: ProviderRetryConfigData;
+}
+
+export interface ProviderRetryConfigData {
+  timeoutMs?: number;
+  maxRetries?: number;
+  maxRetryDelayMs: number;
 }
 
 export interface LLMConfigData {
@@ -85,6 +92,11 @@ interface RawYaml {
     initial_delay?: number;
     max_delay?: number;
     exponential_base?: number;
+    provider?: {
+      timeout_ms?: number;
+      max_retries?: number;
+      max_retry_delay_ms?: number;
+    };
   };
   tools?: {
     enable_file_tools?: boolean;
@@ -163,6 +175,11 @@ export class Config {
           initialDelay: retry.initial_delay ?? 1.0,
           maxDelay: retry.max_delay ?? 60.0,
           exponentialBase: retry.exponential_base ?? 2.0,
+          provider: {
+            timeoutMs: normalizeOptionalPositiveInteger(retry.provider?.timeout_ms) ?? undefined,
+            maxRetries: normalizeOptionalPositiveInteger(retry.provider?.max_retries) ?? undefined,
+            maxRetryDelayMs: normalizePositiveInteger(retry.provider?.max_retry_delay_ms, 60000),
+          },
         },
       },
       agent: {

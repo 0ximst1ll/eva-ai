@@ -125,8 +125,10 @@ export class GoogleClient extends LLMClientBase {
   private _buildThinkingConfig(): Record<string, unknown> | undefined {
     if (!this.providerModel.reasoning.supported) return undefined;
 
-    const requestedReasoning = this.requestOptions.reasoning ?? this.providerModel.reasoning.defaultLevel;
-    if (!requestedReasoning) return undefined;
+    const requestedReasoning = this.requestOptions.reasoning;
+    if (!requestedReasoning) {
+      return this._buildDisabledThinkingConfig();
+    }
 
     if (requestedReasoning === 'off') {
       return this._buildDisabledThinkingConfig();

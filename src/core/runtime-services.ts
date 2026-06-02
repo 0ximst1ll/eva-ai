@@ -102,11 +102,12 @@ function resolveProvider(providerName: string): LLMProvider {
 }
 
 function createRetryConfig(config: ConfigData): RetryConfig {
+  const providerRetry = config.llm.retry.provider;
   return new RetryConfig({
-    enabled: config.llm.retry.enabled,
-    maxRetries: config.llm.retry.maxRetries,
+    enabled: providerRetry.maxRetries !== undefined && providerRetry.maxRetries > 0,
+    maxRetries: providerRetry.maxRetries ?? 0,
     initialDelay: config.llm.retry.initialDelay,
-    maxDelay: config.llm.retry.maxDelay,
+    maxDelay: providerRetry.maxRetryDelayMs / 1000,
     exponentialBase: config.llm.retry.exponentialBase,
   });
 }
@@ -244,8 +245,17 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
       source: 'provider',
       level: 'info',
       code: 'retry_enabled',
-      message: `LLM retry mechanism enabled (max ${config.llm.retry.maxRetries} retries)`,
+      message: `Agent retry enabled (max ${config.llm.retry.maxRetries} retries)`,
       details: { maxRetries: config.llm.retry.maxRetries },
+    }));
+  }
+  if (retryConfig.enabled) {
+    diagnostics.push(createDiagnostic({
+      source: 'provider',
+      level: 'info',
+      code: 'provider_retry_enabled',
+      message: `Provider retry enabled (max ${retryConfig.maxRetries} retries)`,
+      details: { maxRetries: retryConfig.maxRetries },
     }));
   }
 

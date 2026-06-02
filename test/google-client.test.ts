@@ -126,6 +126,18 @@ test('GoogleClient disables Gemini 3 Flash visible thoughts without includeThoug
   });
 });
 
+test('GoogleClient defaults Gemini reasoning to hidden minimal thinking', () => {
+  const gemini3 = createInspectableGoogleClient('gemini-3.5-flash');
+  assert.deepEqual(gemini3.buildConfig()['thinkingConfig'], {
+    thinkingLevel: 'MINIMAL',
+  });
+
+  const gemini25 = createInspectableGoogleClient('gemini-2.5-flash');
+  assert.deepEqual(gemini25.buildConfig()['thinkingConfig'], {
+    thinkingBudget: 0,
+  });
+});
+
 test('GoogleClient maps Gemini 2.5 Flash reasoning to thinkingBudget', () => {
   const client = createInspectableGoogleClient('gemini-2.5-flash', { reasoning: 'high' });
 

@@ -27,6 +27,9 @@ function createConfig({
         initialDelay: 1,
         maxDelay: 1,
         exponentialBase: 2,
+        provider: {
+          maxRetryDelayMs: 60000,
+        },
       },
     },
     agent: {

@@ -26,7 +26,9 @@
 - AgentSession 已补任务级 auto-retry：provider/SDK 层 retry 耗尽后，503/429/timeout 等可恢复 LLM 错误会按会话层指数退避继续同一个任务，中间失败事件默认不结束用户任务。
 - ProviderModel / ProviderRequestOptions / ProviderAuthResolver 最小骨架已实现：RuntimeServices 会创建结构化 provider runtime context，LLMClient 保持旧构造兼容并可接收结构化 model/auth/request options。
 - Google provider thinkingConfig 已对齐 `pi-mono` 的分层策略：ProviderModel 判断 reasoning 能力，GoogleClient 按 Gemini family 映射 `thinkingLevel` / `thinkingBudget`，不再无条件 `includeThoughts`。
+- Google provider 默认 reasoning 已进一步对齐 `pi-mono`：未显式配置 reasoning 时不再默认 high thinking；Gemini 3.x 使用最低隐藏 thinking level，Gemini 2.5 使用 `thinkingBudget: 0`。
 - ProviderRequestOptions 已接入具体 provider adapter：OpenAI/Anthropic/Gemini 会消费 request-time `temperature`、`maxTokens`，并把 `headers`、`timeoutMs`、`maxRetries` 传入对应 SDK transport/client 边界。
+- Retry 分层已对齐 `pi-mono` 的方向：顶层 `retry` 表示 AgentSession 任务级 retry；可选 `retry.provider` 才控制 provider/SDK-level timeout 和 retry，默认避免 provider retry 与 agent retry 叠加。
 - Provider request lifecycle 测试已补最小覆盖：auth resolver 优先级、OpenAI/Anthropic/Gemini transport options、timeout error 分类、session-level retry cap 和成功 auto-retry 路径已被测试固定。
 - Provider abort propagation 最小闭环已实现：agent-loop 会把 run `AbortSignal` 传入 LLM request options，OpenAI/Anthropic adapter 会转交 SDK request options，Google adapter 会在请求前和 stream 消费中 fail-fast；AbortError 不再进入通用 retry，agent-loop 会归一为用户取消结果。
 - Provider Retry-After 最小闭环已实现：provider error formatter 会从常见 header/json/text 结构解析 `retryAfterMs`，AgentSession auto-retry 会优先使用该 delay，并继续受 `maxDelayMs` 上限保护。
@@ -45,19 +47,20 @@
 
 ## 进行中
 
-- M5 Tool output UX 继续收口。
-- 当前已完成 compaction preparation 的轻量 tool result normalization 和 file operations tracking；不引入通用 artifact store 或重型 micro-compaction subsystem。
+- Provider Reliability 根据真实使用反馈完成一轮修复。
+- 当前已将 Google 默认 thinking 和 retry 分层向 `pi-mono` 收敛；后续需要用真实 Gemini 运行观察 high-demand 错误是否明显减少。
 
 ## 下一步
 
-- 第一优先级：继续 M5 Tool output UX 收口，评估是否需要把 tool result details 持久化进 session schema，或先进入 MCP lifecycle 最小闭环。
-- 第二优先级：根据真实使用反馈决定是否需要暴露 reasoning 配置；默认仍使用模型 metadata 的 conservative default。
-- 第三优先级：后续进入 MCP lifecycle 最小闭环，接入同一 registry、metadata 和 hook 边界，不直接引入完整 extension system。
+- 第一优先级：用真实 Gemini 运行验证默认 hidden/minimal thinking 是否改善 overload/high-demand 体验；如仍失败，再补 Google stream consumption 阶段的 retry/retry-after 处理。
+- 第二优先级：继续 M5 Tool output UX 收口，评估是否需要把 tool result details 持久化进 session schema，或先进入 MCP lifecycle 最小闭环。
+- 第三优先级：根据真实使用反馈决定是否需要暴露 reasoning 配置；默认保持 `pi-mono` 风格的 reasoning-off/hidden-minimal 行为。
+- 第四优先级：后续进入 MCP lifecycle 最小闭环，接入同一 registry、metadata 和 hook 边界，不直接引入完整 extension system。
 - 保持 permission diagnostics 简单，继续沿用 pending/denied 关键事实；`/diagnostics` 不承载 tool result details 展示。
 
 ## 已知问题
 
-- Provider 层仍偏薄：模型能力、认证解析和请求选项已有最小结构化边界，OpenAI/Anthropic/Gemini 已消费主要 ProviderRequestOptions；abort propagation 和 Retry-After 已有最小闭环，但 provider-specific error metadata 仍未形成完整 lifecycle 边界。
+- Provider 层仍偏薄：模型能力、认证解析和请求选项已有最小结构化边界，OpenAI/Anthropic/Gemini 已消费主要 ProviderRequestOptions；Google 默认 thinking 和 retry 分层已向 `pi-mono` 收敛，abort propagation 和 Retry-After 已有最小闭环，但 Google stream consumption 阶段 provider retry 仍未形成完整边界。
 - Provider auth 当前已有 API key resolver，支持 runtime/config/env 优先级；尚未支持 OAuth 或 provider-specific auth storage。
 - 工具层大输出已具备 head/tail 基础策略、lines/bytes truncation details、compaction-time lightweight tool result normalization、tool-specific collapsed line preview、TUI 全局工具结果 expand/collapse、bash streaming partial update、RPC partial update event 和 bash visual-line tail preview；如果后续要更完整消费 details，需要扩展 durable tool message schema。
 - Tool Result 已有 `content + typed details` 和工具级 `renderResult` 最小边界；当前 details 主要用于运行时展示，尚未持久化进 session message。

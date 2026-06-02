@@ -26,7 +26,7 @@ test('ProviderModel captures Google Gemini reasoning metadata', () => {
   assert.equal(model.baseUrl, 'https://generativelanguage.googleapis.com');
   assert.equal(model.contextWindowTokens, 1000000);
   assert.equal(model.reasoning.supported, true);
-  assert.equal(model.reasoning.defaultLevel, 'high');
+  assert.equal(model.reasoning.defaultLevel, undefined);
   assert.equal(model.compatibility.googleThinkingConfig, 'level');
 });
 
@@ -79,6 +79,10 @@ test('RuntimeServices exposes provider runtime context', async () => {
         '  enabled: true',
         '  max_retries: 5',
         '  max_delay: 45',
+        '  provider:',
+        '    max_retries: 2',
+        '    timeout_ms: 30000',
+        '    max_retry_delay_ms: 45000',
         'tools:',
         '  enable_file_tools: false',
         '  enable_bash: false',
@@ -102,7 +106,8 @@ test('RuntimeServices exposes provider runtime context', async () => {
     assert.equal(services.providerAuth.apiKey, 'test-key');
     assert.equal(services.providerAuth.source, 'config');
     assert.deepEqual(services.providerRequestOptions, {
-      maxRetries: 5,
+      timeoutMs: 30000,
+      maxRetries: 2,
       maxRetryDelayMs: 45000,
     });
     assert.equal(services.llmClient.providerModel, services.providerModel);
