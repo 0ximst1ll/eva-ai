@@ -18,6 +18,13 @@ import type {
 import type { Tool } from '../tools/base.js';
 import { RetryConfig, withRetry } from '../retry.js';
 import { LLMClientBase } from './base.js';
+import {
+  createProviderModel,
+  type ProviderModel,
+  type ProviderReasoningLevel,
+  type ProviderRequestOptions,
+} from './provider.js';
+import { LLMProvider } from '../schema.js';
 
 /**
  * 将内部 Tool 转换为 Google Gemini FunctionDeclaration 格式
@@ -30,16 +37,30 @@ function toGoogleSchema(tool: Tool): FunctionDeclaration {
   };
 }
 
+type GoogleThinkingLevel = 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH';
+type GoogleBudgetReasoningLevel = Exclude<ProviderReasoningLevel, 'off' | 'xhigh'>;
+
 export class GoogleClient extends LLMClientBase {
   private readonly client: GoogleGenAI;
+  private readonly providerModel: ProviderModel;
+  private readonly requestOptions: ProviderRequestOptions;
 
   constructor(
     apiKey: string,
     apiBase: string = '',
     model: string = 'gemini-2.0-flash',
     retryConfig?: RetryConfig,
+    providerModel?: ProviderModel,
+    requestOptions: ProviderRequestOptions = {},
   ) {
     super(apiKey, apiBase, model, retryConfig);
+    this.providerModel = providerModel ?? createProviderModel({
+      provider: LLMProvider.GOOGLE,
+      providerName: 'google',
+      model,
+      baseUrl: apiBase,
+    });
+    this.requestOptions = requestOptions;
     this.client = new GoogleGenAI({
       apiKey,
       ...(apiBase ? { httpOptions: { baseUrl: apiBase } } : {}),
@@ -49,16 +70,27 @@ export class GoogleClient extends LLMClientBase {
   /**
    * 核心 API 请求 — 提取出来以便 withRetry 可以包装它
    */
-  private _buildConfig(
+  protected _buildConfig(
     systemInstruction: string | null,
     tools?: Tool[] | null,
   ): Record<string, unknown> {
-    const config: Record<string, unknown> = {
-      thinkingConfig: { includeThoughts: true },
-    };
+    const config: Record<string, unknown> = {};
 
     if (systemInstruction) {
       config['systemInstruction'] = systemInstruction;
+    }
+
+    if (this.requestOptions.temperature !== undefined) {
+      config['temperature'] = this.requestOptions.temperature;
+    }
+
+    if (this.requestOptions.maxTokens !== undefined) {
+      config['maxOutputTokens'] = this.requestOptions.maxTokens;
+    }
+
+    const thinkingConfig = this._buildThinkingConfig();
+    if (thinkingConfig) {
+      config['thinkingConfig'] = thinkingConfig;
     }
 
     if (tools?.length) {
@@ -66,6 +98,108 @@ export class GoogleClient extends LLMClientBase {
     }
 
     return config;
+  }
+
+  private _buildThinkingConfig(): Record<string, unknown> | undefined {
+    if (!this.providerModel.reasoning.supported) return undefined;
+
+    const requestedReasoning = this.requestOptions.reasoning ?? this.providerModel.reasoning.defaultLevel;
+    if (!requestedReasoning) return undefined;
+
+    if (requestedReasoning === 'off') {
+      return this._buildDisabledThinkingConfig();
+    }
+
+    if (this.providerModel.compatibility.googleThinkingConfig === 'level') {
+      return {
+        includeThoughts: true,
+        thinkingLevel: this._mapThinkingLevel(requestedReasoning),
+      };
+    }
+
+    if (this.providerModel.compatibility.googleThinkingConfig === 'budget') {
+      return {
+        includeThoughts: true,
+        thinkingBudget: this._mapThinkingBudget(requestedReasoning),
+      };
+    }
+
+    return {
+      includeThoughts: true,
+      thinkingBudget: -1,
+    };
+  }
+
+  private _buildDisabledThinkingConfig(): Record<string, unknown> {
+    if (this.providerModel.compatibility.googleThinkingConfig === 'level') {
+      if (this._isGemini3ProModel()) return { thinkingLevel: 'LOW' };
+      return { thinkingLevel: 'MINIMAL' };
+    }
+
+    return { thinkingBudget: 0 };
+  }
+
+  private _mapThinkingLevel(level: Exclude<ProviderReasoningLevel, 'off'>): GoogleThinkingLevel {
+    if (this._isGemini3ProModel()) {
+      return level === 'minimal' || level === 'low' ? 'LOW' : 'HIGH';
+    }
+
+    switch (level) {
+      case 'minimal':
+        return 'MINIMAL';
+      case 'low':
+        return 'LOW';
+      case 'medium':
+        return 'MEDIUM';
+      case 'high':
+      case 'xhigh':
+        return 'HIGH';
+    }
+  }
+
+  private _mapThinkingBudget(level: Exclude<ProviderReasoningLevel, 'off'>): number {
+    const budgetLevel = level === 'xhigh' ? 'high' : level;
+    const model = this.model.toLowerCase();
+
+    if (model.includes('2.5-pro')) {
+      return this._budgetForLevel(budgetLevel, {
+        minimal: 128,
+        low: 2048,
+        medium: 8192,
+        high: 32768,
+      });
+    }
+
+    if (model.includes('2.5-flash-lite')) {
+      return this._budgetForLevel(budgetLevel, {
+        minimal: 512,
+        low: 2048,
+        medium: 8192,
+        high: 24576,
+      });
+    }
+
+    if (model.includes('2.5-flash')) {
+      return this._budgetForLevel(budgetLevel, {
+        minimal: 128,
+        low: 2048,
+        medium: 8192,
+        high: 24576,
+      });
+    }
+
+    return -1;
+  }
+
+  private _budgetForLevel(
+    level: GoogleBudgetReasoningLevel,
+    budgets: Record<GoogleBudgetReasoningLevel, number>,
+  ): number {
+    return budgets[level];
+  }
+
+  private _isGemini3ProModel(): boolean {
+    return /gemini-3(?:\.\d+)?-pro/.test(this.model.toLowerCase());
   }
 
   private async _makeApiRequest(

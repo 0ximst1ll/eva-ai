@@ -77,7 +77,14 @@ export class LLMClient {
     } else if (this.provider === LLMProvider.OPENAI) {
       this._client = new OpenAIClient(effectiveApiKey, fullApiBase, effectiveModel, retryConfig);
     } else if (this.provider === LLMProvider.GOOGLE) {
-      this._client = new GoogleClient(effectiveApiKey, fullApiBase, effectiveModel, retryConfig);
+      this._client = new GoogleClient(
+        effectiveApiKey,
+        fullApiBase,
+        effectiveModel,
+        retryConfig,
+        providerModel,
+        providerRequestOptions,
+      );
     } else {
       throw new Error(`Unsupported provider: ${this.provider}`);
     }

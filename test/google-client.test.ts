@@ -2,16 +2,38 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { GenerateContentResponse } from '@google/genai';
 import { GoogleClient } from '../src/llm/google-client.js';
+import { createProviderModel, type ProviderRequestOptions } from '../src/llm/provider.js';
 import type { Message } from '../src/schema.js';
+import { LLMProvider } from '../src/schema.js';
 
 class InspectableGoogleClient extends GoogleClient {
   convert(messages: Message[]) {
     return this._convertMessages(messages);
   }
 
+  buildConfig(systemInstruction: string | null = null) {
+    return this._buildConfig(systemInstruction);
+  }
+
   parse(response: GenerateContentResponse) {
     return this._parseResponse(response);
   }
+}
+
+function createInspectableGoogleClient(model: string, requestOptions: ProviderRequestOptions = {}) {
+  return new InspectableGoogleClient(
+    'test-key',
+    '',
+    model,
+    undefined,
+    createProviderModel({
+      provider: LLMProvider.GOOGLE,
+      providerName: 'google',
+      model,
+      baseUrl: '',
+    }),
+    requestOptions,
+  );
 }
 
 test('GoogleClient preserves thought signatures on function call history', () => {
@@ -81,6 +103,38 @@ test('GoogleClient stores thought signatures returned with function calls', () =
     function: { name: 'read_file', arguments: { path: 'README.md' } },
     providerMetadata: { google: { thoughtSignature: 'signature-a' } },
   });
+});
+
+test('GoogleClient maps Gemini 3 Flash reasoning to thinkingLevel', () => {
+  const client = createInspectableGoogleClient('gemini-3.5-flash', { reasoning: 'high' });
+
+  assert.deepEqual(client.buildConfig()['thinkingConfig'], {
+    includeThoughts: true,
+    thinkingLevel: 'HIGH',
+  });
+});
+
+test('GoogleClient disables Gemini 3 Flash visible thoughts without includeThoughts', () => {
+  const client = createInspectableGoogleClient('gemini-3.5-flash', { reasoning: 'off' });
+
+  assert.deepEqual(client.buildConfig()['thinkingConfig'], {
+    thinkingLevel: 'MINIMAL',
+  });
+});
+
+test('GoogleClient maps Gemini 2.5 Flash reasoning to thinkingBudget', () => {
+  const client = createInspectableGoogleClient('gemini-2.5-flash', { reasoning: 'high' });
+
+  assert.deepEqual(client.buildConfig()['thinkingConfig'], {
+    includeThoughts: true,
+    thinkingBudget: 24576,
+  });
+});
+
+test('GoogleClient omits thinkingConfig for non-reasoning Google models', () => {
+  const client = createInspectableGoogleClient('gemini-2.0-flash', { reasoning: 'high' });
+
+  assert.equal(client.buildConfig()['thinkingConfig'], undefined);
 });
 
 test('GoogleClient countTokens uses Google countTokens API shape', async () => {
