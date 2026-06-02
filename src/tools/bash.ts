@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { createAbortedToolResult, formatToolResultDisplay, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolRenderResultOptions, type ToolResult, type ToolResultDetails } from './base.js';
 import {
   DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+  formatToolOutputTruncationSummary,
   truncateTailByChars,
   type ToolOutputTruncationDetails,
 } from './truncate.js';
@@ -141,7 +142,7 @@ function renderBashResult(result: ToolResult<BashToolDetails>, options: ToolRend
     parts.push(`stderr=${details.stderrChars} chars`);
   }
   if (details.truncation?.truncated) {
-    parts.push(`truncated ${details.truncation.shownChars}/${details.truncation.originalChars} chars`);
+    parts.push(formatToolOutputTruncationSummary(details.truncation));
   }
   if (details.fullOutputPath) parts.push(`full output: ${details.fullOutputPath}`);
   return parts.length ? formatToolResultDisplay(parts.join('; '), result, {

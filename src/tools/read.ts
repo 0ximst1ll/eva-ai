@@ -1,7 +1,7 @@
 import { createAbortedToolResult, formatToolResultDisplay, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
 import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
-import { createToolOutputTruncation, DEFAULT_TOOL_OUTPUT_MAX_CHARS, type ToolOutputTruncationDetails } from './truncate.js';
+import { createToolOutputTruncation, DEFAULT_TOOL_OUTPUT_MAX_CHARS, formatToolOutputTruncationSummary, type ToolOutputTruncationDetails } from './truncate.js';
 
 const READ_OUTPUT_MAX_CHARS = DEFAULT_TOOL_OUTPUT_MAX_CHARS;
 
@@ -56,7 +56,7 @@ export class ReadTool implements Tool<ReadToolInput, ReadToolDetails> {
     const { startLine, endLine, totalLines, shownLines, nextOffset, truncation } = result.details;
     const parts = [`read ${shownLines} lines (${startLine}-${endLine} of ${totalLines})`];
     if (nextOffset !== null) parts.push(`continue with offset=${nextOffset}`);
-    if (truncation?.truncated) parts.push(`truncated ${truncation.shownChars}/${truncation.originalChars} chars`);
+    if (truncation?.truncated) parts.push(formatToolOutputTruncationSummary(truncation));
     return formatToolResultDisplay(parts.join('; '), result, {
       ...options,
       maxPreviewLines: 10,
@@ -144,6 +144,9 @@ function formatReadOutput(
         shown: content,
         strategy: 'head',
         maxChars: READ_OUTPUT_MAX_CHARS,
+        maxBytes: READ_OUTPUT_MAX_CHARS,
+        outputLines: outputLines.length,
+        outputBytes: Buffer.byteLength(outputLines.join('\n'), 'utf-8'),
       }),
     },
   };

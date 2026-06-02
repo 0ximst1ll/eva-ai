@@ -26,6 +26,10 @@ test('read_file keeps the head of large files and returns continuation guidance'
     assert.equal(result.details?.startLine, 1);
     assert.ok(typeof result.details?.nextOffset === 'number');
     assert.equal(result.details?.truncation?.strategy, 'head');
+    assert.equal(result.details?.truncation?.truncatedBy, 'bytes');
+    assert.equal(result.details?.truncation?.totalLines, 800);
+    assert.ok((result.details?.truncation?.outputLines ?? 0) < 800);
+    assert.ok((result.details?.truncation?.totalBytes ?? 0) > (result.details?.truncation?.outputBytes ?? 0));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -49,6 +53,10 @@ test('bash keeps tail output and stores full truncated output in temp storage', 
     assert.equal(result.details?.exitCode, 0);
     assert.equal(result.details?.fullOutputPath, fullOutputPath);
     assert.equal(result.details?.truncation?.strategy, 'tail');
+    assert.equal(result.details?.truncation?.truncatedBy, 'bytes');
+    assert.equal(result.details?.truncation?.totalLines, 2);
+    assert.ok((result.details?.truncation?.outputLines ?? 0) <= 2);
+    assert.ok((result.details?.truncation?.totalBytes ?? 0) > (result.details?.truncation?.outputBytes ?? 0));
   } finally {
     if (fullOutputPath) await fs.rm(fullOutputPath, { force: true });
     await fs.rm(tempDir, { recursive: true, force: true });
@@ -90,6 +98,10 @@ test('list_files truncates large directory listings from the head', async () => 
     assert.doesNotMatch(result.content, /\[file\] 149-/);
     assert.equal(result.details?.resultCount, 150);
     assert.equal(result.details?.truncation?.strategy, 'head');
+    assert.equal(result.details?.truncation?.truncatedBy, 'bytes');
+    assert.equal(result.details?.truncation?.totalLines, 150);
+    assert.ok((result.details?.truncation?.outputLines ?? 0) < 150);
+    assert.ok((result.details?.truncation?.totalBytes ?? 0) > (result.details?.truncation?.outputBytes ?? 0));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

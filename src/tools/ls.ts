@@ -1,7 +1,7 @@
 import { createAbortedToolResult, formatToolResultDisplay, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
 import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
-import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars, type ToolOutputTruncationDetails } from './truncate.js';
+import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, formatToolOutputTruncationSummary, truncateHeadByChars, type ToolOutputTruncationDetails } from './truncate.js';
 
 const DEFAULT_IGNORES = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache']);
 
@@ -39,7 +39,7 @@ export class LsTool implements Tool<LsToolInput, ListToolDetails> {
     if (!result.success || !result.details) return undefined;
     const { resultCount, truncation } = result.details;
     const parts = [`${resultCount} entries`];
-    if (truncation?.truncated) parts.push(`truncated ${truncation.shownChars}/${truncation.originalChars} chars`);
+    if (truncation?.truncated) parts.push(formatToolOutputTruncationSummary(truncation));
     return formatToolResultDisplay(parts.join('; '), result, {
       ...options,
       maxPreviewLines: 20,

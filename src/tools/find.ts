@@ -2,7 +2,7 @@ import * as path from 'node:path';
 import { createAbortedToolResult, formatToolResultDisplay, isToolExecutionAborted, type Tool, type ToolExecutionContext, type ToolResult, type ToolResultDetails } from './base.js';
 import { localFileToolOperations, type FileToolOperations } from './file-operations.js';
 import { resolveWorkspacePath } from './path-utils.js';
-import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncateHeadByChars, type ToolOutputTruncationDetails } from './truncate.js';
+import { DEFAULT_TOOL_OUTPUT_MAX_CHARS, formatToolOutputTruncationSummary, truncateHeadByChars, type ToolOutputTruncationDetails } from './truncate.js';
 
 const DEFAULT_IGNORES = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache']);
 const MAX_RESULTS = 200;
@@ -71,7 +71,7 @@ export class FindTool implements Tool<FindToolInput, FindToolDetails> {
     const { resultCount, maxResults, limitedByMaxResults, truncation } = result.details;
     const parts = [`${resultCount} files`];
     if (limitedByMaxResults) parts.push(`stopped at max_results=${maxResults}`);
-    if (truncation?.truncated) parts.push(`truncated ${truncation.shownChars}/${truncation.originalChars} chars`);
+    if (truncation?.truncated) parts.push(formatToolOutputTruncationSummary(truncation));
     return formatToolResultDisplay(parts.join('; '), result, {
       ...options,
       maxPreviewLines: 20,
