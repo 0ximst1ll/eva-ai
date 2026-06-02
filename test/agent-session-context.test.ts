@@ -190,6 +190,48 @@ test('AgentSession auto-retries transient provider errors without ending the tas
   );
 });
 
+test('AgentSession stops provider auto-retry at the configured retry cap', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-1');
+  const providerError = new Error(
+    'ApiError: {"error":{"code":503,"message":"This model is currently experiencing high demand","status":"UNAVAILABLE"}}',
+  );
+  const llm = new ScriptedLLM([providerError, providerError]);
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [],
+    maxSteps: 3,
+    autoRetry: { maxRetries: 1, initialDelayMs: 0 },
+    sessionManager,
+    sessionId,
+  });
+  const events: AgentSessionEvent[] = [];
+
+  await session.addUserMessage('run');
+  const result = await session.run({ onEvent: (event) => events.push(event) });
+
+  assert.equal(llm.calls.length, 2);
+  assert.match(result, /LLM call failed/);
+  assert.deepEqual(
+    events.map((event) => event.type).filter((type) => type === 'auto_retry_start'),
+    ['auto_retry_start'],
+  );
+  const retryEnd = events.find((event) => event.type === 'auto_retry_end');
+  assert.equal(retryEnd?.type, 'auto_retry_end');
+  assert.equal(retryEnd.success, false);
+  assert.equal(retryEnd.attempt, 1);
+  assert.match(retryEnd.finalError ?? '', /LLM call failed/);
+  assert.equal(events.filter((event) => event.type === 'error').length, 1);
+  assert.deepEqual(
+    session.messages.map((message) => message.content),
+    ['system', 'run'],
+  );
+});
+
 test('AgentSession keeps large tool results as truncated preview without artifacts', async () => {
   const sessionManager = new SessionManager({
     workspaceDir: '/workspace',

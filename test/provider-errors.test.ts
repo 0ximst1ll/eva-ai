@@ -15,3 +15,14 @@ test('formatProviderError classifies nested Gemini 503 errors as unavailable', (
   assert.match(formatted.message, /Provider unavailable/);
   assert.match(formatted.raw, /high demand/);
 });
+
+test('formatProviderError classifies timeout errors as retryable', () => {
+  const error = new Error('Request timed out after 30000ms');
+
+  const formatted = formatProviderError(error);
+
+  assert.equal(formatted.category, 'timeout');
+  assert.equal(formatted.retryable, true);
+  assert.equal(formatted.statusCode, undefined);
+  assert.match(formatted.message, /timed out/);
+});

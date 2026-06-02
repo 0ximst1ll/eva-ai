@@ -27,6 +27,7 @@
 - ProviderModel / ProviderRequestOptions / ProviderAuthResolver 最小骨架已实现：RuntimeServices 会创建结构化 provider runtime context，LLMClient 保持旧构造兼容并可接收结构化 model/auth/request options。
 - Google provider thinkingConfig 已对齐 `pi-mono` 的分层策略：ProviderModel 判断 reasoning 能力，GoogleClient 按 Gemini family 映射 `thinkingLevel` / `thinkingBudget`，不再无条件 `includeThoughts`。
 - ProviderRequestOptions 已接入具体 provider adapter：OpenAI/Anthropic/Gemini 会消费 request-time `temperature`、`maxTokens`，并把 `headers`、`timeoutMs`、`maxRetries` 传入对应 SDK transport/client 边界。
+- Provider request lifecycle 测试已补最小覆盖：auth resolver 优先级、OpenAI/Anthropic/Gemini transport options、timeout error 分类、session-level retry cap 和成功 auto-retry 路径已被测试固定。
 - TUI 工具输出展开/折叠已对齐 `pi-mono` 的全局模式：`Ctrl-T` 切换所有工具结果，新增工具结果继承当前全局展开状态。
 - Bash streaming partial update 最小闭环已实现：foreground bash 会通过 `tool_execution_update` 透传有界 tail preview，TUI 对同一个 tool call 原地刷新 running/completed 状态，截断时复用同一个系统临时 full output log 路径。
 - Bash visual-line tail preview 最小闭环已实现：TUI/CLI 会把终端宽度传给工具 renderer，bash collapsed/partial preview 可按 terminal-width visual lines 取尾部输出。
@@ -40,12 +41,12 @@
 ## 进行中
 
 - M5.5 Provider Reliability And Request Lifecycle 提前进入短期优先级，用于解决 Gemini high-demand、thinking config 和 provider retry 体验问题。
-- 当前已完成 session-level retryable provider error auto-retry、ProviderModel / ProviderRequestOptions / ProviderAuthResolver 最小骨架、Google thinkingConfig 对齐，以及 ProviderRequestOptions adapter 接入。
+- 当前已完成 session-level retryable provider error auto-retry、ProviderModel / ProviderRequestOptions / ProviderAuthResolver 最小骨架、Google thinkingConfig 对齐、ProviderRequestOptions adapter 接入，以及 provider request lifecycle 最小测试覆盖。
 - M5 Tool / Permission Governance 暂时放到 provider 体验问题之后继续推进。
 
 ## 下一步
 
-- 第一优先级：继续补 provider request lifecycle 测试，覆盖 auth resolver、abort/timeout、retry cap 和 session-level retry 边界。
+- 第一优先级：评估 provider request lifecycle 是否需要继续补 abort / Retry-After / provider-specific error metadata；如无真实问题，先不扩大抽象。
 - 第二优先级：根据真实使用反馈决定是否需要暴露 reasoning 配置；默认仍使用模型 metadata 的 conservative default。
 - 第三优先级：回到 Tool output UX 后续项，评估 RPC 客户端侧如何消费 `tool_execution_update`，并继续补行/字节统计和 compaction-time tool result micro-compaction。
 - 第四优先级：后续进入 MCP lifecycle 最小闭环，接入同一 registry、metadata 和 hook 边界，不直接引入完整 extension system。
@@ -53,7 +54,7 @@
 
 ## 已知问题
 
-- Provider 层仍偏薄：模型能力、认证解析和请求选项已有最小结构化边界，OpenAI/Anthropic/Gemini 已消费主要 ProviderRequestOptions，但 abort/timeout/retry cap 还需要更完整 lifecycle 测试覆盖。
+- Provider 层仍偏薄：模型能力、认证解析和请求选项已有最小结构化边界，OpenAI/Anthropic/Gemini 已消费主要 ProviderRequestOptions；abort propagation、Retry-After 和 provider-specific error metadata 仍未形成完整 lifecycle 边界。
 - Provider auth 当前已有 API key resolver，支持 runtime/config/env 优先级；尚未支持 OAuth 或 provider-specific auth storage。
 - 工具层大输出已具备 head/tail 基础策略、tool-specific collapsed line preview、TUI 全局工具结果 expand/collapse、bash streaming partial update 和 bash visual-line tail preview，但仍缺更完整的行/字节统计和 compaction-time tool result micro-compaction。
 - Tool Result 已有 `content + typed details` 和工具级 `renderResult` 最小边界；尚未形成 compaction-time micro-compaction。

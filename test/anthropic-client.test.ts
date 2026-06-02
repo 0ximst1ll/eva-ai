@@ -2,8 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AnthropicClient } from '../src/llm/anthropic-client.js';
 
+class InspectableAnthropicClient extends AnthropicClient {
+  clientOptions() {
+    return this._buildClientOptions();
+  }
+}
+
 test('AnthropicClient applies provider request options to message params', async () => {
-  const client = new AnthropicClient(
+  const client = new InspectableAnthropicClient(
     'test-key',
     'https://example.test',
     'claude-test',
@@ -36,6 +42,31 @@ test('AnthropicClient applies provider request options to message params', async
   assert.equal(requestBody?.['model'], 'claude-test');
   assert.equal(requestBody?.['max_tokens'], 2048);
   assert.equal(requestBody?.['temperature'], 0.3);
+});
+
+test('AnthropicClient applies provider transport options to SDK client options', () => {
+  const client = new InspectableAnthropicClient(
+    'test-key',
+    'https://example.test',
+    'claude-test',
+    undefined,
+    {
+      headers: { 'x-eva-session': 'session-1' },
+      timeoutMs: 30000,
+      maxRetries: 2,
+    },
+  );
+
+  assert.deepEqual(client.clientOptions(), {
+    apiKey: 'test-key',
+    baseURL: 'https://example.test',
+    defaultHeaders: {
+      Authorization: 'Bearer test-key',
+      'x-eva-session': 'session-1',
+    },
+    timeout: 30000,
+    maxRetries: 2,
+  });
 });
 
 test('AnthropicClient countTokens uses Anthropic countTokens API shape', async () => {

@@ -23,14 +23,18 @@ export class AnthropicClient extends LLMClientBase {
   ) {
     super(apiKey, apiBase, model, retryConfig);
     this.requestOptions = requestOptions;
+    this.client = new Anthropic(this._buildClientOptions());
+  }
+
+  protected _buildClientOptions(): ClientOptions {
     const clientOptions: ClientOptions = {
-      baseURL: apiBase,
-      apiKey,
-      defaultHeaders: { Authorization: `Bearer ${apiKey}`, ...requestOptions.headers },
+      baseURL: this.apiBase,
+      apiKey: this.apiKey,
+      defaultHeaders: { Authorization: `Bearer ${this.apiKey}`, ...this.requestOptions.headers },
     };
-    if (requestOptions.timeoutMs !== undefined) clientOptions.timeout = requestOptions.timeoutMs;
-    if (requestOptions.maxRetries !== undefined) clientOptions.maxRetries = requestOptions.maxRetries;
-    this.client = new Anthropic(clientOptions);
+    if (this.requestOptions.timeoutMs !== undefined) clientOptions.timeout = this.requestOptions.timeoutMs;
+    if (this.requestOptions.maxRetries !== undefined) clientOptions.maxRetries = this.requestOptions.maxRetries;
+    return clientOptions;
   }
 
   // Core API request — extracted so withRetry can wrap it

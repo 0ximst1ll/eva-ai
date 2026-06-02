@@ -24,13 +24,16 @@ export class OpenAIClient extends LLMClientBase {
     ){
         super(apiKey, apiBase, model, retryConfig);
         this.requestOptions = requestOptions;
-        const clientOptions: ClientOptions = { apiKey, baseURL: apiBase };
-        if (requestOptions.timeoutMs !== undefined) clientOptions.timeout = requestOptions.timeoutMs;
-        if (requestOptions.maxRetries !== undefined) clientOptions.maxRetries = requestOptions.maxRetries;
-        if (requestOptions.headers) clientOptions.defaultHeaders = requestOptions.headers;
-        this.client = new OpenAI(clientOptions);
+        this.client = new OpenAI(this._buildClientOptions());
     }
 
+    protected _buildClientOptions(): ClientOptions {
+        const clientOptions: ClientOptions = { apiKey: this.apiKey, baseURL: this.apiBase };
+        if (this.requestOptions.timeoutMs !== undefined) clientOptions.timeout = this.requestOptions.timeoutMs;
+        if (this.requestOptions.maxRetries !== undefined) clientOptions.maxRetries = this.requestOptions.maxRetries;
+        if (this.requestOptions.headers) clientOptions.defaultHeaders = this.requestOptions.headers;
+        return clientOptions;
+    }
 
     private async _makeApiRequest(
         apiMessages: Record<string, unknown>[],
