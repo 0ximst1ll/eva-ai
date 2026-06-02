@@ -8,6 +8,7 @@ import { LLMClientBase } from './base.js';
 import { AnthropicClient } from './anthropic-client.js';
 import { OpenAIClient } from './openai-client.js';
 import { GoogleClient } from './google-client.js';
+import type { ProviderAuth, ProviderModel, ProviderRequestOptions } from './provider.js';
 
 const MINIMAX_DOMAINS = ['api.minimax.io', 'api.minimaxi.com'];
 
@@ -15,6 +16,8 @@ export class LLMClient {
   readonly provider: LLMProvider;
   readonly apiBase: string;
   readonly model: string;
+  readonly providerModel?: ProviderModel;
+  readonly providerRequestOptions?: ProviderRequestOptions;
   private readonly _client: LLMClientBase;
 
   get retryCallback(): ((error: Error, attempt: number) => void) | null {
@@ -30,19 +33,30 @@ export class LLMClient {
     provider = LLMProvider.ANTHROPIC,
     apiBase = 'https://api.minimaxi.com',
     model = 'MiniMax-M2.5',
+    providerModel,
+    providerAuth,
+    providerRequestOptions,
     retryConfig,
   }: {
     apiKey: string;
     provider?: LLMProvider;
     apiBase?: string;
     model?: string;
+    providerModel?: ProviderModel;
+    providerAuth?: ProviderAuth;
+    providerRequestOptions?: ProviderRequestOptions;
     retryConfig?: RetryConfig;
   }) {
-    this.provider = provider;
-    this.model = model;
+    this.provider = providerModel?.provider ?? provider;
+    this.model = providerModel?.id ?? model;
+    this.providerModel = providerModel;
+    this.providerRequestOptions = providerRequestOptions;
+    const effectiveApiKey = providerAuth?.apiKey ?? apiKey;
+    const effectiveApiBase = providerModel?.baseUrl ?? apiBase;
+    const effectiveModel = providerModel?.id ?? model;
 
     // Normalize trailing slash
-    const normalizedBase = apiBase.replace(/\/+$/, '');
+    const normalizedBase = effectiveApiBase.replace(/\/+$/, '');
 
     // Auto-append provider suffix for MiniMax domains
     const isMinimax = MINIMAX_DOMAINS.some((d) => normalizedBase.includes(d));
@@ -51,21 +65,21 @@ export class LLMClient {
     if (isMinimax) {
       const stripped = normalizedBase.replace('/anthropic', '').replace('/v1', '');
       fullApiBase =
-        provider === LLMProvider.ANTHROPIC ? `${stripped}/anthropic` : `${stripped}/v1`;
+        this.provider === LLMProvider.ANTHROPIC ? `${stripped}/anthropic` : `${stripped}/v1`;
     } else {
       fullApiBase = normalizedBase;
     }
 
     this.apiBase = fullApiBase;
 
-    if (provider === LLMProvider.ANTHROPIC) {
-      this._client = new AnthropicClient(apiKey, fullApiBase, model, retryConfig);
-    } else if (provider === LLMProvider.OPENAI) {
-      this._client = new OpenAIClient(apiKey, fullApiBase, model, retryConfig);
-    } else if (provider === LLMProvider.GOOGLE) {
-      this._client = new GoogleClient(apiKey, fullApiBase, model, retryConfig);
+    if (this.provider === LLMProvider.ANTHROPIC) {
+      this._client = new AnthropicClient(effectiveApiKey, fullApiBase, effectiveModel, retryConfig);
+    } else if (this.provider === LLMProvider.OPENAI) {
+      this._client = new OpenAIClient(effectiveApiKey, fullApiBase, effectiveModel, retryConfig);
+    } else if (this.provider === LLMProvider.GOOGLE) {
+      this._client = new GoogleClient(effectiveApiKey, fullApiBase, effectiveModel, retryConfig);
     } else {
-      throw new Error(`Unsupported provider: ${provider}`);
+      throw new Error(`Unsupported provider: ${this.provider}`);
     }
   }
 

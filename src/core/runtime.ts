@@ -1,6 +1,7 @@
 import { createDiagnostic, type RuntimeDiagnostic } from '../diagnostics.js';
 import type { ConfigData } from '../config.js';
 import { LLMClient } from '../llm/llm-client.js';
+import type { ProviderAuth, ProviderModel, ProviderRequestOptions } from '../llm/provider.js';
 import { RetryConfig } from '../retry.js';
 import type { Tool, ToolMetadata } from '../tools/base.js';
 import type { ToolRegistry } from '../tools/index.js';
@@ -67,6 +68,9 @@ export interface Runtime {
   config: ConfigData;
   configPath: string;
   llmClient: LLMClient;
+  providerModel: ProviderModel;
+  providerAuth: ProviderAuth;
+  providerRequestOptions: ProviderRequestOptions;
   retryConfig: RetryConfig;
   systemPrompt: string;
   systemPromptPath: string | null;
@@ -270,6 +274,9 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
     config,
     configPath,
     llmClient,
+    providerModel,
+    providerAuth,
+    providerRequestOptions,
     retryConfig,
     systemPrompt,
     systemPromptPath,
@@ -361,6 +368,9 @@ export async function createRuntime(options: CreateRuntimeOptions): Promise<Runt
     config,
     configPath,
     llmClient,
+    providerModel,
+    providerAuth,
+    providerRequestOptions,
     retryConfig,
     systemPrompt,
     systemPromptPath,

@@ -4,6 +4,12 @@ import * as path from 'node:path';
 import { Config, type ConfigData } from '../config.js';
 import { createDiagnostic, type RuntimeDiagnostic } from '../diagnostics.js';
 import { LLMClient } from '../llm/llm-client.js';
+import {
+  createProviderRuntimeContext,
+  type ProviderAuth,
+  type ProviderModel,
+  type ProviderRequestOptions,
+} from '../llm/provider.js';
 import { RetryConfig } from '../retry.js';
 import { LLMProvider } from '../schema.js';
 import type { Tool } from '../tools/base.js';
@@ -36,6 +42,9 @@ export interface RuntimeServices {
   config: ConfigData;
   configPath: string;
   llmClient: LLMClient;
+  providerModel: ProviderModel;
+  providerAuth: ProviderAuth;
+  providerRequestOptions: ProviderRequestOptions;
   retryConfig: RetryConfig;
   resourceLoader: ResourceLoader;
   contextBuilder: ContextBuilder;
@@ -192,6 +201,11 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
 
   const retryConfig = createRetryConfig(config);
   const provider = resolveProvider(config.llm.provider);
+  const providerRuntime = createProviderRuntimeContext({
+    provider,
+    providerName: config.llm.provider,
+    config,
+  });
   diagnostics.push(createDiagnostic({
     source: 'provider',
     level: 'info',
@@ -200,7 +214,10 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     details: {
       provider: config.llm.provider,
       model: config.llm.model,
-      apiBase: config.llm.apiBase,
+      apiBase: providerRuntime.model.baseUrl,
+      apiProtocol: providerRuntime.model.apiProtocol,
+      authSource: providerRuntime.auth.source,
+      reasoningSupported: providerRuntime.model.reasoning.supported,
     },
   }));
 
@@ -209,6 +226,9 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     provider,
     apiBase: config.llm.apiBase,
     model: config.llm.model,
+    providerModel: providerRuntime.model,
+    providerAuth: providerRuntime.auth,
+    providerRequestOptions: providerRuntime.requestOptions,
     retryConfig,
   });
 
@@ -280,6 +300,9 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     config,
     configPath,
     llmClient,
+    providerModel: providerRuntime.model,
+    providerAuth: providerRuntime.auth,
+    providerRequestOptions: providerRuntime.requestOptions,
     retryConfig,
     resourceLoader: resourceSet.resourceLoader,
     contextBuilder: resourceSet.contextBuilder,
