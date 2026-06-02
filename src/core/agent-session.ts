@@ -1,5 +1,5 @@
 import type { LLMClient } from '../llm/llm-client.js';
-import { formatProviderError } from '../llm/provider-errors.js';
+import { formatProviderError, type FormattedProviderError } from '../llm/provider-errors.js';
 import type { AgentMessage, AgentSessionEvent, Message } from '../schema.js';
 import type { Tool } from '../tools/base.js';
 import { Agent } from './agent.js';
@@ -35,6 +35,7 @@ type AgentRunAttempt = {
   contextOverflowEnd?: Extract<AgentLoopEvent, { type: 'agent_end' }>;
   retryableError?: Extract<AgentLoopEvent, { type: 'error' }>;
   retryableEnd?: Extract<AgentLoopEvent, { type: 'agent_end' }>;
+  retryAfterMs?: number;
 };
 
 export interface AgentSessionAutoRetryOptions {
@@ -68,9 +69,9 @@ function isContextOverflowErrorMessage(message: string): boolean {
   ].some((pattern) => pattern.test(message));
 }
 
-function isRetryableProviderErrorMessage(message: string): boolean {
+function formatRetryableProviderError(message: string): FormattedProviderError | undefined {
   const formatted = formatProviderError(message);
-  return formatted.retryable && formatted.category !== 'context_overflow';
+  return formatted.retryable && formatted.category !== 'context_overflow' ? formatted : undefined;
 }
 
 function normalizeAutoRetryOptions(options?: AgentSessionAutoRetryOptions): Required<AgentSessionAutoRetryOptions> {
@@ -86,6 +87,17 @@ function normalizeAutoRetryOptions(options?: AgentSessionAutoRetryOptions): Requ
 function calculateAutoRetryDelay(options: Required<AgentSessionAutoRetryOptions>, attempt: number): number {
   const delay = options.initialDelayMs * Math.pow(options.exponentialBase, attempt - 1);
   return Math.min(delay, options.maxDelayMs);
+}
+
+function resolveAutoRetryDelay(
+  options: Required<AgentSessionAutoRetryOptions>,
+  attempt: number,
+  retryAfterMs?: number,
+): number {
+  if (retryAfterMs !== undefined) {
+    return Math.min(retryAfterMs, options.maxDelayMs);
+  }
+  return calculateAutoRetryDelay(options, attempt);
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -303,7 +315,7 @@ export class AgentSession {
       && !signal?.aborted
     ) {
       retryAttemptCount += 1;
-      const delayMs = calculateAutoRetryDelay(this.autoRetry, retryAttemptCount);
+      const delayMs = resolveAutoRetryDelay(this.autoRetry, retryAttemptCount, attempt.retryAfterMs);
       onEvent?.({
         type: 'auto_retry_start',
         attempt: retryAttemptCount,
@@ -407,13 +419,18 @@ export class AgentSession {
     let contextOverflowEnd: Extract<AgentLoopEvent, { type: 'agent_end' }> | undefined;
     let retryableError: Extract<AgentLoopEvent, { type: 'error' }> | undefined;
     let retryableEnd: Extract<AgentLoopEvent, { type: 'agent_end' }> | undefined;
+    let retryAfterMs: number | undefined;
     const unsubscribe = this.agent.subscribe(async (event) => {
       if (event.type === 'error') {
         const errorText = `${event.message}\n${event.error ?? ''}`;
         if (isContextOverflowErrorMessage(errorText)) {
           contextOverflowError = event;
-        } else if (isRetryableProviderErrorMessage(errorText)) {
-          retryableError = event;
+        } else {
+          const formatted = formatRetryableProviderError(errorText);
+          if (formatted) {
+            retryableError = event;
+            retryAfterMs = formatted.retryAfterMs;
+          }
         }
       }
       if (event.type === 'agent_end' && contextOverflowError) {
@@ -431,7 +448,7 @@ export class AgentSession {
 
     try {
       const result = await this.agent.continue({ signal });
-      return { result, contextOverflowError, contextOverflowEnd, retryableError, retryableEnd };
+      return { result, contextOverflowError, contextOverflowEnd, retryableError, retryableEnd, retryAfterMs };
     } finally {
       unsubscribe();
     }

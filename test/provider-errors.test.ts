@@ -26,3 +26,25 @@ test('formatProviderError classifies timeout errors as retryable', () => {
   assert.equal(formatted.statusCode, undefined);
   assert.match(formatted.message, /timed out/);
 });
+
+test('formatProviderError extracts Retry-After from provider error metadata', () => {
+  const error = new Error(
+    'ApiError: {"status":429,"headers":{"retry-after":"2"},"error":{"message":"rate limit exceeded"}}',
+  );
+
+  const formatted = formatProviderError(error);
+
+  assert.equal(formatted.category, 'rate_limited');
+  assert.equal(formatted.retryable, true);
+  assert.equal(formatted.statusCode, 429);
+  assert.equal(formatted.retryAfterMs, 2000);
+});
+
+test('formatProviderError extracts Retry-After from header text', () => {
+  const formatted = formatProviderError('HTTP 503 Service Unavailable\nretry-after: 3');
+
+  assert.equal(formatted.category, 'unavailable');
+  assert.equal(formatted.retryable, true);
+  assert.equal(formatted.statusCode, 503);
+  assert.equal(formatted.retryAfterMs, 3000);
+});

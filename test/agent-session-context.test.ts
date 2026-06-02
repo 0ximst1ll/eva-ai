@@ -190,6 +190,39 @@ test('AgentSession auto-retries transient provider errors without ending the tas
   );
 });
 
+test('AgentSession uses provider Retry-After for auto-retry delay', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-1');
+  const providerError = new Error(
+    'ApiError: {"status":429,"headers":{"retry-after":"0.001"},"error":{"message":"rate limit exceeded"}}',
+  );
+  const llm = new ScriptedLLM([
+    providerError,
+    { content: 'done after retry-after', finish_reason: 'stop' },
+  ]);
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [],
+    maxSteps: 3,
+    autoRetry: { maxRetries: 2, initialDelayMs: 1000, maxDelayMs: 5000 },
+    sessionManager,
+    sessionId,
+  });
+  const events: AgentSessionEvent[] = [];
+
+  await session.addUserMessage('run');
+  assert.equal(await session.run({ onEvent: (event) => events.push(event) }), 'done after retry-after');
+
+  const retryStart = events.find((event) => event.type === 'auto_retry_start');
+  assert.equal(retryStart?.type, 'auto_retry_start');
+  assert.equal(retryStart.delayMs, 1);
+  assert.match(retryStart.errorMessage, /rate limited|rate limit/i);
+});
+
 test('AgentSession stops provider auto-retry at the configured retry cap', async () => {
   const sessionManager = new SessionManager({
     workspaceDir: '/workspace',

@@ -12,6 +12,7 @@ export interface FormattedProviderError {
   category: ProviderErrorCategory;
   retryable: boolean;
   statusCode?: number;
+  retryAfterMs?: number;
 }
 
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
@@ -21,11 +22,13 @@ export function formatProviderError(error: unknown): FormattedProviderError {
   const statusCode = extractStatusCode(raw);
   const searchable = `${raw}\n${extractNestedMessages(raw).join('\n')}`;
   const category = classifyProviderError(searchable, statusCode);
+  const retryAfterMs = extractRetryAfterMs(searchable);
 
   return {
     raw,
     category,
     statusCode,
+    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
     retryable: isRetryableCategory(category) || (statusCode !== undefined && RETRYABLE_STATUS_CODES.has(statusCode)),
     message: createUserFacingMessage(category, searchable, statusCode),
   };
@@ -113,6 +116,65 @@ function extractStatusCode(text: string): number | undefined {
     ?? text.match(/\b(429|500|502|503|504)\b/);
   const code = codeMatch?.[1] ? Number(codeMatch[1]) : undefined;
   return code && Number.isFinite(code) ? code : undefined;
+}
+
+function extractRetryAfterMs(text: string): number | undefined {
+  for (const parsed of parseJsonCandidates(text)) {
+    const retryAfter = findRetryAfterValue(parsed);
+    const retryAfterMs = normalizeRetryAfterMs(retryAfter);
+    if (retryAfterMs !== undefined) return retryAfterMs;
+  }
+
+  const retryAfterMatch = text.match(/retry[-_]?after["'\s:=]+["']?([^"',\n\r}]+)/i);
+  return normalizeRetryAfterMs(retryAfterMatch?.[1]);
+}
+
+function findRetryAfterValue(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return undefined;
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const retryAfter = findRetryAfterValue(item);
+      if (retryAfter !== undefined) return retryAfter;
+    }
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  for (const [key, nestedValue] of Object.entries(record)) {
+    if (isRetryAfterKey(key)) return nestedValue;
+  }
+
+  for (const nestedValue of Object.values(record)) {
+    const retryAfter = findRetryAfterValue(nestedValue);
+    if (retryAfter !== undefined) return retryAfter;
+  }
+
+  return undefined;
+}
+
+function isRetryAfterKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[_-]/g, '');
+  return normalized === 'retryafter';
+}
+
+function normalizeRetryAfterMs(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return Math.round(value * 1000);
+  }
+
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+
+  const seconds = Number(normalized);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.round(seconds * 1000);
+  }
+
+  const dateMs = Date.parse(normalized);
+  if (!Number.isFinite(dateMs)) return undefined;
+  return Math.max(0, dateMs - Date.now());
 }
 
 function extractShortMessage(text: string): string {
