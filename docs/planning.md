@@ -48,6 +48,7 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 - `RuntimeServices`：cwd 绑定服务装配。
 - `RuntimeHost`：active runtime 和 session lifecycle 边界。
 - `AgentMessage` / `LlmMessage`：内部/session/harness 消息与 provider request 消息分离。
+- stream/message lifecycle：provider 首包前失败属于 provider retry；一旦已有 thinking/content/tool call 等部分输出，后续失败应由 agent-loop/session 从 durable message boundary 恢复，避免把半截 assistant/tool 状态写入 session。
 
 里程碑：
 
@@ -197,7 +198,7 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 - Google provider 应按 model metadata 和 reasoning option 生成 `thinkingConfig`：不要无条件开启 `includeThoughts`；Gemini 3.x Flash/Pro 等模型按 provider-specific `thinkingLevel` 或 budget 映射处理。
 - config/settings 由 RuntimeServices 读取并校验。
 - diagnostics 在 core 收集，在 mode 展示。
-- provider request lifecycle 应覆盖 provider/SDK retry、session auto-retry、Retry-After/timeout/abort 和用户可理解错误展示。
+- provider request lifecycle 应覆盖 provider/SDK retry、session auto-retry、Retry-After/timeout/abort 和用户可理解错误展示；provider 层只负责请求启动和未输出前的重试，流式中途失败恢复归入 Agent Runtime 的 turn lifecycle。
 - usage/cost/timing 通过稳定结构暴露。
 
 里程碑：
@@ -251,7 +252,7 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 
 目标：把 provider 从直接 client wrapper 升级为可解释、可配置、可恢复的请求生命周期边界，优先解决真实使用中的 Gemini high-demand、thinking 配置和 provider retry 体验问题。
 
-状态：session-level retryable provider error auto-retry 最小闭环已完成；下一步补 ProviderModel / ProviderRequestOptions / ProviderAuthResolver，并优先对齐 Google thinking/reasoning 构建。
+状态：session-level retryable provider error auto-retry、ProviderModel / ProviderRequestOptions / ProviderAuthResolver 和 Google thinking/reasoning 构建最小闭环已完成；后续需要补齐流式中途失败时的 Agent Runtime turn lifecycle 恢复。
 
 ### M6 Resources / MCP / Extensions
 

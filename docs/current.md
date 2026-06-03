@@ -49,19 +49,21 @@
 ## 进行中
 
 - Provider Reliability 根据真实使用反馈完成一轮修复。
-- 当前已将 Google 默认 thinking、retry 分层、Google stream 首包 retry 和 AgentSession 默认 retry delay 向 `pi-mono` 收敛；后续需要用真实 Gemini 运行观察 high-demand 错误是否明显减少。
+- 当前已将 Google 默认 thinking、retry 分层、Google stream 首包 retry 和 AgentSession 默认 retry delay 向 `pi-mono` 收敛；后续需要用真实 Gemini 运行观察 high-demand 错误是否明显减少，并确认是否进入流式中途失败恢复。
 
 ## 下一步
 
-- 第一优先级：用真实 Gemini 运行验证默认 hidden/minimal thinking、2s 起步 agent retry 和 Google stream 首包 retry 是否改善 overload/high-demand 体验；如仍失败，再对比 pi-mono 的 Google auth/baseUrl/provider variant。
-- 第二优先级：继续 M5 Tool output UX 收口，评估是否需要把 tool result details 持久化进 session schema，或先进入 MCP lifecycle 最小闭环。
-- 第三优先级：根据真实使用反馈决定是否需要暴露 reasoning 配置；默认保持 `pi-mono` 风格的 reasoning-off/hidden-minimal 行为。
-- 第四优先级：后续进入 MCP lifecycle 最小闭环，接入同一 registry、metadata 和 hook 边界，不直接引入完整 extension system。
+- 第一优先级：用真实 Gemini 运行验证默认 hidden/minimal thinking、2s 起步 agent retry 和 Google stream 首包 retry 是否改善 overload/high-demand 体验；如仍失败，先判断失败发生在首包前还是已有部分输出之后。
+- 第二优先级：若确认是已有 thinking/content/tool call 后的 Google stream 中途失败，按 Agent Runtime lifecycle 处理：agent-loop 标记当前 assistant turn failed，丢弃 runtime-only partial state，AgentSession 从最后 durable message boundary retry，UI 只展示 retry/errorMessage，不提交半截输出。
+- 第三优先级：继续 M5 Tool output UX 收口，评估是否需要把 tool result details 持久化进 session schema，或先进入 MCP lifecycle 最小闭环。
+- 第四优先级：根据真实使用反馈决定是否需要暴露 reasoning 配置；默认保持 `pi-mono` 风格的 reasoning-off/hidden-minimal 行为。
+- 第五优先级：后续进入 MCP lifecycle 最小闭环，接入同一 registry、metadata 和 hook 边界，不直接引入完整 extension system。
 - 保持 permission diagnostics 简单，继续沿用 pending/denied 关键事实；`/diagnostics` 不承载 tool result details 展示。
 
 ## 已知问题
 
 - Provider 层仍偏薄：模型能力、认证解析和请求选项已有最小结构化边界，OpenAI/Anthropic/Gemini 已消费主要 ProviderRequestOptions；Google 默认 thinking、retry 分层和 stream 首包 retry 已向 `pi-mono` 收敛，abort propagation 和 Retry-After 已有最小闭环，但 Google auth/baseUrl/provider variant 仍可能与 pi-mono 实际运行路径不同。
+- Google stream 首包后的中途失败恢复尚未实现完整 Agent Runtime lifecycle；这不应继续下沉到 provider retry，而应由 agent-loop/session 在 durable turn boundary 上恢复。
 - Provider auth 当前已有 API key resolver，支持 runtime/config/env 优先级；尚未支持 OAuth 或 provider-specific auth storage。
 - 工具层大输出已具备 head/tail 基础策略、lines/bytes truncation details、compaction-time lightweight tool result normalization、tool-specific collapsed line preview、TUI 全局工具结果 expand/collapse、bash streaming partial update、RPC partial update event 和 bash visual-line tail preview；如果后续要更完整消费 details，需要扩展 durable tool message schema。
 - Tool Result 已有 `content + typed details` 和工具级 `renderResult` 最小边界；当前 details 主要用于运行时展示，尚未持久化进 session message。
