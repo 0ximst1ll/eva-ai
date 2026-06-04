@@ -34,6 +34,24 @@ Eva AI 不在 `pi-mono` 和 `claude-code` 之间二选一。
 - 治理层优先可解释、可测试、fail-closed。
 - 节奏上遵循“先骨架、后能力、再治理”。
 
+## Pi-Mono Alignment Strategy
+
+Eva AI 当前核心骨架已经接近 `pi-mono`，后续对齐不追求复制全部复杂度，而是优先补齐会明显影响编码体验、稳定性和长期扩展边界的细节。
+
+对齐优先级：
+
+- P0：Prompt Resource / Tool Prompt Metadata、Agent Runtime 和 Provider request lifecycle。优先补齐动态 system prompt、active tool prompt snippets/guidelines、failed assistant turn、stream error message lifecycle、retry UI state、provider model/auth/request option 细节，因为这些直接影响工具调用准确性、长任务稳定性和错误恢复体验。
+- P1：Tool System 和 Session durable schema。优先补齐 typed tool result details 的 durable boundary、tool result block content、session migration 和 branch summary pipeline，因为这些决定工具输出、compaction 和恢复质量。
+- P2：Extension/MCP 和 product polish。等核心 runtime/session/tool/provider 边界稳定后，再补完整 extension registry、package discovery、MCP lifecycle、export/search/selector 等产品能力。
+
+各域对齐目标：
+
+- Agent Runtime：从简单 delta event 逐步升级为更完整的 assistant turn lifecycle；错误、abort、partial output、retry 都应归一到同一消息生命周期，而不是散落在 provider 和 UI 层。
+- Session / Recovery：entry tree 继续作为事实源；补齐 migration、labels/session info、branch summary、error/aborted assistant handling 和更完整的 tree navigation，但避免提前引入比当前需求更重的 repo 层。
+- Tool System：保持 `renderCall` / `renderResult` / typed details 方向；补齐工具自身的 prompt snippet/guidelines、durable tool details、block content、rich renderer、extension tool registry 和更完整的 tool result compaction。
+- Resources / Prompt Context：system prompt 不应只是静态配置文本；后续应基于 active tools、project context、skills 和 append prompt 动态构造 provider-facing prompt，并保持工具名、schema、使用边界和 UI 展示一致。
+- Provider：从 client wrapper 继续收敛为 provider subsystem；补齐 model registry、compat flags、auth variants、stream error contract、payload/response hooks、session/cache affinity 和 cross-provider message transform。
+
 ## Architecture Domains
 
 ### 1. Agent Runtime

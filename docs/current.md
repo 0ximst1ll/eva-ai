@@ -1,6 +1,6 @@
 # Eva AI Current
 
-## 当前状态（2026-06-02）
+## 当前状态（2026-06-04）
 
 ## 已完成
 
@@ -49,22 +49,73 @@
 
 ## 进行中
 
-- Provider Reliability 根据真实使用反馈完成一轮修复。
-- 当前已将 Google 默认 thinking、retry 分层、Google stream 首包 retry、首包后中途失败恢复和 AgentSession 默认 retry delay 向 `pi-mono` 收敛；后续需要用真实 Gemini 运行观察 high-demand 错误是否明显减少。
+- Provider Reliability 根据真实使用反馈完成一轮修复，当前需要进入真实 Gemini 验证和 pi-mono 细节差距收口。
+- 当前已将 Google 默认 thinking、retry 分层、Google stream 首包 retry、首包后中途失败恢复和 AgentSession 默认 retry delay 向 `pi-mono` 收敛；后续需要继续补齐 Agent Runtime / Session / Tools / Provider 四个域的细节对齐。
+
+## pi-mono 架构对齐评估（2026-06-04）
+
+当前评分只衡量“与 pi-mono 的对齐程度”，不代表 Eva 自身设计优劣。
+
+| 架构域 | 对齐度 | 当前判断 |
+|---|---:|---|
+| Agent Runtime | 7/10 | 主干分层已接近，stream/message lifecycle 仍偏薄 |
+| Session / Recovery | 7.5/10 | entry-tree 骨架接近，细节能力少于 pi-mono |
+| Tool System | 7/10 | 工具执行和展示边界接近，typed content/extension 能力不足 |
+| Provider | 5.5/10 | 关键体验问题已补一轮，整体成熟度仍明显落后 |
+
+Prompt Resource / Tool Prompt Metadata 主要差距：
+
+- Eva 当前 system prompt 主要来自静态配置文本，未像 pi-mono 一样基于 active tools 动态构造 `Available tools`。
+- Eva 工具定义已有 schema、renderer 和 metadata，但尚未把 `promptSnippet` / `promptGuidelines` 作为工具定义的一等字段。
+- Eva 的 system prompt 没有明确列出 `write_file` 等真实工具名、必填参数和使用边界；这可能导致模型在复杂任务中生成空 args 或错误 args。
+- Eva 工具 UI 展示名和真实工具名存在轻微错位，例如 `write_file` 在展示层显示为 `write ...`，不利于排查工具参数问题。
+
+Agent Runtime 主要差距：
+
+- Eva 已有 `RuntimeHost -> RuntimeServices -> AgentSession -> Agent -> agent-loop`，但 stream event 仍是扁平 delta；pi-mono 有更完整的 `start/text_start/text_delta/text_end/toolcall_*` 和 partial assistant message。
+- Eva 当前 provider 失败发 `error` event，不形成统一的 `AssistantMessage(stopReason="error" | "aborted")`；pi-mono 会把失败 turn 也放进 assistant message lifecycle。
+- Eva 已能从 durable boundary retry，但 UI/TUI 对失败尝试中已显示 partial output 还没有统一撤销/替换机制。
+- Eva 的 queue/retry/agent_end UI 语义少于 pi-mono，例如缺少 `willRetry`、retry countdown/abort state 和更完整 queue update。
+
+Session / Recovery 主要差距：
+
+- Eva entry tree、active leaf、fork/clone/branch/import/export 已接近 pi-mono；但 entry 类型少于 pi-mono，尚无 `model_change`、`thinking_level_change`、`label`、`session_info`、`custom_message` 等完整语义。
+- Eva 目前是 schema validation/recovery，尚未有正式 schema migration framework。
+- Eva branch summary 当前更偏结构元信息；pi-mono 有可生成、可进入上下文的 branch summary pipeline。
+- Eva 暂不持久化 failed assistant turn；pi-mono 可持久化 error/aborted assistant，并在 provider transform 时跳过这些不应 replay 的消息。
+- Eva 尚未补齐跨 session parent/child entry graph、完整 tree navigation 产品交互、session selector/search/path delete/export polish。
+
+Tool System 主要差距：
+
+- Eva 已有 metadata、governance hook、read-only 并发、write/bash 串行、runtime schema validation、`renderCall`、`renderResult`、typed details 和 partial update。
+- Eva tool result 仍以 string content 为主；pi-mono 的 tool result 支持 text/image block content。
+- Eva details 主要用于运行时展示，尚未成为 durable tool message schema 的一等字段。
+- Eva renderer 返回字符串 `displayContent`；pi-mono renderer 返回 TUI component，并支持更完整 export renderer。
+- Eva extension-style hook 仍是内部最小边界；pi-mono 已有完整 extension tool registry、active tool filtering、prompt snippets/guidelines、allowed/excluded tools 和 tool event interception。
+
+Provider 主要差距：
+
+- Eva 已有 OpenAI/Anthropic/Google adapter、ProviderModel、ProviderAuthResolver、ProviderRequestOptions、Google thinkingConfig、Retry-After、abort propagation 和 Google stream retry 边界。
+- Eva model capability 仍主要靠少量手写规则；pi-mono 有完整 model registry、generated metadata 和大量 compat flags。
+- Eva auth 以 API key/env/config 为主；pi-mono 支持 OAuth、provider-specific auth storage 和 headers。
+- Eva provider stream 仍主要通过 throw 交给 agent-loop；pi-mono 要求 stream failure 编码成 `error` event 和 `AssistantMessage(stopReason="error")`。
+- Eva 还缺 `onPayload` / `onResponse`、responseId、cacheRetention、sessionId cache affinity、prompt cache usage/cost、cross-provider transform、orphan tool call synthetic result 等 provider 细节。
 
 ## 下一步
 
 - 第一优先级：用真实 Gemini 运行验证默认 hidden/minimal thinking、2s 起步 agent retry、Google stream 首包 retry 和首包后 durable boundary retry 是否改善 overload/high-demand 体验；如仍失败，再对比 pi-mono 的 Google auth/baseUrl/provider variant。
-- 第二优先级：继续观察 UI/TUI 对失败尝试中已显示 partial content 的处理；当前已保证不会持久化半截 turn，但还没有做已显示 partial output 的撤销/替换。
-- 第三优先级：继续 M5 Tool output UX 收口，评估是否需要把 tool result details 持久化进 session schema，或先进入 MCP lifecycle 最小闭环。
-- 第四优先级：根据真实使用反馈决定是否需要暴露 reasoning 配置；默认保持 `pi-mono` 风格的 reasoning-off/hidden-minimal 行为。
-- 第五优先级：后续进入 MCP lifecycle 最小闭环，接入同一 registry、metadata 和 hook 边界，不直接引入完整 extension system。
+- 第二优先级：先对齐 pi-mono 的动态 system prompt 和 tool prompt metadata：基于 active tools 注入工具列表、工具用途、prompt guidelines，并保持工具名、schema、renderer 展示一致。
+- 第三优先级：Agent Runtime 对齐 pi-mono 的 failed assistant turn / error assistant message lifecycle，让 error/abort/partial output/retry 进入统一 assistant turn 模型。
+- 第四优先级：Provider 继续补齐 model registry、compat flags、auth variants、stream error contract、payload/response hooks 和 session/cache affinity。
+- 第五优先级：Tool System 补 durable tool details、block content、rich renderer/export renderer 和 extension tool registry 边界。
+- 第六优先级：Session 补 schema migration、label/session_info、branch summary pipeline、error/aborted assistant handling 和更完整 tree navigation。
 - 保持 permission diagnostics 简单，继续沿用 pending/denied 关键事实；`/diagnostics` 不承载 tool result details 展示。
 
 ## 已知问题
 
 - Provider 层仍偏薄：模型能力、认证解析和请求选项已有最小结构化边界，OpenAI/Anthropic/Gemini 已消费主要 ProviderRequestOptions；Google 默认 thinking、retry 分层和 stream 首包 retry 已向 `pi-mono` 收敛，abort propagation 和 Retry-After 已有最小闭环，但 Google auth/baseUrl/provider variant 仍可能与 pi-mono 实际运行路径不同。
 - Google stream 首包后的中途失败恢复已有 durable boundary 最小闭环，但 UI/TUI 对失败尝试中已经渲染的 partial output 还没有统一撤销/替换机制。
+- System prompt 仍偏静态，未按 active tools 注入工具 snippets/guidelines；这可能影响 `write_file`、`edit_file` 等工具在复杂任务中的参数完整性和选择准确性。
 - Provider auth 当前已有 API key resolver，支持 runtime/config/env 优先级；尚未支持 OAuth 或 provider-specific auth storage。
 - 工具层大输出已具备 head/tail 基础策略、lines/bytes truncation details、compaction-time lightweight tool result normalization、tool-specific collapsed line preview、TUI 全局工具结果 expand/collapse、bash streaming partial update、RPC partial update event 和 bash visual-line tail preview；如果后续要更完整消费 details，需要扩展 durable tool message schema。
 - Tool Result 已有 `content + typed details` 和工具级 `renderResult` 最小边界；当前 details 主要用于运行时展示，尚未持久化进 session message。
