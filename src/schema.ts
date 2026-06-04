@@ -34,6 +34,7 @@ export type LlmMessage =
         content: string;
         tool_call_id: string;
         name?: string;
+        details?: ToolExecutionDetails;
     };
 
 export type Message = LlmMessage;

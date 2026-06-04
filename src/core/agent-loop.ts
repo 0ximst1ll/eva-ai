@@ -579,6 +579,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
             content: formatToolResultMessageContent(result),
             tool_call_id: result.toolCallId,
             name: result.toolName,
+            details: result.details,
           });
         }
         if (config.signal?.aborted) {

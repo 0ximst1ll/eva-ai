@@ -141,6 +141,63 @@ test('AgentSession keeps transient project context out of session history', asyn
   assert.equal(session.apiTotalTokens, 9);
 });
 
+test('AgentSession persists tool result details in session history', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'tool-details-session');
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-1', 'inspect', { path: 'README.md' })],
+    },
+    {
+      content: 'done',
+      finish_reason: 'stop',
+    },
+  ]);
+  const tool: Tool = {
+    name: 'inspect',
+    description: 'Inspect a file',
+    parameters: { type: 'object' },
+    async execute() {
+      return {
+        success: true,
+        content: '1|hello',
+        details: {
+          totalLines: 12,
+          shownLines: 1,
+        },
+      };
+    },
+  };
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [tool],
+    maxSteps: 3,
+    sessionManager,
+    sessionId,
+  });
+
+  await session.addUserMessage('inspect README');
+  assert.equal(await session.run(), 'done');
+
+  const toolMessage = sessionManager.getMessages(sessionId).find((message) => message.role === 'tool');
+  assert.deepEqual(toolMessage, {
+    role: 'tool',
+    content: '1|hello',
+    tool_call_id: 'call-1',
+    name: 'inspect',
+    details: {
+      totalLines: 12,
+      shownLines: 1,
+    },
+  });
+});
+
 test('AgentSession forwards agent lifecycle events to the UI boundary', async () => {
   const sessionManager = new SessionManager({
     workspaceDir: '/workspace',

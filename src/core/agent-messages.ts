@@ -14,7 +14,17 @@ export function defaultTransformContext(messages: AgentMessage[]): AgentMessage[
 }
 
 export function defaultConvertToLlm(messages: AgentMessage[]): LlmMessage[] {
-  return messages.filter(isLlmMessage).map((message) => ({ ...message }));
+  return messages.filter(isLlmMessage).map((message) => {
+    if (message.role === 'tool') {
+      return {
+        role: 'tool',
+        content: message.content,
+        tool_call_id: message.tool_call_id,
+        name: message.name,
+      };
+    }
+    return { ...message };
+  });
 }
 
 export function isLlmMessage(message: AgentMessage): message is LlmMessage {

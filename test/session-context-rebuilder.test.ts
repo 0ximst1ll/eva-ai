@@ -6,6 +6,14 @@ import test from 'node:test';
 import { rebuildSessionContext } from '../src/core/session-context-rebuilder.js';
 import { CURRENT_SESSION_SCHEMA_VERSION, SessionManager } from '../src/core/session-manager.js';
 
+function toolCall(id: string, name: string, args: Record<string, unknown> = {}) {
+  return {
+    id,
+    type: 'function',
+    function: { name, arguments: args },
+  };
+}
+
 test('SessionContextRebuilder ignores sessions without entry metadata', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-context-rebuild-old-'));
   const workspaceDir = path.join(tempDir, 'workspace');
@@ -118,6 +126,54 @@ test('SessionContextRebuilder rebuilds messages from the active entry path', asy
       'branch task',
     ]);
     assert.equal(snapshot.entryTree.activeEntryId, 'entry-branch-task');
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('SessionContextRebuilder preserves durable tool result details after reload', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-context-rebuild-tool-details-'));
+  const workspaceDir = path.join(tempDir, 'workspace');
+  const baseDir = path.join(tempDir, 'sessions');
+
+  try {
+    const writer = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    const sessionId = await writer.createSession('system', 'tool-details-session');
+    await writer.appendMessage(sessionId, {
+      role: 'assistant',
+      content: '',
+      tool_calls: [toolCall('call-1', 'read', { path: 'README.md' })],
+    });
+    await writer.appendMessage(sessionId, {
+      role: 'tool',
+      content: '1|hello',
+      tool_call_id: 'call-1',
+      name: 'read',
+      details: {
+        totalLines: 12,
+        startLine: 1,
+        endLine: 1,
+        shownLines: 1,
+      },
+    });
+
+    const reader = new SessionManager({ workspaceDir, mode: 'jsonl', baseDir });
+    assert.equal(await reader.loadSession(sessionId), true);
+    const snapshot = await rebuildSessionContext({ sessionManager: reader, sessionId });
+    const toolMessage = snapshot?.messages.find((message) => message.role === 'tool');
+
+    assert.deepEqual(toolMessage, {
+      role: 'tool',
+      content: '1|hello',
+      tool_call_id: 'call-1',
+      name: 'read',
+      details: {
+        totalLines: 12,
+        startLine: 1,
+        endLine: 1,
+        shownLines: 1,
+      },
+    });
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

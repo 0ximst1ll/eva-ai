@@ -675,9 +675,22 @@ test('defaultConvertToLlm filters internal agent messages', () => {
     { role: 'system', content: 'system' },
     createInternalAgentMessage({ kind: 'ui_state', content: 'do not send' }),
     { role: 'user', content: 'hello' },
+    {
+      role: 'tool',
+      content: 'tool output',
+      tool_call_id: 'call-1',
+      name: 'read',
+      details: { totalLines: 10 },
+    },
   ]);
 
-  assert.deepEqual(llmMessages.map((message) => message.content), ['system', 'hello']);
+  assert.deepEqual(llmMessages.map((message) => message.content), ['system', 'hello', 'tool output']);
+  assert.deepEqual(llmMessages[2], {
+    role: 'tool',
+    content: 'tool output',
+    tool_call_id: 'call-1',
+    name: 'read',
+  });
 });
 
 test('runAgentLoop can run without a max step guard', async () => {

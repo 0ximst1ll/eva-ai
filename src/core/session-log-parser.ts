@@ -372,6 +372,9 @@ function validateMessageEntry(entry: SessionEntry): string | null {
   if (message['role'] === 'tool' && !isNonEmptyString(message['tool_call_id'])) {
     return 'message.message.tool_call_id must be a non-empty string for tool messages';
   }
+  if (message['role'] === 'tool' && message['details'] !== undefined && !isRecord(message['details'])) {
+    return 'message.message.details must be an object when present';
+  }
   if (message['role'] === 'assistant' && message['thinking'] !== undefined && typeof message['thinking'] !== 'string') {
     return 'message.message.thinking must be a string when present';
   }
