@@ -149,6 +149,7 @@ test('SessionContextRebuilder preserves durable tool result details after reload
       content: '1|hello',
       tool_call_id: 'call-1',
       name: 'read',
+      contentBlocks: [{ type: 'text', text: '1|hello' }],
       details: {
         totalLines: 12,
         startLine: 1,
@@ -167,6 +168,7 @@ test('SessionContextRebuilder preserves durable tool result details after reload
       content: '1|hello',
       tool_call_id: 'call-1',
       name: 'read',
+      contentBlocks: [{ type: 'text', text: '1|hello' }],
       details: {
         totalLines: 12,
         startLine: 1,

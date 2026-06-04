@@ -20,6 +20,9 @@ export interface ToolCall {
     };
 }
 
+export type ToolResultContentBlock =
+    | { type: 'text'; text: string };
+
 export type LlmMessage =
     | { role: 'system'; content: string }
     | { role: 'user'; content: string }
@@ -34,6 +37,7 @@ export type LlmMessage =
         content: string;
         tool_call_id: string;
         name?: string;
+        contentBlocks?: ToolResultContentBlock[];
         details?: ToolExecutionDetails;
     };
 
@@ -79,6 +83,7 @@ export interface ToolExecutionResult {
     args?: Record<string, unknown>;
     success: boolean;
     content: string;
+    contentBlocks?: ToolResultContentBlock[];
     displayContent?: string;
     error?: string;
     details?: ToolExecutionDetails;

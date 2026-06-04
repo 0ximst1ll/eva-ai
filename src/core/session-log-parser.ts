@@ -375,6 +375,9 @@ function validateMessageEntry(entry: SessionEntry): string | null {
   if (message['role'] === 'tool' && message['details'] !== undefined && !isRecord(message['details'])) {
     return 'message.message.details must be an object when present';
   }
+  if (message['role'] === 'tool' && message['contentBlocks'] !== undefined && !isValidToolContentBlocks(message['contentBlocks'])) {
+    return 'message.message.contentBlocks must be an array of supported content blocks when present';
+  }
   if (message['role'] === 'assistant' && message['thinking'] !== undefined && typeof message['thinking'] !== 'string') {
     return 'message.message.thinking must be a string when present';
   }
@@ -456,6 +459,15 @@ function validatePathEntryBase(entry: Extract<SessionEntry, { entryId: string }>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isValidToolContentBlocks(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  return value.every((block) => (
+    isRecord(block)
+    && block['type'] === 'text'
+    && typeof block['text'] === 'string'
+  ));
 }
 
 function isNonEmptyString(value: unknown): value is string {

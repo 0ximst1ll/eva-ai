@@ -198,6 +198,63 @@ test('AgentSession persists tool result details in session history', async () =>
   });
 });
 
+test('AgentSession persists tool result content blocks in session history', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'tool-blocks-session');
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-1', 'blocks')],
+    },
+    {
+      content: 'done',
+      finish_reason: 'stop',
+    },
+  ]);
+  const tool: Tool = {
+    name: 'blocks',
+    description: 'Return block content',
+    parameters: { type: 'object' },
+    async execute() {
+      return {
+        success: true,
+        content: 'fallback text',
+        contentBlocks: [
+          { type: 'text', text: 'first block' },
+          { type: 'text', text: 'second block' },
+        ],
+      };
+    },
+  };
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [tool],
+    maxSteps: 3,
+    sessionManager,
+    sessionId,
+  });
+
+  await session.addUserMessage('run blocks');
+  assert.equal(await session.run(), 'done');
+
+  const toolMessage = sessionManager.getMessages(sessionId).find((message) => message.role === 'tool');
+  assert.deepEqual(toolMessage, {
+    role: 'tool',
+    content: 'first block\nsecond block',
+    tool_call_id: 'call-1',
+    name: 'blocks',
+    contentBlocks: [
+      { type: 'text', text: 'first block' },
+      { type: 'text', text: 'second block' },
+    ],
+  });
+});
+
 test('AgentSession forwards agent lifecycle events to the UI boundary', async () => {
   const sessionManager = new SessionManager({
     workspaceDir: '/workspace',

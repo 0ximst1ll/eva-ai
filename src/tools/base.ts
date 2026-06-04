@@ -4,12 +4,15 @@
 // so tools don't need to carry them as instance methods.
 
 import { calculateDisplayWidth } from '../utils/terminal.js';
+import type { ToolResultContentBlock } from '../schema.js';
 
 export type ToolResultDetails = Record<string, unknown>;
+export type { ToolResultContentBlock };
 
 export interface ToolResult<TDetails extends ToolResultDetails = ToolResultDetails> {
   success: boolean;
   content: string;
+  contentBlocks?: ToolResultContentBlock[];
   error?: string;
   details?: TDetails;
 }
@@ -83,7 +86,7 @@ export interface ToolExecutionContext {
   readonly toolCallId?: string;
   readonly signal?: AbortSignal;
   readonly allowOutsideWorkspace?: boolean;
-  readonly onUpdate?: (update: { content?: string; details?: Record<string, unknown> }) => void;
+  readonly onUpdate?: (update: { content?: string; contentBlocks?: ToolResultContentBlock[]; details?: Record<string, unknown> }) => void;
 }
 
 export function isToolExecutionAborted(context?: ToolExecutionContext): boolean {

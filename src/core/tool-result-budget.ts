@@ -1,4 +1,4 @@
-import type { ToolExecutionResult } from '../schema.js';
+import type { ToolExecutionResult, ToolResultContentBlock } from '../schema.js';
 
 export const DEFAULT_TOOL_RESULT_MAX_CHARS = 20000;
 
@@ -14,11 +14,12 @@ export function applyToolResultBudget(
   if (maxChars === null) return result;
 
   let next = result;
-  const content = truncateText(result.content, maxChars, 'Tool result');
+  const content = truncateText(flattenToolResultContent(result), maxChars, 'Tool result');
   if (content.truncated) {
     next = {
       ...next,
       content: content.text,
+      contentBlocks: next.contentBlocks ? [{ type: 'text', text: content.text }] : next.contentBlocks,
       details: {
         ...next.details,
         toolResultBudget: {
@@ -64,7 +65,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function formatToolResultMessageContent(result: ToolExecutionResult): string {
-  return result.success ? result.content : `Error: ${result.error ?? 'Unknown error'}`;
+  if (!result.success) return `Error: ${result.error ?? 'Unknown error'}`;
+  return flattenToolResultContent(result);
+}
+
+export function flattenToolResultContent(result: Pick<ToolExecutionResult, 'content' | 'contentBlocks'>): string {
+  const blocks = result.contentBlocks;
+  if (!blocks?.length) return result.content;
+  const text = blocks
+    .map(formatToolResultContentBlock)
+    .filter((part) => part.length > 0)
+    .join('\n');
+  return text || result.content;
+}
+
+function formatToolResultContentBlock(block: ToolResultContentBlock): string {
+  if (block.type === 'text') return block.text;
+  return '';
 }
 
 function normalizeMaxChars(maxChars: number | null | undefined): number | null {

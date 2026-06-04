@@ -146,6 +146,87 @@ test('runAgentLoop continues after tool calls and preserves tool result order', 
   );
 });
 
+test('runAgentLoop flattens tool result content blocks for provider requests', async () => {
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-1', 'blocks')],
+    },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const tool: Tool = {
+    name: 'blocks',
+    description: 'Return block content',
+    parameters: { type: 'object' },
+    async execute() {
+      return {
+        success: true,
+        content: 'fallback text',
+        contentBlocks: [
+          { type: 'text', text: 'first block' },
+          { type: 'text', text: 'second block' },
+        ],
+      };
+    },
+  };
+
+  await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [tool],
+    maxSteps: 3,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+  });
+
+  assert.deepEqual(llm.calls[1].at(-1), {
+    role: 'tool',
+    content: 'first block\nsecond block',
+    tool_call_id: 'call-1',
+    name: 'blocks',
+  });
+});
+
+test('runAgentLoop applies tool result budget to flattened content blocks', async () => {
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-1', 'blocks')],
+    },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const tool: Tool = {
+    name: 'blocks',
+    description: 'Return large block content',
+    parameters: { type: 'object' },
+    async execute() {
+      return {
+        success: true,
+        content: '',
+        contentBlocks: [{ type: 'text', text: 'x'.repeat(120) }],
+      };
+    },
+  };
+  const events: AgentLoopEvent[] = [];
+
+  await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [tool],
+    maxSteps: 3,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+    toolResultBudget: { maxChars: 80 },
+    emit: (event) => {
+      events.push(event);
+    },
+  });
+
+  const result = events.find((event) => event.type === 'tool_result')?.result;
+  assert.equal(result?.contentTruncated, true);
+  assert.equal(result?.contentBlocks?.[0]?.type, 'text');
+  assert.equal(result?.contentBlocks?.[0]?.text, result?.content);
+  assert.match(llm.calls[1].at(-1)?.content ?? '', /Tool result truncated/);
+});
+
 test('runAgentLoop passes abort signal to provider requests', async () => {
   const controller = new AbortController();
   const llm = new ScriptedLLM([{ content: 'done', finish_reason: 'stop' }]);
@@ -680,6 +761,7 @@ test('defaultConvertToLlm filters internal agent messages', () => {
       content: 'tool output',
       tool_call_id: 'call-1',
       name: 'read',
+      contentBlocks: [{ type: 'text', text: 'tool output' }],
       details: { totalLines: 10 },
     },
   ]);

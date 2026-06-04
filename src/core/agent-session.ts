@@ -520,6 +520,7 @@ export class AgentSession {
         content: formatToolResultMessageContent(event.result),
         tool_call_id: event.result.toolCallId,
         name: event.result.toolName,
+        contentBlocks: event.result.contentBlocks,
         details: event.result.details,
       });
       return;

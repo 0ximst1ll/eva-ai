@@ -297,6 +297,7 @@ async function executeToolCall(
             args,
             success: true,
             content: update.content ?? '',
+            contentBlocks: update.contentBlocks,
             details: update.details,
           },
           { isPartial: true },
@@ -310,6 +311,7 @@ async function executeToolCall(
       args,
       success: output.success,
       content: output.content,
+      contentBlocks: output.contentBlocks,
       error: output.error,
       details: output.details,
     };
@@ -579,6 +581,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
             content: formatToolResultMessageContent(result),
             tool_call_id: result.toolCallId,
             name: result.toolName,
+            contentBlocks: result.contentBlocks,
             details: result.details,
           });
         }
