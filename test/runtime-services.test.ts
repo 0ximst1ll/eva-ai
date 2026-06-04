@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 import { createRuntimeServices } from '../src/core/runtime-services.js';
+import type { Tool } from '../src/tools/base.js';
 
 async function writeConfig(
   dir: string,
@@ -85,6 +86,47 @@ test('createRuntimeServices builds workspace-bound services without creating an 
     assert.ok(services.llmClient);
     assert.ok(services.diagnostics.some((diagnostic) => diagnostic.code === 'config_loaded'));
     assert.ok(services.diagnostics.some((diagnostic) => diagnostic.code === 'session_manager_ready'));
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('createRuntimeServices passes active tools to ContextBuilder', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-services-'));
+  const tool: Tool = {
+    name: 'write_file',
+    description: 'Write content to a file',
+    promptSnippet: 'Create a new file or completely overwrite a file',
+    promptGuidelines: ['Always provide both required arguments: path and complete content.'],
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        content: { type: 'string' },
+      },
+      required: ['path', 'content'],
+    },
+    async execute() {
+      return { success: true, content: 'ok' };
+    },
+  };
+
+  try {
+    const configPath = await writeConfig(tempDir);
+    const services = await createRuntimeServices({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'memory',
+      tools: [tool],
+    });
+
+    assert.deepEqual(services.contextBuilder.tools.map((candidate) => candidate.name), ['write_file']);
+    const result = services.contextBuilder.build({
+      systemPrompt: 'system',
+      llmMessages: [{ role: 'system', content: 'system' }],
+    });
+    assert.match(result.messages[0]?.content ?? '', /<tool name="write_file">/);
+    assert.match(result.messages[0]?.content ?? '', /Required arguments: path, content/);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

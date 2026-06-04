@@ -17,6 +17,12 @@ export class EditTool implements Tool<EditToolInput> {
   readonly name = 'edit_file';
   readonly description =
     'Perform exact string replacement in a workspace file. old_str must match exactly and appear uniquely.';
+  readonly promptSnippet = 'Edit an existing file by replacing one exact unique string';
+  readonly promptGuidelines = [
+    'Use edit_file for targeted changes to existing files.',
+    'Read the file first and make old_str exact and unique.',
+    'Use write_file instead when creating a new file or rewriting the whole file.',
+  ];
   readonly parameters = {
     type: 'object',
     properties: {

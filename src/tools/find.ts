@@ -49,6 +49,11 @@ function renderFindCall({ pattern, path = '.', max_results }: FindToolInput): st
 export class FindTool implements Tool<FindToolInput, FindToolDetails> {
   readonly name = 'find_files';
   readonly description = 'Find files by filename substring or regular expression inside the workspace. Prefer this over bash find.';
+  readonly promptSnippet = 'Find workspace files by filename or path pattern';
+  readonly promptGuidelines = [
+    'Use find_files instead of bash find for filename searches.',
+    'Narrow path or max_results when a search may be broad.',
+  ];
   readonly parameters = {
     type: 'object',
     properties: {

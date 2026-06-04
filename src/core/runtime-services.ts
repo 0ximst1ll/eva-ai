@@ -133,12 +133,14 @@ function createContextReadyDiagnostic(resourceLoader: ResourceLoader, config: Co
 function createRuntimeResourceSet(
   workspaceDir: string,
   config: ConfigData,
+  tools: Tool[] = [],
   contextReadyCode = 'context_builder_ready',
 ): RuntimeResourceReloadResult {
   const resourceLoader = createResourceLoader({ workspaceDir, config });
   const contextBuilder = createContextBuilder({
     projectContext: resourceLoader.projectContext,
     skills: resourceLoader.skills,
+    tools,
     projectContextMaxChars: config.agent.projectContextMaxChars,
   });
   const diagnostics = [
@@ -156,7 +158,12 @@ function createRuntimeResourceSet(
 }
 
 export function reloadRuntimeServicesResources(services: RuntimeServices): RuntimeResourceReloadResult {
-  const result = createRuntimeResourceSet(services.workspaceDir, services.config, 'context_builder_reloaded');
+  const result = createRuntimeResourceSet(
+    services.workspaceDir,
+    services.config,
+    services.tools,
+    'context_builder_reloaded',
+  );
   const reloadDiagnostic = createDiagnostic({
     source: 'resource',
     level: 'info',
@@ -259,9 +266,6 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     }));
   }
 
-  const resourceSet = createRuntimeResourceSet(workspaceDir, config);
-  diagnostics.push(...resourceSet.diagnostics);
-
   let tools: Tool[];
   let toolRegistry: ToolRegistry | null = null;
   if (options.tools) {
@@ -279,6 +283,9 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     toolRegistry = loadedTools.registry;
     diagnostics.push(...loadedTools.diagnostics);
   }
+
+  const resourceSet = createRuntimeResourceSet(workspaceDir, config, tools);
+  diagnostics.push(...resourceSet.diagnostics);
 
   const sessionManager = new SessionManager({
     workspaceDir,

@@ -317,6 +317,12 @@ export class BashTool implements Tool<BashInput, BashToolDetails> {
   }
 
   readonly name = 'bash';
+  readonly promptSnippet = 'Run local development commands';
+  readonly promptGuidelines = [
+    'Use bash for commands like tests, type checks, git, package scripts, and local development workflows.',
+    'Do not use bash for file reads, writes, or edits when a specialized file tool is available.',
+    'Use run_in_background for long-running servers and monitor them with bash_output.',
+  ];
 
   get description(): string {
     return `Execute ${this.isWindows ? 'PowerShell' : 'bash'} commands in foreground or background.
@@ -582,6 +588,10 @@ interface BashOutputInput extends Record<string, unknown> {
 export class BashOutputTool implements Tool<BashOutputInput, BashToolDetails> {
   readonly name = 'bash_output';
   readonly description = 'Retrieves output from a running or completed background bash shell by bash_id.';
+  readonly promptSnippet = 'Read output from a background bash command';
+  readonly promptGuidelines = [
+    'Use bash_output only with a bash_id returned by a background bash command.',
+  ];
   readonly parameters = {
     type: 'object',
     properties: {
@@ -642,6 +652,10 @@ interface BashKillInput extends Record<string, unknown> {
 export class BashKillTool implements Tool<BashKillInput, BashToolDetails> {
   readonly name = 'bash_kill';
   readonly description = 'Kills a running background bash shell by its ID.';
+  readonly promptSnippet = 'Terminate a background bash command';
+  readonly promptGuidelines = [
+    'Use bash_kill only with a bash_id returned by a background bash command.',
+  ];
   readonly parameters = {
     type: 'object',
     properties: {

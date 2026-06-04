@@ -100,6 +100,8 @@ export interface ToolDefinition<
 > {
   readonly name: string;
   readonly description: string;
+  readonly promptSnippet?: string;
+  readonly promptGuidelines?: readonly string[];
   readonly parameters: JsonSchema;
   readonly metadata: ToolMetadata;
   prepareArguments?(args: Record<string, unknown>): Input;
@@ -116,6 +118,8 @@ export interface Tool<
 > {
   readonly name: string;
   readonly description: string;
+  readonly promptSnippet?: string;
+  readonly promptGuidelines?: readonly string[];
   readonly parameters: JsonSchema;
   readonly metadata?: ToolMetadata;
   execute(args: Input, context?: ToolExecutionContext): Promise<ToolResult<TDetails>>;
@@ -137,6 +141,8 @@ export function createToolDefinition<
   return {
     name: tool.name,
     description: tool.description,
+    promptSnippet: tool.promptSnippet,
+    promptGuidelines: tool.promptGuidelines,
     parameters: tool.parameters,
     metadata,
     execute: (args, context) => tool.execute(args, context),
@@ -154,6 +160,8 @@ export function toolFromDefinition<
   return {
     name: definition.name,
     description: definition.description,
+    promptSnippet: definition.promptSnippet,
+    promptGuidelines: definition.promptGuidelines,
     parameters: definition.parameters,
     metadata: definition.metadata,
     execute: (args, context) => definition.execute(definition.prepareArguments?.(args) ?? (args as Input), context),

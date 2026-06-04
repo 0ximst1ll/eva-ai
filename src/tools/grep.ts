@@ -51,6 +51,11 @@ function renderGrepCall({ pattern, path = '.', max_results, case_sensitive = tru
 export class GrepTool implements Tool<GrepToolInput, SearchToolDetails> {
   readonly name = 'grep_files';
   readonly description = 'Search text content in workspace files. Prefer this over bash grep/rg for code search.';
+  readonly promptSnippet = 'Search text content across workspace files';
+  readonly promptGuidelines = [
+    'Use grep_files for code and text search before using bash grep or rg.',
+    'Narrow path or max_results when a search may be broad.',
+  ];
   readonly parameters = {
     type: 'object',
     properties: {

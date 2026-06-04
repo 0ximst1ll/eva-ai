@@ -34,6 +34,11 @@ export class ReadTool implements Tool<ReadToolInput, ReadToolDetails> {
     "Read file contents from the filesystem. Output always includes line numbers " +
     "in format 'LINE_NUMBER|LINE_CONTENT' (1-indexed). Supports reading partial content " +
     "by specifying line offset and limit for large files.";
+  readonly promptSnippet = 'Read workspace file contents with line numbers';
+  readonly promptGuidelines = [
+    'Read files before editing existing content.',
+    'Use offset and limit when inspecting large files.',
+  ];
   readonly parameters = {
     type: 'object',
     properties: {

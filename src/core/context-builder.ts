@@ -1,5 +1,6 @@
 import { createDiagnostic, type RuntimeDiagnostic } from '../diagnostics.js';
 import type { LlmMessage } from '../schema.js';
+import type { Tool } from '../tools/base.js';
 import { isCompactionSummaryMessage } from './compaction.js';
 import type { ProjectContextResource, SkillResource } from './resource-loader.js';
 import { estimateMessagesTokens, estimateTextTokens, type TokenEstimate } from './token-estimator.js';
@@ -10,6 +11,7 @@ export const DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS = 4000;
 export interface ContextBuilder {
   readonly projectContext: ProjectContextResource[];
   readonly skills: SkillResource[];
+  readonly tools: Tool[];
   readonly projectContextMaxChars: number;
   readonly latestBuild: ContextBuildSummary | null;
   readonly latestProviderRequestView: ProviderRequestView | null;
@@ -55,6 +57,9 @@ export interface ContextBuildSummary {
   skillsMetadataInjected: boolean;
   skillCount: number;
   skillNames: string[];
+  toolPromptMetadataInjected: boolean;
+  toolCount: number;
+  toolNames: string[];
   skillInvocationInjected: boolean;
   skillInvocationCount: number;
   invokedSkillNames: string[];
@@ -78,6 +83,7 @@ function isCompactedContext(messages: LlmMessage[]): boolean {
 export interface CreateContextBuilderOptions {
   projectContext?: ProjectContextResource[];
   skills?: SkillResource[];
+  tools?: Tool[];
   projectContextMaxChars?: number;
 }
 
@@ -128,6 +134,59 @@ function appendSkillsMetadata(systemPrompt: string, skills: SkillResource[]): st
   const formattedSkills = formatSkillsForSystemPrompt(skills);
   if (!formattedSkills) return systemPrompt;
   return `${systemPrompt.trimEnd()}\n\n${formattedSkills}`;
+}
+
+function getRequiredParameters(tool: Tool): string[] {
+  const required = tool.parameters['required'];
+  return Array.isArray(required)
+    ? required.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    : [];
+}
+
+function formatToolForSystemPrompt(tool: Tool): string | null {
+  const snippet = tool.promptSnippet?.trim() || tool.description.trim();
+  if (!snippet) return null;
+
+  const lines = [
+    `<tool name="${escapeXml(tool.name)}">`,
+    escapeXml(snippet),
+  ];
+  const required = getRequiredParameters(tool);
+  if (required.length > 0) {
+    lines.push(`Required arguments: ${required.map(escapeXml).join(', ')}`);
+  }
+
+  const guidelines = [...new Set((tool.promptGuidelines ?? [])
+    .map((guideline) => guideline.trim())
+    .filter(Boolean))];
+  if (guidelines.length > 0) {
+    lines.push('Guidelines:');
+    for (const guideline of guidelines) {
+      lines.push(`- ${escapeXml(guideline)}`);
+    }
+  }
+
+  lines.push('</tool>');
+  return lines.join('\n');
+}
+
+function formatToolsForSystemPrompt(tools: Tool[]): string | null {
+  const blocks = tools
+    .map(formatToolForSystemPrompt)
+    .filter((block): block is string => Boolean(block));
+  if (blocks.length === 0) return null;
+
+  return [
+    '<available_tools>',
+    ...blocks,
+    '</available_tools>',
+  ].join('\n');
+}
+
+function appendToolMetadata(systemPrompt: string, tools: Tool[]): string {
+  const formattedTools = formatToolsForSystemPrompt(tools);
+  if (!formattedTools) return systemPrompt;
+  return `${systemPrompt.trimEnd()}\n\n${formattedTools}`;
 }
 
 function formatSkillInvocations(skills: SkillResource[]): string | null {
@@ -220,10 +279,12 @@ function insertAfterSystemMessage(
 export function createContextBuilder({
   projectContext = [],
   skills = [],
+  tools = [],
   projectContextMaxChars,
 }: CreateContextBuilderOptions = {}): ContextBuilder {
   const resources = projectContext.slice();
   const skillResources = skills.slice();
+  const activeTools = tools.slice();
   let pendingSkillInvocations: SkillResource[] = [];
   const maxChars = normalizeBudget(projectContextMaxChars);
   let latestBuild: ContextBuildSummary | null = null;
@@ -252,6 +313,7 @@ export function createContextBuilder({
   }): ContextBuildSummary {
     const providerRequestTokenEstimate = estimateMessagesTokens(providerRequestMessages);
     const visibleSkills = getModelVisibleSkills(skillResources);
+    const promptTools = activeTools.filter((tool) => tool.promptSnippet?.trim() || tool.description.trim());
     return {
       injected,
       compactedContext,
@@ -269,6 +331,9 @@ export function createContextBuilder({
       skillsMetadataInjected: visibleSkills.length > 0,
       skillCount: visibleSkills.length,
       skillNames: visibleSkills.map((skill) => skill.name),
+      toolPromptMetadataInjected: promptTools.length > 0,
+      toolCount: promptTools.length,
+      toolNames: promptTools.map((tool) => tool.name),
       skillInvocationInjected: invokedSkills.length > 0,
       skillInvocationCount: invokedSkills.length,
       invokedSkillNames: invokedSkills.map((skill) => skill.name),
@@ -301,6 +366,7 @@ export function createContextBuilder({
     },
     projectContext: resources,
     skills: skillResources,
+    tools: activeTools,
     projectContextMaxChars: maxChars,
     queueSkillInvocation(skillName: string): SkillInvocationResult {
       const normalizedName = skillName.trim();
@@ -320,7 +386,8 @@ export function createContextBuilder({
     build({ systemPrompt, llmMessages }: BuildProviderRequestViewInput): ProviderRequestView {
       const invokedSkills = pendingSkillInvocations;
       pendingSkillInvocations = [];
-      const systemPromptWithSkills = appendSkillsMetadata(systemPrompt, skillResources);
+      const systemPromptWithTools = appendToolMetadata(systemPrompt, activeTools);
+      const systemPromptWithSkills = appendSkillsMetadata(systemPromptWithTools, skillResources);
       const compactedContext = isCompactedContext(llmMessages);
       const effectiveMaxChars = compactedContext
         ? Math.min(maxChars, DEFAULT_POST_COMPACT_PROJECT_CONTEXT_MAX_CHARS)
