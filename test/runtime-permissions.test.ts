@@ -36,7 +36,7 @@ const writeTool: Tool = {
 
 const readTool: Tool = {
   ...writeTool,
-  name: 'read_file',
+  name: 'read',
   metadata: {
     category: 'read',
     riskLevel: 'low',

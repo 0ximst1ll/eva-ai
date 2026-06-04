@@ -468,7 +468,7 @@ test('runAgentLoop keeps unsafe tool calls serial even when parallel mode is ena
     {
       content: '',
       finish_reason: 'tool_use',
-      tool_calls: [toolCall('call-write', 'write'), toolCall('call-read', 'read_file')],
+      tool_calls: [toolCall('call-write', 'write'), toolCall('call-read', 'read')],
     },
     { content: 'done', finish_reason: 'stop' },
   ]);
@@ -489,7 +489,7 @@ test('runAgentLoop keeps unsafe tool calls serial even when parallel mode is ena
     },
   };
   const readTool: Tool = {
-    name: 'read_file',
+    name: 'read',
     description: 'Read file',
     parameters: { type: 'object' },
     metadata: {
@@ -500,7 +500,7 @@ test('runAgentLoop keeps unsafe tool calls serial even when parallel mode is ena
       isConcurrencySafe: true,
     },
     async execute() {
-      starts.push('read_file');
+      starts.push('read');
       return { success: true, content: await read.promise };
     },
   };
@@ -523,7 +523,7 @@ test('runAgentLoop keeps unsafe tool calls serial even when parallel mode is ena
   const result = await run;
 
   assert.equal(result.finalContent, 'done');
-  assert.deepEqual(starts, ['write', 'read_file']);
+  assert.deepEqual(starts, ['write', 'read']);
   assert.deepEqual(
     llm.calls[1]?.slice(-2).map((message) => message.content),
     ['write-result', 'read-result'],

@@ -771,7 +771,7 @@ test('/stats prints session and runtime details', async () => {
             model: 'MiniMax-M2.5',
           },
         },
-        tools: [{ name: 'read_file' }, { name: 'bash' }],
+        tools: [{ name: 'read' }, { name: 'bash' }],
         services: {
           contextBuilder,
           contextManager: createContextManagerMock({ contextBuilder, session, contextWindowTokens: 100000 }),

@@ -219,11 +219,11 @@ function collectFileOperation(
 ): void {
   const path = readStringArgument(toolCall.function.arguments, 'path');
   if (!path) return;
-  if (toolCall.function.name === 'read_file') {
+  if (toolCall.function.name === 'read') {
     readFiles.add(path);
     return;
   }
-  if (toolCall.function.name === 'write' || toolCall.function.name === 'edit_file') {
+  if (toolCall.function.name === 'write' || toolCall.function.name === 'edit') {
     modifiedFiles.add(path);
   }
 }

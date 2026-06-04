@@ -63,7 +63,7 @@ export function handleIdleCtrlCExit({
 // ── Helpers ────────────────────────────────────────────────
 
 function toolIcon(toolName: string): string {
-  if (toolName.startsWith('read') || toolName === 'list_files') return '📄';
+  if (toolName.startsWith('read') || toolName === 'ls') return '📄';
   if (toolName.startsWith('write') || toolName.startsWith('edit')) return '✏️ ';
   if (toolName === 'bash' || toolName === 'bash_output' || toolName === 'bash_kill') return '⚡';
   if (toolName.startsWith('find') || toolName.startsWith('grep')) return '🔍';

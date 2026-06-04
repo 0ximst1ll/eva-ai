@@ -29,7 +29,7 @@ function renderReadCall({ path, offset, limit }: ReadToolInput): string {
 }
 
 export class ReadTool implements Tool<ReadToolInput, ReadToolDetails> {
-  readonly name = 'read_file';
+  readonly name = 'read';
   readonly description =
     "Read file contents from the filesystem. Output always includes line numbers " +
     "in format 'LINE_NUMBER|LINE_CONTENT' (1-indexed). Supports reading partial content " +

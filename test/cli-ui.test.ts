@@ -118,7 +118,7 @@ test('createCliRenderer prefers tool display content for result output', () => {
       type: 'tool_result',
       result: {
         toolCallId: 'call-1',
-        toolName: 'read_file',
+        toolName: 'read',
         success: true,
         content: 'raw file content',
         displayContent: 'read 2 lines (1-2 of 10)',

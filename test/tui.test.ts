@@ -226,15 +226,15 @@ test('TUI entry selector items preserve entry hierarchy and active markers', () 
 
 test('TUI tool calls show pi-style argument summaries', () => {
   assert.equal(stripAnsi(formatTuiToolCall('bash', { command: 'git status', timeout: 3 }, new BashTool())), '$ git status (timeout 3s)');
-  assert.equal(stripAnsi(formatTuiToolCall('read_file', { path: 'src/index.ts', offset: 3, limit: 5 }, new ReadTool())), 'read src/index.ts:3-7');
+  assert.equal(stripAnsi(formatTuiToolCall('read', { path: 'src/index.ts', offset: 3, limit: 5 }, new ReadTool())), 'read src/index.ts:3-7');
   assert.equal(
-    stripAnsi(formatTuiToolCall('grep_files', { pattern: 'TODO', path: 'src', max_results: 20, case_sensitive: false }, new GrepTool())),
+    stripAnsi(formatTuiToolCall('grep', { pattern: 'TODO', path: 'src', max_results: 20, case_sensitive: false }, new GrepTool())),
     'grep /TODO/ in src limit 20 insensitive',
   );
-  assert.equal(stripAnsi(formatTuiToolCall('find_files', { pattern: 'test', path: 'src', max_results: 5 }, new FindTool())), 'find test in src limit 5');
-  assert.equal(stripAnsi(formatTuiToolCall('list_files', { path: 'docs' }, new LsTool())), 'ls docs');
+  assert.equal(stripAnsi(formatTuiToolCall('find', { pattern: 'test', path: 'src', max_results: 5 }, new FindTool())), 'find test in src limit 5');
+  assert.equal(stripAnsi(formatTuiToolCall('ls', { path: 'docs' }, new LsTool())), 'ls docs');
   assert.equal(stripAnsi(formatTuiToolCall('write', { path: 'out.txt', content: 'hidden' }, new WriteTool())), 'write out.txt');
-  assert.equal(stripAnsi(formatTuiToolCall('edit_file', { path: 'app.ts', old_str: 'a', new_str: 'b' }, new EditTool())), 'edit app.ts');
+  assert.equal(stripAnsi(formatTuiToolCall('edit', { path: 'app.ts', old_str: 'a', new_str: 'b' }, new EditTool())), 'edit app.ts');
   assert.equal(stripAnsi(formatTuiToolCall('custom_tool', { path: 'x', limit: 2 })), 'custom_tool(path=x, limit=2)');
 });
 

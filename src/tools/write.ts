@@ -21,7 +21,7 @@ export class WriteTool implements Tool<WriteToolInput> {
   readonly promptGuidelines = [
     'Use write only for new files or complete rewrites.',
     'Always provide both required arguments: path and complete content.',
-    'Use edit_file for targeted changes to existing files.',
+    'Use edit for targeted changes to existing files.',
   ];
   readonly parameters = {
     type: 'object',

@@ -53,7 +53,7 @@ test('GoogleClient preserves thought signatures on function call history', () =>
         {
           id: 'call-1',
           type: 'function',
-          function: { name: 'read_file', arguments: { path: 'README.md' } },
+          function: { name: 'read', arguments: { path: 'README.md' } },
           providerMetadata: { google: { thoughtSignature: 'signature-a' } },
         },
       ],
@@ -68,7 +68,7 @@ test('GoogleClient preserves thought signatures on function call history', () =>
       {
         functionCall: {
           id: 'call-1',
-          name: 'read_file',
+          name: 'read',
           args: { path: 'README.md' },
         },
         thoughtSignature: 'signature-a',
@@ -88,7 +88,7 @@ test('GoogleClient stores thought signatures returned with function calls', () =
             {
               functionCall: {
                 id: 'call-1',
-                name: 'read_file',
+                name: 'read',
                 args: { path: 'README.md' },
               },
               thoughtSignature: 'signature-a',
@@ -105,7 +105,7 @@ test('GoogleClient stores thought signatures returned with function calls', () =
   assert.deepEqual(parsed.tool_calls?.[0], {
     id: 'call-1',
     type: 'function',
-    function: { name: 'read_file', arguments: { path: 'README.md' } },
+    function: { name: 'read', arguments: { path: 'README.md' } },
     providerMetadata: { google: { thoughtSignature: 'signature-a' } },
   });
 });

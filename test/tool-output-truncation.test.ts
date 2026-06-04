@@ -9,7 +9,7 @@ import { GrepTool } from '../src/tools/grep.js';
 import { LsTool } from '../src/tools/ls.js';
 import { ReadTool } from '../src/tools/read.js';
 
-test('read_file keeps the head of large files and returns continuation guidance', async () => {
+test('read keeps the head of large files and returns continuation guidance', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-read-truncate-'));
   try {
     const filePath = path.join(tempDir, 'large.txt');
@@ -63,7 +63,7 @@ test('bash keeps tail output and stores full truncated output in temp storage', 
   }
 });
 
-test('grep_files reports max result boundaries', async () => {
+test('grep reports max result boundaries', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-grep-truncate-'));
   try {
     await fs.writeFile(path.join(tempDir, 'matches.txt'), ['needle one', 'needle two', 'needle three'].join('\n'), 'utf-8');
@@ -82,7 +82,7 @@ test('grep_files reports max result boundaries', async () => {
   }
 });
 
-test('list_files truncates large directory listings from the head', async () => {
+test('ls truncates large directory listings from the head', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-ls-truncate-'));
   try {
     const longName = `${'a'.repeat(240)}.txt`;
@@ -107,7 +107,7 @@ test('list_files truncates large directory listings from the head', async () => 
   }
 });
 
-test('find_files reports result boundaries in details', async () => {
+test('find reports result boundaries in details', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-find-details-'));
   try {
     for (let i = 0; i < 3; i++) {

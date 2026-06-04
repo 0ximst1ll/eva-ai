@@ -19,7 +19,7 @@
 - M5 Tool Execution Orchestration 最小闭环已实现：安全 read-only batch 并发，write/bash/high-risk/unknown 工具串行，tool result 按模型 tool call 原始顺序写回。
 - M5 三模式 permission rule/mode 最小闭环已实现：`default`、`read-only`、`full-access` 已落地到 runtime/tool governance，并记录 pending/denied 关键事实；网络/敏感系统命令识别已覆盖常见远端 git、包管理器、容器/云工具和系统包管理器命令；permission result 已明确表达 workspace 外、网络和系统资源 capability，并标记当前不提供 OS 级 sandbox enforcement。
 - M5 Tool Result Budget 当前已有最小实现：agent-loop 写回边界会对超预算 tool result 做 preview 截断，并保留原始长度/预算 metadata。
-- ToolResult `content + typed details` 最小闭环已实现：agent-loop 会透传工具结构化 details，`read_file`、`bash`、`grep_files`、`find_files`、`list_files` 已输出工具专属 details 类型，包含 truncation、行数/结果数、exit code、full output path 等结构化信息。
+- ToolResult `content + typed details` 最小闭环已实现：agent-loop 会透传工具结构化 details，`read`、`bash`、`grep`、`find`、`ls` 已输出工具专属 details 类型，包含 truncation、行数/结果数、exit code、full output path 等结构化信息。
 - 工具级 `renderResult` 最小边界已实现：工具定义可基于 typed details 生成 `displayContent`，CLI/TUI 优先展示该字段；模型写回和 session 持久化仍使用原始 `content`。
 - Tool call renderer 边界已对齐 `pi-mono`：工具定义可提供 `renderCall(args)`，TUI 通过工具 renderer 展示 bash `$ command`、read path、grep pattern/path 等关键参数，未知工具保留 fallback 摘要。
 - 工具运行时 schema 校验最小闭环已对齐 `pi-mono`：agent-loop 会在 hooks/execute 前校验 tool arguments，非法参数返回工具错误，不再进入具体工具执行。
@@ -40,7 +40,7 @@
 - RPC 已将 `tool_execution_update` 作为稳定 JSONL event 边界透出，保留 partial result 的 `content`、`displayContent`、`details` 和 tool args，客户端可按 `toolCallId` 消费 partial update。
 - Bash visual-line tail preview 最小闭环已实现：TUI/CLI 会把终端宽度传给工具 renderer，bash collapsed/partial preview 可按 terminal-width visual lines 取尾部输出。
 - 超大工具输出 session sidecar artifact 路径已拆除：tool result 不再保存 artifact reference、不再写 `tool_result_artifact` internal entry，session storage 不再暴露 tool result artifact API。
-- 工具层大输出截断已开始按工具类型收敛：`read_file` 保留 head 并提示 offset continuation，`bash` 保留 tail 并只在截断/中断时写系统临时 log，`grep_files` / `find_files` / `list_files` 保留 head 并提示缩小范围。
+- 工具层大输出截断已开始按工具类型收敛：`read` 保留 head 并提示 offset continuation，`bash` 保留 tail 并只在截断/中断时写系统临时 log，`grep` / `find` / `ls` 保留 head 并提示缩小范围。
 - 工具输出截断元数据已对齐 `pi-mono` 的 lines/bytes 双限制模型：`truncation` details 同时保留 Eva 旧 renderer 兼容字段和 `truncatedBy`、`totalLines`、`outputLines`、`totalBytes`、`outputBytes`、`maxLines`、`maxBytes` 等结构化字段。
 - Compaction preparation 已按 `pi-mono` 思路补最小闭环：manual/auto/prompt-too-long compaction 共享同一路径，summary prompt 只消费轻量规范化后的旧 tool result，并附加 read/modified files 这类长期有用事实。
 - 工具执行 abort lifecycle 已收敛：agent-loop 在工具批次边界停止后续执行，foreground bash 会响应 abort，已 abort 的同步文件工具不会继续读写。
@@ -68,8 +68,8 @@ Prompt Resource / Tool Prompt Metadata 当前状态：
 
 - Eva 当前 system prompt 已开始像 pi-mono 一样基于 active tools 动态构造 `available_tools`。
 - Eva 工具定义已有 schema、renderer、metadata、`promptSnippet` 和 `promptGuidelines` 一等字段。
-- Eva 的 system prompt 已明确列出 `write` 等真实工具名、必填参数和使用边界；后续需要通过真实 Gemini 任务验证它对空 args 或错误 args 的改善程度。
-- Eva 写文件工具真实名已从 `write_file` 直接收敛为 `write`，和展示层 `write ...` 对齐；历史 `write_file` tool call 不再作为兼容目标处理。
+- Eva 的 system prompt 已明确列出 `read/write/edit/ls/grep/find/bash` 等真实工具名、必填参数和使用边界；后续需要通过真实 Gemini 任务验证它对空 args 或错误 args 的改善程度。
+- Eva 核心内置工具真实名已直接收敛为 `read/write/edit/ls/grep/find/bash`，和 pi-mono 保持一致；历史 `_file(s)` tool call 不再作为兼容目标处理。后台 bash 辅助工具 `bash_output` / `bash_kill` 暂保留 Eva 现有后台命令协议。
 
 Agent Runtime 主要差距：
 
@@ -105,7 +105,7 @@ Provider 主要差距：
 ## 下一步
 
 - 第一优先级：用真实 Gemini 运行验证默认 hidden/minimal thinking、2s 起步 agent retry、Google stream 首包 retry 和首包后 durable boundary retry 是否改善 overload/high-demand 体验；如仍失败，再对比 pi-mono 的 Google auth/baseUrl/provider variant。
-- 第二优先级：真实验证动态 tool prompt metadata 对 `write` / `edit_file` 参数完整性的改善；如仍有错位，再收敛其他工具展示名、真实工具名和 schema/prompt 文案。
+- 第二优先级：真实验证动态 tool prompt metadata 对 `write` / `edit` 参数完整性的改善；如仍有错位，再收敛其他工具展示名、真实工具名和 schema/prompt 文案。
 - 第三优先级：Agent Runtime 对齐 pi-mono 的 failed assistant turn / error assistant message lifecycle，让 error/abort/partial output/retry 进入统一 assistant turn 模型。
 - 第四优先级：Provider 继续补齐 model registry、compat flags、auth variants、stream error contract、payload/response hooks 和 session/cache affinity。
 - 第五优先级：Tool System 补 durable tool details、block content、rich renderer/export renderer 和 extension tool registry 边界。
@@ -116,7 +116,7 @@ Provider 主要差距：
 
 - Provider 层仍偏薄：模型能力、认证解析和请求选项已有最小结构化边界，OpenAI/Anthropic/Gemini 已消费主要 ProviderRequestOptions；Google 默认 thinking、retry 分层和 stream 首包 retry 已向 `pi-mono` 收敛，abort propagation 和 Retry-After 已有最小闭环，但 Google auth/baseUrl/provider variant 仍可能与 pi-mono 实际运行路径不同。
 - Google stream 首包后的中途失败恢复已有 durable boundary 最小闭环，但 UI/TUI 对失败尝试中已经渲染的 partial output 还没有统一撤销/替换机制。
-- 动态 tool prompt metadata 已接入，但仍需真实 Gemini 任务验证；工具展示名和真实工具名仍有轻微错位。
+- 动态 tool prompt metadata 已接入，核心内置工具真实名已对齐 pi-mono；仍需真实 Gemini 任务验证工具参数完整性。
 - Provider auth 当前已有 API key resolver，支持 runtime/config/env 优先级；尚未支持 OAuth 或 provider-specific auth storage。
 - 工具层大输出已具备 head/tail 基础策略、lines/bytes truncation details、compaction-time lightweight tool result normalization、tool-specific collapsed line preview、TUI 全局工具结果 expand/collapse、bash streaming partial update、RPC partial update event 和 bash visual-line tail preview；如果后续要更完整消费 details，需要扩展 durable tool message schema。
 - Tool Result 已有 `content + typed details` 和工具级 `renderResult` 最小边界；当前 details 主要用于运行时展示，尚未持久化进 session message。

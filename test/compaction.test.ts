@@ -15,7 +15,7 @@ function assistantWithToolCalls(): Message {
         id: 'call-read',
         type: 'function',
         function: {
-          name: 'read_file',
+          name: 'read',
           arguments: { path: 'src/index.ts' },
         },
       },
@@ -31,7 +31,7 @@ function assistantWithToolCalls(): Message {
         id: 'call-edit',
         type: 'function',
         function: {
-          name: 'edit_file',
+          name: 'edit',
           arguments: { path: 'src/output.ts' },
         },
       },
@@ -48,7 +48,7 @@ test('prepareCompactionInput normalizes old tool results and tracks file operati
     {
       role: 'tool',
       tool_call_id: 'call-read',
-      name: 'read_file',
+      name: 'read',
       content: largeReadOutput,
     },
     {
@@ -62,7 +62,7 @@ test('prepareCompactionInput normalizes old tool results and tracks file operati
   ];
 
   const prepared = prepareCompactionInput({ messages, keepRecentMessages: 2 });
-  const normalizedToolMessage = prepared.messages.find((message) => message.role === 'tool' && message.name === 'read_file');
+  const normalizedToolMessage = prepared.messages.find((message) => message.role === 'tool' && message.name === 'read');
 
   assert.equal(prepared.firstKeptMessageIndex, 5);
   assert.deepEqual(prepared.fileOperations, {
