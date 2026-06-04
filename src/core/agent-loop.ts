@@ -504,6 +504,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
 
       step += 1;
       const stepStart = Date.now();
+      const turnStartMessageCount = messages.length;
       await emit(config.emit, { type: 'turn_start', step, maxSteps: config.maxSteps });
       await emit(config.emit, { type: 'message_start', step, maxSteps: config.maxSteps });
 
@@ -533,6 +534,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           emit: config.emit,
         });
       } catch (e) {
+        messages.splice(turnStartMessageCount);
         if (config.signal?.aborted) {
           const message = 'Task cancelled by user.';
           await emit(config.emit, { type: 'error', message });

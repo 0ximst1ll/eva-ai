@@ -45,6 +45,29 @@ class ScriptedLLM {
   }
 }
 
+class MidStreamThenSuccessLLM {
+  calls: Message[][] = [];
+
+  constructor(
+    private readonly error: Error,
+    private readonly success: LLMResponse,
+  ) {}
+
+  async generate(): Promise<LLMResponse> {
+    throw new Error('generate not implemented');
+  }
+
+  async *generateStream(messages: Message[]): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
+    this.calls.push(messages.map((message) => ({ ...message })) as Message[]);
+    if (this.calls.length === 1) {
+      yield { type: 'content_delta', text: 'partial failed output' };
+      throw this.error;
+    }
+    yield { type: 'done', response: this.success };
+    return this.success;
+  }
+}
+
 function toolCall(id: string, name: string, args: Record<string, unknown> = {}) {
   return {
     id,
@@ -187,6 +210,73 @@ test('AgentSession auto-retries transient provider errors without ending the tas
   assert.deepEqual(
     session.messages.map((message) => message.content),
     ['system', 'run', 'done after retry'],
+  );
+});
+
+test('AgentSession retries mid-stream provider failures from durable message boundary', async () => {
+  const sessionManager = new SessionManager({
+    workspaceDir: '/workspace',
+    mode: 'memory',
+  });
+  const sessionId = await sessionManager.createSession('system', 'session-1');
+  const providerError = new Error(
+    'ApiError: {"error":{"code":503,"message":"This model is currently experiencing high demand","status":"UNAVAILABLE"}}',
+  );
+  const llm = new MidStreamThenSuccessLLM(
+    providerError,
+    { content: 'done after stream retry', finish_reason: 'stop' },
+  );
+  const contextBuilder = createContextBuilder({
+    projectContext: [{
+      type: 'project_context',
+      name: 'AGENTS.md',
+      path: '/workspace/AGENTS.md',
+      content: '# Project Instructions\nUse rg before grep.\n',
+    }],
+  });
+  const session = new AgentSession({
+    llmClient: llm as unknown as LLMClient,
+    systemPrompt: 'system',
+    tools: [],
+    maxSteps: 3,
+    contextBuilder,
+    autoRetry: { maxRetries: 1, initialDelayMs: 0 },
+    sessionManager,
+    sessionId,
+  });
+  const events: AgentSessionEvent[] = [];
+  const finalAgentEndMessages: AgentMessage[] = [];
+
+  await session.addUserMessage('run');
+  assert.equal(await session.run({
+    onEvent(event) {
+      events.push(event);
+      if (event.type === 'agent_end') {
+        finalAgentEndMessages.splice(0, finalAgentEndMessages.length, ...event.messages);
+      }
+    },
+  }), 'done after stream retry');
+
+  assert.equal(llm.calls.length, 2);
+  assert.deepEqual(
+    sessionManager.getMessages(sessionId).map((message) => message.content),
+    ['system', 'run', 'done after stream retry'],
+  );
+  assert.deepEqual(
+    finalAgentEndMessages.map((message) => message.role),
+    ['system', 'user', 'internal', 'assistant'],
+  );
+  assert.equal(
+    finalAgentEndMessages.filter((message) => isInternalAgentMessage(message) && message.kind === 'resource_context').length,
+    1,
+  );
+  assert.deepEqual(
+    events.map((event) => event.type).filter((type) => type === 'error'),
+    [],
+  );
+  assert.deepEqual(
+    events.map((event) => event.type).filter((type) => type === 'auto_retry_start'),
+    ['auto_retry_start'],
   );
 });
 

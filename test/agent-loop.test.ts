@@ -55,6 +55,18 @@ class AbortingLLM {
   }
 }
 
+class MidStreamErrorLLM {
+  calls: LlmMessage[][] = [];
+
+  constructor(private readonly error: Error) {}
+
+  async *generateStream(messages: LlmMessage[]): AsyncGenerator<LLMStreamEvent, LLMResponse, void> {
+    this.calls.push(messages.map((message) => ({ ...message })) as LlmMessage[]);
+    yield { type: 'content_delta', text: 'partial output' };
+    throw this.error;
+  }
+}
+
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((res) => {
@@ -548,6 +560,44 @@ test('runAgentLoop sends transient project context to the LLM without persisting
   assert.equal(marker?.kind, 'resource_context');
   assert.deepEqual(marker?.metadata?.['resources'], ['AGENTS.md']);
   assert.equal(marker?.metadata?.['injected'], true);
+});
+
+test('runAgentLoop rolls back runtime-only context marker after provider stream failure', async () => {
+  const providerError = new Error(
+    'ApiError: {"error":{"code":503,"message":"This model is currently experiencing high demand","status":"UNAVAILABLE"}}',
+  );
+  const llm = new MidStreamErrorLLM(providerError);
+  const contextBuilder = createContextBuilder({
+    projectContext: [{
+      type: 'project_context',
+      name: 'AGENTS.md',
+      path: '/workspace/AGENTS.md',
+      content: '# Project Instructions\nUse rg before grep.\n',
+    }],
+  });
+  const events: AgentLoopEvent[] = [];
+
+  const result = await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [],
+    maxSteps: 3,
+    systemPrompt: 'system',
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+    contextBuilder,
+    emit: (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.match(result.finalContent, /LLM call failed/);
+  assert.deepEqual(result.messages.map((message) => message.role), ['system', 'user']);
+  assert.equal(events.find((event) => event.type === 'content_delta')?.type, 'content_delta');
+  assert.deepEqual(
+    events
+      .filter((event) => event.type === 'agent_end')
+      .flatMap((event) => event.messages.map((message) => message.role)),
+    ['system', 'user'],
+  );
 });
 
 test('runAgentLoop transforms agent messages before converting them to provider messages', async () => {

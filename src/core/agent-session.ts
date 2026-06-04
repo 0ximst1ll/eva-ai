@@ -327,6 +327,7 @@ export class AgentSession {
     ) {
       retryAttemptCount += 1;
       const delayMs = resolveAutoRetryDelay(this.autoRetry, retryAttemptCount, attempt.retryAfterMs);
+      this.resetAgentToDurableMessages();
       onEvent?.({
         type: 'auto_retry_start',
         attempt: retryAttemptCount,
@@ -354,6 +355,10 @@ export class AgentSession {
         suppressAgentStart: true,
         suppressRetryableError: retryAttemptCount < this.autoRetry.maxRetries,
       });
+    }
+
+    if (attempt.retryableError) {
+      this.resetAgentToDurableMessages();
     }
 
     if (retryAttemptCount > 0) {
@@ -468,6 +473,10 @@ export class AgentSession {
   private syncUsageFromSession(): void {
     this.apiTotalTokens = this.sessionManager.getUsageInfo(this.sessionId).total.total_tokens;
     this.agent.apiTotalTokens = this.apiTotalTokens;
+  }
+
+  private resetAgentToDurableMessages(): void {
+    this.agent.setMessages(this.sessionManager.getMessages(this.sessionId));
   }
 
   private async compactIfRecommended(): Promise<void> {
