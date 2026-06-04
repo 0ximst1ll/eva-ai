@@ -233,7 +233,7 @@ test('TUI tool calls show pi-style argument summaries', () => {
   );
   assert.equal(stripAnsi(formatTuiToolCall('find_files', { pattern: 'test', path: 'src', max_results: 5 }, new FindTool())), 'find test in src limit 5');
   assert.equal(stripAnsi(formatTuiToolCall('list_files', { path: 'docs' }, new LsTool())), 'ls docs');
-  assert.equal(stripAnsi(formatTuiToolCall('write_file', { path: 'out.txt', content: 'hidden' }, new WriteTool())), 'write out.txt');
+  assert.equal(stripAnsi(formatTuiToolCall('write', { path: 'out.txt', content: 'hidden' }, new WriteTool())), 'write out.txt');
   assert.equal(stripAnsi(formatTuiToolCall('edit_file', { path: 'app.ts', old_str: 'a', new_str: 'b' }, new EditTool())), 'edit app.ts');
   assert.equal(stripAnsi(formatTuiToolCall('custom_tool', { path: 'x', limit: 2 })), 'custom_tool(path=x, limit=2)');
 });

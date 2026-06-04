@@ -94,7 +94,7 @@ test('createRuntimeServices builds workspace-bound services without creating an 
 test('createRuntimeServices passes active tools to ContextBuilder', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-services-'));
   const tool: Tool = {
-    name: 'write_file',
+    name: 'write',
     description: 'Write content to a file',
     promptSnippet: 'Create a new file or completely overwrite a file',
     promptGuidelines: ['Always provide both required arguments: path and complete content.'],
@@ -120,12 +120,12 @@ test('createRuntimeServices passes active tools to ContextBuilder', async () => 
       tools: [tool],
     });
 
-    assert.deepEqual(services.contextBuilder.tools.map((candidate) => candidate.name), ['write_file']);
+    assert.deepEqual(services.contextBuilder.tools.map((candidate) => candidate.name), ['write']);
     const result = services.contextBuilder.build({
       systemPrompt: 'system',
       llmMessages: [{ role: 'system', content: 'system' }],
     });
-    assert.match(result.messages[0]?.content ?? '', /<tool name="write_file">/);
+    assert.match(result.messages[0]?.content ?? '', /<tool name="write">/);
     assert.match(result.messages[0]?.content ?? '', /Required arguments: path, content/);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });

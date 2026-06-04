@@ -128,7 +128,7 @@ test('ContextManager reports pending permission diagnostics from durable interna
     kind: 'permission_pending',
     content: 'Tool permission pending: approval required',
     metadata: {
-      toolName: 'write_file',
+      toolName: 'write',
       toolCallId: 'call-1',
     },
   });
@@ -156,9 +156,9 @@ test('ContextManager reports denied permission diagnostics from durable internal
   const denied = await sessionManager.appendInternalEntry({
     sessionId,
     kind: 'permission_denied',
-    content: 'Tool execution denied: write_file',
+    content: 'Tool execution denied: write',
     metadata: {
-      toolName: 'write_file',
+      toolName: 'write',
       toolCallId: 'call-1',
     },
   });

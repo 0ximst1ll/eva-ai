@@ -223,7 +223,7 @@ function collectFileOperation(
     readFiles.add(path);
     return;
   }
-  if (toolCall.function.name === 'write_file' || toolCall.function.name === 'edit_file') {
+  if (toolCall.function.name === 'write' || toolCall.function.name === 'edit_file') {
     modifiedFiles.add(path);
   }
 }

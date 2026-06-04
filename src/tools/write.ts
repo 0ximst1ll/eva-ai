@@ -14,12 +14,12 @@ function renderWriteCall(input: WriteToolInput & { file_path?: string }): string
 }
 
 export class WriteTool implements Tool<WriteToolInput> {
-  readonly name = 'write_file';
+  readonly name = 'write';
   readonly description =
     'Write content to a file inside the workspace. Will overwrite existing files completely. Read existing files first.';
   readonly promptSnippet = 'Create a new file or completely overwrite a file';
   readonly promptGuidelines = [
-    'Use write_file only for new files or complete rewrites.',
+    'Use write only for new files or complete rewrites.',
     'Always provide both required arguments: path and complete content.',
     'Use edit_file for targeted changes to existing files.',
   ];

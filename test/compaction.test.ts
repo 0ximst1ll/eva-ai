@@ -23,7 +23,7 @@ function assistantWithToolCalls(): Message {
         id: 'call-write',
         type: 'function',
         function: {
-          name: 'write_file',
+          name: 'write',
           arguments: { path: 'src/output.ts' },
         },
       },
@@ -54,7 +54,7 @@ test('prepareCompactionInput normalizes old tool results and tracks file operati
     {
       role: 'tool',
       tool_call_id: 'call-write',
-      name: 'write_file',
+      name: 'write',
       content: 'Wrote src/output.ts',
     },
     { role: 'user', content: 'recent task' },

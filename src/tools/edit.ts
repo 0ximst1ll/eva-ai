@@ -21,7 +21,7 @@ export class EditTool implements Tool<EditToolInput> {
   readonly promptGuidelines = [
     'Use edit_file for targeted changes to existing files.',
     'Read the file first and make old_str exact and unique.',
-    'Use write_file instead when creating a new file or rewriting the whole file.',
+    'Use write instead when creating a new file or rewriting the whole file.',
   ];
   readonly parameters = {
     type: 'object',

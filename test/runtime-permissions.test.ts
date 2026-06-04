@@ -18,7 +18,7 @@ import type { Tool } from '../src/tools/base.js';
 import { WriteTool } from '../src/tools/write.js';
 
 const writeTool: Tool = {
-  name: 'write_file',
+  name: 'write',
   description: 'Write file',
   parameters: { type: 'object' },
   metadata: {
@@ -334,7 +334,7 @@ test('tool governance records pending permissions as durable internal entries', 
   const entries = sessionManager.getInternalEntries(sessionId, 'permission_pending');
   assert.equal(entries.length, 1);
   assert.equal(entries[0]?.content, result?.reason);
-  assert.equal(entries[0]?.metadata?.['toolName'], 'write_file');
+  assert.equal(entries[0]?.metadata?.['toolName'], 'write');
   assert.equal(entries[0]?.metadata?.['toolCallId'], 'call-1');
   assert.equal(entries[0]?.metadata?.['permissionMode'], 'default');
   assert.equal(entries[0]?.metadata?.['decision'], 'ask');
@@ -410,7 +410,7 @@ test('tool governance records rejected tool calls as denied permissions', async 
   const entries = sessionManager.getInternalEntries(sessionId, 'permission_denied');
   assert.equal(entries.length, 1);
   assert.equal(entries[0]?.content, result?.reason);
-  assert.equal(entries[0]?.metadata?.['toolName'], 'write_file');
+  assert.equal(entries[0]?.metadata?.['toolName'], 'write');
   assert.equal(entries[0]?.metadata?.['permissionMode'], 'default');
   assert.equal(entries[0]?.metadata?.['decision'], 'deny');
   assert.deepEqual(entries[0]?.metadata?.['executionPolicy'], {
@@ -448,7 +448,7 @@ test('tool governance records policy-denied tool calls as denied permissions', a
   const entries = sessionManager.getInternalEntries(sessionId, 'permission_denied');
   assert.equal(entries.length, 1);
   assert.equal(entries[0]?.content, result?.reason);
-  assert.equal(entries[0]?.metadata?.['toolName'], 'write_file');
+  assert.equal(entries[0]?.metadata?.['toolName'], 'write');
   assert.equal(entries[0]?.metadata?.['permissionMode'], 'read-only');
   assert.equal(entries[0]?.metadata?.['decision'], 'deny');
 });

@@ -456,12 +456,12 @@ test('RPC permission request mode emits pending event and approval resumes promp
           id: 'call-1',
           type: 'function',
           function: {
-            name: 'write_file',
+            name: 'write',
             arguments: { path: 'file.txt', content: 'hello' },
           },
         },
         tool: {
-          name: 'write_file',
+          name: 'write',
           description: 'Write file',
           parameters: {},
           metadata: {
@@ -492,7 +492,7 @@ test('RPC permission request mode emits pending event and approval resumes promp
         type: 'tool_result',
         result: {
           toolCallId: 'call-1',
-          toolName: 'write_file',
+          toolName: 'write',
           success: decision === 'allow',
           content: decision,
         },
@@ -532,7 +532,7 @@ test('RPC permission request mode emits pending event and approval resumes promp
   })!;
   const permissionEvent = permissionEnvelope['event'] as Record<string, unknown>;
   const permission = permissionEvent['permission'] as Record<string, unknown>;
-  assert.equal(permission['tool_name'], 'write_file');
+  assert.equal(permission['tool_name'], 'write');
   assert.equal(permission['tool_call_id'], 'call-1');
   assert.equal(permission['risk_level'], 'high');
   assert.equal(permission['reason'], 'Tool permission required: outside workspace');
@@ -678,12 +678,12 @@ test('RPC permission request mode denies pending permission on timeout', async (
           id: 'call-timeout',
           type: 'function',
           function: {
-            name: 'write_file',
+            name: 'write',
             arguments: { path: 'late.txt' },
           },
         },
         tool: {
-          name: 'write_file',
+          name: 'write',
           description: 'Write file',
           parameters: {},
           metadata: {

@@ -35,11 +35,11 @@ const reviewSkill: SkillResource = {
 };
 
 const writeTool: Tool = {
-  name: 'write_file',
+  name: 'write',
   description: 'Write content to a file inside the workspace.',
   promptSnippet: 'Create a new file or completely overwrite a file',
   promptGuidelines: [
-    'Use write_file only for new files or complete rewrites.',
+    'Use write only for new files or complete rewrites.',
     'Always provide both required arguments: path and complete content.',
   ],
   parameters: {
@@ -133,14 +133,14 @@ test('ContextBuilder appends active tool prompt metadata to the system message',
 
   const system = result.messages[0]?.content ?? '';
   assert.match(system, /<available_tools>/);
-  assert.match(system, /<tool name="write_file">/);
+  assert.match(system, /<tool name="write">/);
   assert.match(system, /Create a new file or completely overwrite a file/);
   assert.match(system, /Required arguments: path, content/);
-  assert.match(system, /Use write_file only for new files or complete rewrites/);
+  assert.match(system, /Use write only for new files or complete rewrites/);
   assert.match(system, /Always provide both required arguments: path and complete content/);
   assert.equal(result.summary.toolPromptMetadataInjected, true);
   assert.equal(result.summary.toolCount, 1);
-  assert.deepEqual(result.summary.toolNames, ['write_file']);
+  assert.deepEqual(result.summary.toolNames, ['write']);
 });
 
 test('ContextBuilder injects queued skill invocation once without persisting it in input messages', () => {

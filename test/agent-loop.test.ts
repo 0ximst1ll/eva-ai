@@ -296,14 +296,14 @@ test('runAgentLoop validates tool arguments before hooks and execute', async () 
     {
       content: '',
       finish_reason: 'tool_use',
-      tool_calls: [toolCall('call-invalid', 'write_file', { file_path: 'wrong.txt', content: 'data' })],
+      tool_calls: [toolCall('call-invalid', 'write', { file_path: 'wrong.txt', content: 'data' })],
     },
     { content: 'done', finish_reason: 'stop' },
   ]);
   let executed = false;
   let hookCalled = false;
   const tool: Tool = {
-    name: 'write_file',
+    name: 'write',
     description: 'Write file',
     parameters: {
       type: 'object',
@@ -340,7 +340,7 @@ test('runAgentLoop validates tool arguments before hooks and execute', async () 
   assert.equal(hookCalled, false);
   assert.equal(toolResultEvent?.type, 'tool_result');
   assert.equal(toolResultEvent?.result.success, false);
-  assert.match(toolResultEvent?.result.error ?? '', /Validation failed for tool "write_file"/);
+  assert.match(toolResultEvent?.result.error ?? '', /Validation failed for tool "write"/);
   assert.match(toolResultEvent?.result.error ?? '', /path: required property is missing/);
   assert.deepEqual(toolResultEvent?.result.args, { file_path: 'wrong.txt', content: 'data' });
 });
@@ -468,12 +468,12 @@ test('runAgentLoop keeps unsafe tool calls serial even when parallel mode is ena
     {
       content: '',
       finish_reason: 'tool_use',
-      tool_calls: [toolCall('call-write', 'write_file'), toolCall('call-read', 'read_file')],
+      tool_calls: [toolCall('call-write', 'write'), toolCall('call-read', 'read_file')],
     },
     { content: 'done', finish_reason: 'stop' },
   ]);
   const writeTool: Tool = {
-    name: 'write_file',
+    name: 'write',
     description: 'Write file',
     parameters: { type: 'object' },
     metadata: {
@@ -484,7 +484,7 @@ test('runAgentLoop keeps unsafe tool calls serial even when parallel mode is ena
       isConcurrencySafe: false,
     },
     async execute() {
-      starts.push('write_file');
+      starts.push('write');
       return { success: true, content: await write.promise };
     },
   };
@@ -515,7 +515,7 @@ test('runAgentLoop keeps unsafe tool calls serial even when parallel mode is ena
 
   await waitForCondition(() => starts.length === 1);
   await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.deepEqual(starts, ['write_file']);
+  assert.deepEqual(starts, ['write']);
 
   write.resolve('write-result');
   await waitForCondition(() => starts.length === 2);
@@ -523,7 +523,7 @@ test('runAgentLoop keeps unsafe tool calls serial even when parallel mode is ena
   const result = await run;
 
   assert.equal(result.finalContent, 'done');
-  assert.deepEqual(starts, ['write_file', 'read_file']);
+  assert.deepEqual(starts, ['write', 'read_file']);
   assert.deepEqual(
     llm.calls[1]?.slice(-2).map((message) => message.content),
     ['write-result', 'read-result'],

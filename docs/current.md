@@ -68,8 +68,8 @@ Prompt Resource / Tool Prompt Metadata 当前状态：
 
 - Eva 当前 system prompt 已开始像 pi-mono 一样基于 active tools 动态构造 `available_tools`。
 - Eva 工具定义已有 schema、renderer、metadata、`promptSnippet` 和 `promptGuidelines` 一等字段。
-- Eva 的 system prompt 已明确列出 `write_file` 等真实工具名、必填参数和使用边界；后续需要通过真实 Gemini 任务验证它对空 args 或错误 args 的改善程度。
-- Eva 工具 UI 展示名和真实工具名存在轻微错位，例如 `write_file` 在展示层显示为 `write ...`，不利于排查工具参数问题。
+- Eva 的 system prompt 已明确列出 `write` 等真实工具名、必填参数和使用边界；后续需要通过真实 Gemini 任务验证它对空 args 或错误 args 的改善程度。
+- Eva 写文件工具真实名已从 `write_file` 直接收敛为 `write`，和展示层 `write ...` 对齐；历史 `write_file` tool call 不再作为兼容目标处理。
 
 Agent Runtime 主要差距：
 
@@ -105,7 +105,7 @@ Provider 主要差距：
 ## 下一步
 
 - 第一优先级：用真实 Gemini 运行验证默认 hidden/minimal thinking、2s 起步 agent retry、Google stream 首包 retry 和首包后 durable boundary retry 是否改善 overload/high-demand 体验；如仍失败，再对比 pi-mono 的 Google auth/baseUrl/provider variant。
-- 第二优先级：真实验证动态 tool prompt metadata 对 `write_file` / `edit_file` 参数完整性的改善；如仍有错位，再收敛工具展示名、真实工具名和 schema/prompt 文案。
+- 第二优先级：真实验证动态 tool prompt metadata 对 `write` / `edit_file` 参数完整性的改善；如仍有错位，再收敛其他工具展示名、真实工具名和 schema/prompt 文案。
 - 第三优先级：Agent Runtime 对齐 pi-mono 的 failed assistant turn / error assistant message lifecycle，让 error/abort/partial output/retry 进入统一 assistant turn 模型。
 - 第四优先级：Provider 继续补齐 model registry、compat flags、auth variants、stream error contract、payload/response hooks 和 session/cache affinity。
 - 第五优先级：Tool System 补 durable tool details、block content、rich renderer/export renderer 和 extension tool registry 边界。
