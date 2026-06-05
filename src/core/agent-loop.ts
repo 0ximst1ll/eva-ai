@@ -7,13 +7,22 @@ import { validateToolArguments } from '../tools/validation.js';
 import {
   runAfterToolCallHooks,
   runBeforeToolCallHooks,
+  runToolExecutionEndHooks,
+  runToolExecutionStartHooks,
+  runToolExecutionUpdateHooks,
   type AfterToolCallContext,
   type AfterToolCallHook,
   type AfterToolCallResult,
   type BeforeToolCallContext,
   type BeforeToolCallHook,
   type BeforeToolCallResult,
+  type ToolExecutionEndContext,
+  type ToolExecutionEndHook,
   type ToolExecutionHook,
+  type ToolExecutionStartContext,
+  type ToolExecutionStartHook,
+  type ToolExecutionUpdateContext,
+  type ToolExecutionUpdateHook,
 } from './tool-hooks.js';
 import {
   createInternalAgentMessage,
@@ -43,7 +52,13 @@ export type {
   BeforeToolCallContext,
   BeforeToolCallHook,
   BeforeToolCallResult,
+  ToolExecutionEndContext,
+  ToolExecutionEndHook,
   ToolExecutionHook,
+  ToolExecutionStartContext,
+  ToolExecutionStartHook,
+  ToolExecutionUpdateContext,
+  ToolExecutionUpdateHook,
 } from './tool-hooks.js';
 
 export type AgentLoopEvent =
@@ -204,6 +219,28 @@ function createToolExecutionHooks(config: AgentLoopConfig): ToolExecutionHook[] 
   return hooks;
 }
 
+function createToolLifecycleContext({
+  toolCall,
+  tool,
+  args,
+  messages,
+}: {
+  toolCall: ToolCall;
+  tool?: Tool;
+  args: Record<string, unknown>;
+  messages: AgentMessage[];
+}) {
+  return {
+    toolCall,
+    tool,
+    toolCallId: toolCall.id,
+    toolName: toolCall.function.name,
+    args,
+    messages,
+    metadata: tool?.metadata,
+  };
+}
+
 async function executeToolCall(
   toolCall: ToolCall,
   toolMap: Map<string, Tool>,
@@ -212,6 +249,7 @@ async function executeToolCall(
 ): Promise<ToolExecutionResult> {
   const { id: toolCallId, function: fn } = toolCall;
   const { name: toolName, arguments: rawArgs } = fn;
+  const hooks = createToolExecutionHooks(config);
 
   if (config.signal?.aborted) {
     return applyToolResultBudget(createAbortedToolResult(toolCall), config.toolResultBudget);
@@ -229,6 +267,11 @@ async function executeToolCall(
         error: `Unknown tool: ${toolName}`,
       },
       config.toolResultBudget,
+    );
+    await runToolExecutionEndHooks(
+      hooks,
+      { ...createToolLifecycleContext({ toolCall, args: rawArgs, messages }), result },
+      config.signal,
     );
     await emit(config.emit, { type: 'tool_execution_end', result });
     return result;
@@ -254,17 +297,31 @@ async function executeToolCall(
         config.toolResultBudget,
       ),
     );
+    await runToolExecutionEndHooks(
+      hooks,
+      { ...createToolLifecycleContext({ toolCall, tool, args: rawArgs, messages }), result },
+      config.signal,
+    );
     await emit(config.emit, { type: 'tool_execution_end', result });
     return result;
   }
 
+  await runToolExecutionStartHooks(
+    hooks,
+    createToolLifecycleContext({ toolCall, tool, args, messages }),
+    config.signal,
+  );
   await emit(config.emit, { type: 'tool_execution_start', toolCallId, toolName, args });
 
   try {
-    const hooks = createToolExecutionHooks(config);
     const before = await runBeforeToolCallHooks(hooks, { toolCall, tool, args, messages }, config.signal);
     if (config.signal?.aborted) {
       const result = applyToolResultBudget(createAbortedToolResult(toolCall), config.toolResultBudget);
+      await runToolExecutionEndHooks(
+        hooks,
+        { ...createToolLifecycleContext({ toolCall, tool, args, messages }), result },
+        config.signal,
+      );
       await emit(config.emit, { type: 'tool_execution_end', result });
       return result;
     }
@@ -276,6 +333,11 @@ async function executeToolCall(
           createBlockedToolResult(toolCall, before.reason),
           config.toolResultBudget,
         ),
+      );
+      await runToolExecutionEndHooks(
+        hooks,
+        { ...createToolLifecycleContext({ toolCall, tool, args, messages }), result },
+        config.signal,
       );
       await emit(config.emit, { type: 'tool_execution_end', result });
       return result;
@@ -302,6 +364,11 @@ async function executeToolCall(
           },
           { isPartial: true },
         );
+        void runToolExecutionUpdateHooks(
+          hooks,
+          { ...createToolLifecycleContext({ toolCall, tool, args, messages }), result: partial },
+          config.signal,
+        );
         void emit(config.emit, { type: 'tool_execution_update', result: partial });
       },
     });
@@ -326,12 +393,22 @@ async function executeToolCall(
       applyToolResultBudget(result, config.toolResultBudget),
     );
 
+    await runToolExecutionEndHooks(
+      hooks,
+      { ...createToolLifecycleContext({ toolCall, tool, args, messages }), result },
+      config.signal,
+    );
     await emit(config.emit, { type: 'tool_execution_end', result });
     return result;
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
     if (config.signal?.aborted) {
       const result = applyToolResultBudget(createAbortedToolResult(toolCall), config.toolResultBudget);
+      await runToolExecutionEndHooks(
+        hooks,
+        { ...createToolLifecycleContext({ toolCall, tool, args, messages }), result },
+        config.signal,
+      );
       await emit(config.emit, { type: 'tool_execution_end', result });
       return result;
     }
@@ -344,6 +421,11 @@ async function executeToolCall(
         error: `Tool execution failed: ${err.message}\n\nStack:\n${err.stack ?? ''}`,
       },
       config.toolResultBudget,
+    );
+    await runToolExecutionEndHooks(
+      hooks,
+      { ...createToolLifecycleContext({ toolCall, tool, args, messages }), result },
+      config.signal,
     );
     await emit(config.emit, { type: 'tool_execution_end', result });
     return result;

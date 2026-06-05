@@ -1,6 +1,6 @@
 # Eva AI Current
 
-## 当前状态（2026-06-04）
+## 当前状态（2026-06-05）
 
 ## 已完成
 
@@ -48,6 +48,7 @@
 - Tool operation injection 最小边界已实现：文件工具可注入 `FileToolOperations`，foreground bash 可注入 `BashOperations.exec`，background bash 可注入 `BashOperations.spawn`，默认实现仍使用本地 fs/shell。
 - 工具执行状态保持 pi-mono 风格的 lifecycle event 归约：`Agent` 基于 `tool_execution_start/end` 维护 `pendingToolCalls`，暂不引入独立 tool execution diagnostics 聚合层。
 - Extension-style tool execution hook 最小边界已实现：agent-loop 支持 `ToolExecutionHook[]`，可在 tool call 前合并 execution context、在 tool result 后补充 details/displayContent 等受限字段；runtime permission governance 已接入命名 hook，旧 `beforeToolCall/afterToolCall` 参数保留兼容。
+- Tool lifecycle observer hook 最小边界已实现：agent-loop 会在 tool start/update/end 路径通知 observer hook，用于 telemetry、audit 或 extension-side event interception；observer hook 错误不会中断工具执行。
 
 ## 进行中
 
@@ -93,7 +94,7 @@ Tool System 主要差距：
 - Eva tool result 已有 text block content 最小骨架；pi-mono 的 tool result 还支持 image block content。
 - Eva durable details 已能服务 runtime、历史 tool message 和最小 export text renderer；后续仍需让这些 details 更完整地服务 rich renderer 和更轻量的 compaction。
 - Eva renderer 当前仍返回 plain string；pi-mono renderer 返回 TUI component，并支持更完整 HTML/export renderer。
-- Eva custom/extension-style tool registration 已有最小 registry/filtering/prompt metadata 边界；pi-mono 仍有更完整的 extension source discovery、allowed/excluded tools 产品边界和 tool event interception。
+- Eva custom/extension-style tool registration 已有最小 registry/filtering/prompt metadata 边界，tool lifecycle observer 已覆盖 start/update/end interception；pi-mono 仍有更完整的 extension source discovery、allowed/excluded tools 产品边界和 extension wrapper。
 
 Provider 主要差距：
 
@@ -109,7 +110,7 @@ Provider 主要差距：
 - 第二优先级：真实验证动态 tool prompt metadata 对 `write` / `edit` 参数完整性的改善；如仍有错位，再收敛其他工具展示名、真实工具名和 schema/prompt 文案。
 - 第三优先级：Agent Runtime 对齐 pi-mono 的 failed assistant turn / error assistant message lifecycle，让 error/abort/partial output/retry 进入统一 assistant turn 模型。
 - 第四优先级：Provider 继续补齐 model registry、compat flags、auth variants、stream error contract、payload/response hooks 和 session/cache affinity。
-- 第五优先级：Tool System 补 image block content、rich TUI/HTML export renderer 和 extension tool registry 边界。
+- 第五优先级：Tool System 补 image block content、rich TUI/HTML export renderer、extension source discovery 和完整 extension wrapper 边界。
 - 第六优先级：Session 补 schema migration、label/session_info、branch summary pipeline、error/aborted assistant handling 和更完整 tree navigation。
 - 保持 permission diagnostics 简单，继续沿用 pending/denied 关键事实；`/diagnostics` 不承载 tool result details 展示。
 
@@ -122,7 +123,7 @@ Provider 主要差距：
 - 工具层大输出已具备 head/tail 基础策略、lines/bytes truncation details、compaction-time lightweight tool result normalization、tool-specific collapsed line preview、TUI 全局工具结果 expand/collapse、bash streaming partial update、RPC partial update event 和 bash visual-line tail preview；durable details 已有最小闭环，后续需要让 export/compaction 更完整消费这些 details。
 - Tool Result 已有 `contentBlocks + durable typed details` 和工具级 plain text renderer 最小边界；text blocks 和 details 已能随 session reload/rebuild 保留，并可重渲染历史 tool message；image blocks、rich TUI/HTML export renderer 仍未完成。
 - abort lifecycle 已覆盖当前内置工具的主要路径，但仍缺更细的 abort reason 和队列状态；工具执行诊断暂保持 lifecycle event + pending state 的简单边界。
-- operation injection 和 tool execution hook 目前是内部最小边界，custom tools 已进入统一 registry/filtering；尚未提供统一 remote workspace adapter、sandbox adapter、完整 extension wrapper 或 tool event interception。
+- operation injection、tool execution hook 和 lifecycle observer 目前是内部最小边界，custom tools 已进入统一 registry/filtering；尚未提供统一 remote workspace adapter、sandbox adapter 或完整 extension wrapper。
 - `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。
 - manual `/compact` 仍是最小版：没有工具结果 micro-compaction。
 - skills 已有 resource discovery、source metadata、metadata system prompt 注入和 `/skill:name` 全文按需展开；尚未支持 package/extension source discovery。

@@ -372,6 +372,164 @@ test('runAgentLoop applies extension-style tool execution hooks', async () => {
   assert.equal(toolResultEvent?.result.displayContent, 'display from hook');
 });
 
+test('runAgentLoop notifies tool lifecycle observer hooks in execution order', async () => {
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-life', 'lifecycle_tool', { text: 'hello' })],
+    },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const hookEvents: string[] = [];
+  const tool: Tool = {
+    name: 'lifecycle_tool',
+    description: 'Lifecycle tool',
+    parameters: { type: 'object' },
+    async execute(args, context) {
+      context?.onUpdate?.({ content: `partial ${String(args['text'])}` });
+      return { success: true, content: `final ${String(args['text'])}` };
+    },
+  };
+
+  await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [tool],
+    maxSteps: 3,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+    toolHooks: [{
+      name: 'observer',
+      onToolStart(context) {
+        hookEvents.push(`start:${context.toolCallId}:${context.args['text']}`);
+      },
+      beforeToolCall() {
+        hookEvents.push('before');
+        return undefined;
+      },
+      onToolUpdate(context) {
+        hookEvents.push(`update:${context.result.content}`);
+      },
+      afterToolCall(context) {
+        hookEvents.push(`after:${context.result.content}`);
+        return undefined;
+      },
+      onToolEnd(context) {
+        hookEvents.push(`end:${context.result.content}`);
+      },
+    }],
+  });
+
+  assert.deepEqual(hookEvents, [
+    'start:call-life:hello',
+    'before',
+    'update:partial hello',
+    'after:final hello',
+    'end:final hello',
+  ]);
+});
+
+test('runAgentLoop emits lifecycle end for unknown and validation failed tools', async () => {
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [
+        toolCall('call-unknown', 'missing_tool', { text: 'hello' }),
+        toolCall('call-invalid', 'write', { file_path: 'wrong.txt', content: 'data' }),
+      ],
+    },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const hookEvents: string[] = [];
+  const tool: Tool = {
+    name: 'write',
+    description: 'Write file',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        content: { type: 'string' },
+      },
+      required: ['path', 'content'],
+    },
+    async execute() {
+      return { success: true, content: 'should not run' };
+    },
+  };
+
+  await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [tool],
+    maxSteps: 3,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+    toolHooks: [{
+      onToolStart(context) {
+        hookEvents.push(`start:${context.toolName}`);
+      },
+      beforeToolCall() {
+        hookEvents.push('before');
+        return undefined;
+      },
+      onToolEnd(context) {
+        hookEvents.push(`end:${context.toolName}:${context.result.success}:${context.result.args?.['file_path'] ?? context.result.args?.['text']}`);
+      },
+    }],
+  });
+
+  assert.deepEqual(hookEvents, [
+    'end:missing_tool:false:hello',
+    'end:write:false:wrong.txt',
+  ]);
+});
+
+test('runAgentLoop emits lifecycle start and end for blocked tools without executing', async () => {
+  const llm = new ScriptedLLM([
+    {
+      content: '',
+      finish_reason: 'tool_use',
+      tool_calls: [toolCall('call-blocked', 'blocked_tool', { text: 'hello' })],
+    },
+    { content: 'done', finish_reason: 'stop' },
+  ]);
+  const hookEvents: string[] = [];
+  let executed = false;
+  const tool: Tool = {
+    name: 'blocked_tool',
+    description: 'Blocked tool',
+    parameters: { type: 'object' },
+    async execute() {
+      executed = true;
+      return { success: true, content: 'should not run' };
+    },
+  };
+
+  await runAgentLoop({
+    llmClient: llm as unknown as LLMClient,
+    tools: [tool],
+    maxSteps: 3,
+    messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'run' }],
+    toolHooks: [{
+      onToolStart(context) {
+        hookEvents.push(`start:${context.toolName}`);
+      },
+      beforeToolCall() {
+        hookEvents.push('before');
+        return { block: true, reason: 'blocked by test' };
+      },
+      onToolEnd(context) {
+        hookEvents.push(`end:${context.result.success}:${context.result.error}`);
+      },
+    }],
+  });
+
+  assert.equal(executed, false);
+  assert.deepEqual(hookEvents, [
+    'start:blocked_tool',
+    'before',
+    'end:false:blocked by test',
+  ]);
+});
+
 test('runAgentLoop validates tool arguments before hooks and execute', async () => {
   const llm = new ScriptedLLM([
     {
