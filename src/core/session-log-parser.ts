@@ -463,11 +463,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isValidToolContentBlocks(value: unknown): boolean {
   if (!Array.isArray(value)) return false;
-  return value.every((block) => (
-    isRecord(block)
-    && block['type'] === 'text'
-    && typeof block['text'] === 'string'
-  ));
+  return value.every((block) => {
+    if (!isRecord(block)) return false;
+    if (block['type'] === 'text') return typeof block['text'] === 'string';
+    if (block['type'] === 'image') {
+      return typeof block['data'] === 'string' && typeof block['mimeType'] === 'string';
+    }
+    return false;
+  });
 }
 
 function isNonEmptyString(value: unknown): value is string {

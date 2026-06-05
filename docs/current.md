@@ -19,7 +19,7 @@
 - M5 Tool Execution Orchestration 最小闭环已实现：安全 read-only batch 并发，write/bash/high-risk/unknown 工具串行，tool result 按模型 tool call 原始顺序写回。
 - M5 三模式 permission rule/mode 最小闭环已实现：`default`、`read-only`、`full-access` 已落地到 runtime/tool governance，并记录 pending/denied 关键事实；网络/敏感系统命令识别已覆盖常见远端 git、包管理器、容器/云工具和系统包管理器命令；permission result 已明确表达 workspace 外、网络和系统资源 capability，并标记当前不提供 OS 级 sandbox enforcement。
 - M5 Tool Result Budget 当前已有最小实现：agent-loop 写回边界会对超预算 tool result 做 preview 截断，并保留原始长度/预算 metadata。
-- ToolResult `contentBlocks + durable typed details` 最小闭环已实现：tool result 已支持 text block content，并可随 session reload/rebuild 保留；agent-loop 会透传并持久化工具结构化 details，`read`、`bash`、`grep`、`find`、`ls` 已输出工具专属 details 类型，包含 truncation、行数/结果数、exit code、full output path 等结构化信息；provider request 转换会把 block content flatten 为文本，并剥离 durable details，只发送 tool result 文本。
+- ToolResult `contentBlocks + durable typed details` 最小闭环已实现：tool result 已支持 text/image block content，并可随 session reload/rebuild 保留；agent-loop 会透传并持久化工具结构化 details，`read`、`bash`、`grep`、`find`、`ls` 已输出工具专属 details 类型，包含 truncation、行数/结果数、exit code、full output path 等结构化信息；provider request 转换会把 block content flatten 为文本，image block 会降级为稳定文本占位，并剥离 durable details，只发送 tool result 文本。
 - 工具级 `renderResult` 和统一 plain text renderer 最小边界已实现：工具定义可基于 typed details 生成 `displayContent`；runtime result 与 durable tool message 可复用同一套 renderer，CLI/TUI 和最小 export text 边界优先使用该结果；模型写回仍使用 flatten 后的文本。
 - Tool call renderer 边界已对齐 `pi-mono`：工具定义可提供 `renderCall(args)`，TUI 通过工具 renderer 展示 bash `$ command`、read path、grep pattern/path 等关键参数，未知工具保留 fallback 摘要。
 - 工具运行时 schema 校验最小闭环已对齐 `pi-mono`：agent-loop 会在 hooks/execute 前校验 tool arguments，非法参数返回工具错误，不再进入具体工具执行。
@@ -90,8 +90,8 @@ Session / Recovery 主要差距：
 
 Tool System 主要差距：
 
-- Eva 已有 active ToolRegistry、metadata、governance hook、read-only 并发、write/bash 串行、runtime schema validation、`renderCall`、统一 plain text `renderResult`、text block content、durable typed details 和 partial update。
-- Eva tool result 已有 text block content 最小骨架；pi-mono 的 tool result 还支持 image block content。
+- Eva 已有 active ToolRegistry、metadata、governance hook、read-only 并发、write/bash 串行、runtime schema validation、`renderCall`、统一 plain text `renderResult`、text/image block content、durable typed details 和 partial update。
+- Eva tool result 已有 text/image block content 最小骨架；pi-mono 还支持把 image block 按模型能力传给 vision-capable provider。
 - Eva durable details 已能服务 runtime、历史 tool message 和最小 export text renderer；后续仍需让这些 details 更完整地服务 rich renderer 和更轻量的 compaction。
 - Eva renderer 当前仍返回 plain string；pi-mono renderer 返回 TUI component，并支持更完整 HTML/export renderer。
 - Eva custom/extension-style tool registration 已有最小 registry/filtering/prompt metadata 边界，tool lifecycle observer 已覆盖 start/update/end interception；pi-mono 仍有更完整的 extension source discovery、allowed/excluded tools 产品边界和 extension wrapper。
@@ -110,7 +110,7 @@ Provider 主要差距：
 - 第二优先级：真实验证动态 tool prompt metadata 对 `write` / `edit` 参数完整性的改善；如仍有错位，再收敛其他工具展示名、真实工具名和 schema/prompt 文案。
 - 第三优先级：Agent Runtime 对齐 pi-mono 的 failed assistant turn / error assistant message lifecycle，让 error/abort/partial output/retry 进入统一 assistant turn 模型。
 - 第四优先级：Provider 继续补齐 model registry、compat flags、auth variants、stream error contract、payload/response hooks 和 session/cache affinity。
-- 第五优先级：Tool System 补 image block content、rich TUI/HTML export renderer、extension source discovery 和完整 extension wrapper 边界。
+- 第五优先级：Tool System 补 image block provider vision routing、rich TUI/HTML export renderer、extension source discovery 和完整 extension wrapper 边界。
 - 第六优先级：Session 补 schema migration、label/session_info、branch summary pipeline、error/aborted assistant handling 和更完整 tree navigation。
 - 保持 permission diagnostics 简单，继续沿用 pending/denied 关键事实；`/diagnostics` 不承载 tool result details 展示。
 
@@ -121,7 +121,7 @@ Provider 主要差距：
 - 动态 tool prompt metadata 已接入，核心内置工具真实名已对齐 pi-mono；仍需真实 Gemini 任务验证工具参数完整性。
 - Provider auth 当前已有 API key resolver，支持 runtime/config/env 优先级；尚未支持 OAuth 或 provider-specific auth storage。
 - 工具层大输出已具备 head/tail 基础策略、lines/bytes truncation details、compaction-time lightweight tool result normalization、tool-specific collapsed line preview、TUI 全局工具结果 expand/collapse、bash streaming partial update、RPC partial update event 和 bash visual-line tail preview；durable details 已有最小闭环，后续需要让 export/compaction 更完整消费这些 details。
-- Tool Result 已有 `contentBlocks + durable typed details` 和工具级 plain text renderer 最小边界；text blocks 和 details 已能随 session reload/rebuild 保留，并可重渲染历史 tool message；image blocks、rich TUI/HTML export renderer 仍未完成。
+- Tool Result 已有 `contentBlocks + durable typed details` 和工具级 plain text renderer 最小边界；text/image blocks 和 details 已能随 session reload/rebuild 保留，并可重渲染历史 tool message；image block 目前只做 durable data 与文本占位降级，provider vision routing、rich TUI/HTML export renderer 仍未完成。
 - abort lifecycle 已覆盖当前内置工具的主要路径，但仍缺更细的 abort reason 和队列状态；工具执行诊断暂保持 lifecycle event + pending state 的简单边界。
 - operation injection、tool execution hook 和 lifecycle observer 目前是内部最小边界，custom tools 已进入统一 registry/filtering；尚未提供统一 remote workspace adapter、sandbox adapter 或完整 extension wrapper。
 - `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。

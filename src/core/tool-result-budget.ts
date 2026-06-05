@@ -81,6 +81,7 @@ export function flattenToolResultContent(result: Pick<ToolExecutionResult, 'cont
 
 function formatToolResultContentBlock(block: ToolResultContentBlock): string {
   if (block.type === 'text') return block.text;
+  if (block.type === 'image') return `[image:${block.mimeType}:${block.data.length}]`;
   return '';
 }
 

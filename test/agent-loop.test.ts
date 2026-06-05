@@ -165,6 +165,7 @@ test('runAgentLoop flattens tool result content blocks for provider requests', a
         content: 'fallback text',
         contentBlocks: [
           { type: 'text', text: 'first block' },
+          { type: 'image', data: 'ZmFrZQ==', mimeType: 'image/png' },
           { type: 'text', text: 'second block' },
         ],
       };
@@ -180,7 +181,7 @@ test('runAgentLoop flattens tool result content blocks for provider requests', a
 
   assert.deepEqual(llm.calls[1].at(-1), {
     role: 'tool',
-    content: 'first block\nsecond block',
+    content: 'first block\n[image:image/png:8]\nsecond block',
     tool_call_id: 'call-1',
     name: 'blocks',
   });

@@ -146,10 +146,13 @@ test('SessionContextRebuilder preserves durable tool result details after reload
     });
     await writer.appendMessage(sessionId, {
       role: 'tool',
-      content: '1|hello',
+      content: '1|hello\n[image:image/png:8]',
       tool_call_id: 'call-1',
       name: 'read',
-      contentBlocks: [{ type: 'text', text: '1|hello' }],
+      contentBlocks: [
+        { type: 'text', text: '1|hello' },
+        { type: 'image', data: 'ZmFrZQ==', mimeType: 'image/png' },
+      ],
       details: {
         totalLines: 12,
         startLine: 1,
@@ -165,10 +168,13 @@ test('SessionContextRebuilder preserves durable tool result details after reload
 
     assert.deepEqual(toolMessage, {
       role: 'tool',
-      content: '1|hello',
+      content: '1|hello\n[image:image/png:8]',
       tool_call_id: 'call-1',
       name: 'read',
-      contentBlocks: [{ type: 'text', text: '1|hello' }],
+      contentBlocks: [
+        { type: 'text', text: '1|hello' },
+        { type: 'image', data: 'ZmFrZQ==', mimeType: 'image/png' },
+      ],
       details: {
         totalLines: 12,
         startLine: 1,

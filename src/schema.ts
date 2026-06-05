@@ -21,7 +21,8 @@ export interface ToolCall {
 }
 
 export type ToolResultContentBlock =
-    | { type: 'text'; text: string };
+    | { type: 'text'; text: string }
+    | { type: 'image'; data: string; mimeType: string };
 
 export type LlmMessage =
     | { role: 'system'; content: string }

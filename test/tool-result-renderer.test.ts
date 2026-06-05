@@ -86,12 +86,13 @@ test('tool result renderer falls back to flattened content blocks without a tool
       content: 'fallback',
       contentBlocks: [
         { type: 'text', text: 'first' },
+        { type: 'image', data: 'ZmFrZQ==', mimeType: 'image/png' },
         { type: 'text', text: 'second' },
       ],
     },
   });
 
-  assert.equal(text, 'first\nsecond');
+  assert.equal(text, 'first\n[image:image/png:8]\nsecond');
 });
 
 test('tool result renderer preserves error text for durable error messages', () => {
