@@ -131,8 +131,10 @@ test('createRuntimeServices passes active tools to ContextBuilder', async () => 
       systemPrompt: 'system',
       llmMessages: [{ role: 'system', content: 'system' }],
     });
-    assert.match(result.messages[0]?.content ?? '', /<tool name="write">/);
-    assert.match(result.messages[0]?.content ?? '', /Required arguments: path, content/);
+    assert.match(result.messages[0]?.content ?? '', /Available tools:/);
+    assert.match(result.messages[0]?.content ?? '', /- write: Create a new file or completely overwrite a file Required arguments: path, content\./);
+    assert.match(result.messages[0]?.content ?? '', /Guidelines:/);
+    assert.doesNotMatch(result.messages[0]?.content ?? '', /<tool name="write">/);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -182,9 +184,10 @@ test('createRuntimeServices applies governance to custom active tools before Con
       llmMessages: [{ role: 'system', content: 'system' }],
     });
     const system = result.messages[0]?.content ?? '';
-    assert.match(system, /<tool name="visible">/);
-    assert.match(system, /Visible prompt snippet/);
-    assert.doesNotMatch(system, /<tool name="hidden">/);
+    assert.match(system, /Available tools:/);
+    assert.match(system, /- visible: Visible prompt snippet/);
+    assert.match(system, /Guidelines:\n- Use visible when requested\./);
+    assert.doesNotMatch(system, /hidden/);
     assert.ok(services.diagnostics.some((diagnostic) => (
       diagnostic.code === 'tool_disabled'
       && diagnostic.details?.['toolName'] === 'hidden'

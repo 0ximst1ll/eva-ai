@@ -317,7 +317,7 @@ export class BashTool implements Tool<BashInput, BashToolDetails> {
   }
 
   readonly name = 'bash';
-  readonly promptSnippet = 'Run local development commands';
+  readonly promptSnippet = 'Execute shell commands for local development workflows';
   readonly promptGuidelines = [
     'Use bash for commands like tests, type checks, git, package scripts, and local development workflows.',
     'Do not use bash for file reads, writes, or edits when a specialized file tool is available.',

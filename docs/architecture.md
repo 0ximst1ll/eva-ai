@@ -120,7 +120,7 @@ manual `/compact`、auto compaction、prompt-too-long compact-and-retry、post-c
 
 工具通过 registry 和 metadata 暴露给 agent loop。
 
-当前 tool metadata 包含 source、category、risk level、read-only、requires confirmation 等治理信息。内置工具和 custom/extension-style tools 会进入同一个 active `ToolRegistry`，并统一应用 enabled/disabled tools、disabled categories、duplicate detection 和 metadata diagnostics。active tools 同时驱动 agent-loop 可执行工具、provider schema、token counter 和 `ContextBuilder` 的 dynamic tool prompt。agent-loop 在 tool call 前经过统一 governance hook。
+当前 tool metadata 包含 source、category、risk level、read-only、requires confirmation 等治理信息。内置工具和 custom/extension-style tools 会进入同一个 active `ToolRegistry`，并统一应用 enabled/disabled tools、disabled categories、duplicate detection 和 metadata diagnostics。active tools 同时驱动 agent-loop 可执行工具、provider schema、token counter 和 `ContextBuilder` 的 dynamic tool prompt。`ContextBuilder` 会把 active tools 渲染为 pi-mono 风格的 `Available tools` 和全局 `Guidelines`，并在工具行内保留 required arguments。agent-loop 在 tool call 前经过统一 governance hook。
 
 工具展示当前采用 `renderCall + contentBlocks + durable typed details + displayContent` 最小边界。工具定义可通过 `renderCall(args)` 生成 tool call 摘要；`content` 仍保留为兼容文本，`contentBlocks` 已支持 text/image block 并可随 tool message 持久化到 session；`details` 承载工具结构化信息，例如截断统计、bash exit code、full output path、行数或结果数。默认 provider request 转换会把 block content flatten 为文本，image block 会降级为稳定文本占位，并剥离 durable details，只发送 provider 需要的 tool result 文本。工具定义可通过 `renderResult` 基于 details 和 `expanded/isPartial` render options 生成 `displayContent`。`ToolResultRenderer` service 会把 runtime result 与 durable tool message 归一到同一套 plain text renderer，CLI/TUI 和最小 export text 边界可复用；`/diagnostics` 不作为 tool details 的主要消费路径。
 

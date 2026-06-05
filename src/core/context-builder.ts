@@ -143,44 +143,46 @@ function getRequiredParameters(tool: Tool): string[] {
     : [];
 }
 
-function formatToolForSystemPrompt(tool: Tool): string | null {
+function normalizePromptLine(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+interface FormattedToolPromptMetadata {
+  line: string;
+  guidelines: string[];
+}
+
+function formatToolForSystemPrompt(tool: Tool): FormattedToolPromptMetadata | null {
   const snippet = tool.promptSnippet?.trim() || tool.description.trim();
   if (!snippet) return null;
 
-  const lines = [
-    `<tool name="${escapeXml(tool.name)}">`,
-    escapeXml(snippet),
-  ];
   const required = getRequiredParameters(tool);
-  if (required.length > 0) {
-    lines.push(`Required arguments: ${required.map(escapeXml).join(', ')}`);
-  }
+  const requiredText = required.length > 0 ? ` Required arguments: ${required.join(', ')}.` : '';
+  const line = `- ${tool.name}: ${normalizePromptLine(snippet)}${requiredText}`;
 
-  const guidelines = [...new Set((tool.promptGuidelines ?? [])
-    .map((guideline) => guideline.trim())
-    .filter(Boolean))];
-  if (guidelines.length > 0) {
-    lines.push('Guidelines:');
-    for (const guideline of guidelines) {
-      lines.push(`- ${escapeXml(guideline)}`);
-    }
-  }
-
-  lines.push('</tool>');
-  return lines.join('\n');
+  const guidelines = (tool.promptGuidelines ?? [])
+    .map(normalizePromptLine)
+    .filter((guideline): guideline is string => Boolean(guideline));
+  return { line, guidelines };
 }
 
 function formatToolsForSystemPrompt(tools: Tool[]): string | null {
-  const blocks = tools
+  const formattedTools = tools
     .map(formatToolForSystemPrompt)
-    .filter((block): block is string => Boolean(block));
-  if (blocks.length === 0) return null;
+    .filter((metadata): metadata is FormattedToolPromptMetadata => Boolean(metadata));
+  if (formattedTools.length === 0) return null;
 
-  return [
-    '<available_tools>',
-    ...blocks,
-    '</available_tools>',
-  ].join('\n');
+  const guidelines = [...new Set(formattedTools.flatMap((tool) => tool.guidelines))];
+  const sections = [
+    'Available tools:',
+    ...formattedTools.map((tool) => tool.line),
+  ];
+
+  if (guidelines.length > 0) {
+    sections.push('', 'Guidelines:', ...guidelines.map((guideline) => `- ${guideline}`));
+  }
+
+  return sections.join('\n');
 }
 
 function appendToolMetadata(systemPrompt: string, tools: Tool[]): string {

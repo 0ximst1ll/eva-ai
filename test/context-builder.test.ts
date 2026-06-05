@@ -132,12 +132,13 @@ test('ContextBuilder appends active tool prompt metadata to the system message',
   });
 
   const system = result.messages[0]?.content ?? '';
-  assert.match(system, /<available_tools>/);
-  assert.match(system, /<tool name="write">/);
-  assert.match(system, /Create a new file or completely overwrite a file/);
-  assert.match(system, /Required arguments: path, content/);
+  assert.match(system, /Available tools:/);
+  assert.match(system, /- write: Create a new file or completely overwrite a file Required arguments: path, content\./);
+  assert.match(system, /Guidelines:/);
   assert.match(system, /Use write only for new files or complete rewrites/);
   assert.match(system, /Always provide both required arguments: path and complete content/);
+  assert.doesNotMatch(system, /<available_tools>/);
+  assert.doesNotMatch(system, /<tool name="write">/);
   assert.equal(result.summary.toolPromptMetadataInjected, true);
   assert.equal(result.summary.toolCount, 1);
   assert.deepEqual(result.summary.toolNames, ['write']);

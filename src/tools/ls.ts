@@ -21,7 +21,7 @@ function renderLsCall({ path = '.' }: LsToolInput): string {
 export class LsTool implements Tool<LsToolInput, ListToolDetails> {
   readonly name = 'ls';
   readonly description = 'List files and directories under a workspace path. Prefer this over bash ls/find.';
-  readonly promptSnippet = 'List files and directories in the workspace';
+  readonly promptSnippet = 'List directory contents';
   readonly promptGuidelines = [
     'Use ls instead of bash ls for directory inspection.',
   ];

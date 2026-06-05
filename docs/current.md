@@ -23,7 +23,7 @@
 - 工具级 `renderResult` 和统一 plain text renderer 最小边界已实现：工具定义可基于 typed details 生成 `displayContent`；runtime result 与 durable tool message 可复用同一套 renderer，CLI/TUI 和最小 export text 边界优先使用该结果；模型写回仍使用 flatten 后的文本。
 - Tool call renderer 边界已对齐 `pi-mono`：工具定义可提供 `renderCall(args)`，TUI 通过工具 renderer 展示 bash `$ command`、read path、grep pattern/path 等关键参数，未知工具保留 fallback 摘要。
 - 工具运行时 schema 校验最小闭环已对齐 `pi-mono`：agent-loop 会在 hooks/execute 前校验 tool arguments，非法参数返回工具错误，不再进入具体工具执行。
-- 动态 tool prompt metadata 最小闭环已对齐 `pi-mono`：`ContextBuilder` 会基于 active tools 注入工具列表、真实工具名、用途、必填参数和使用 guidelines；内置文件/search/bash 工具已提供 prompt metadata，降低复杂任务中错误或空 tool args 的概率。
+- 动态 tool prompt metadata 已按 `pi-mono` 风格收敛：`ContextBuilder` 会基于 active tools 注入 `Available tools`、真实工具名、用途、required arguments 和全局 `Guidelines`；内置文件/search/bash 工具已提供 prompt metadata，降低复杂任务中错误或空 tool args 的概率。
 - Active ToolRegistry 最小闭环已对齐 `pi-mono` 方向：内置工具和 custom/extension-style tools 会进入同一个 registry，并统一应用 enabled/disabled tools、disabled categories、duplicate detection 和 metadata diagnostics；过滤后的 active tools 同时驱动 agent-loop、provider schema、token counter 和 dynamic tool prompt。
 - AgentSession 已补任务级 auto-retry：provider/SDK 层 retry 耗尽后，503/429/timeout 等可恢复 LLM 错误会按会话层指数退避继续同一个任务，中间失败事件默认不结束用户任务。
 - ProviderModel / ProviderRequestOptions / ProviderAuthResolver 最小骨架已实现：RuntimeServices 会创建结构化 provider runtime context，LLMClient 保持旧构造兼容并可接收结构化 model/auth/request options。
@@ -52,8 +52,8 @@
 
 ## 进行中
 
-- Provider Reliability 根据真实使用反馈完成一轮修复，当前需要进入真实 Gemini 验证和 pi-mono 细节差距收口。
-- 当前已将 Google 默认 thinking、retry 分层、Google stream 首包 retry、首包后中途失败恢复和 AgentSession 默认 retry delay 向 `pi-mono` 收敛；后续需要继续补齐 Agent Runtime / Session / Tools / Provider 四个域的细节对齐。
+- Tool Prompt 已完成代码层对齐收敛，下一步需要真实 Gemini 任务验证 `write` / `edit` 参数完整性。
+- Provider Reliability 已完成一轮修复，后续仍需真实 Gemini 验证和 pi-mono 细节差距收口。
 
 ## pi-mono 架构对齐评估（2026-06-04）
 
@@ -68,9 +68,9 @@
 
 Prompt Resource / Tool Prompt Metadata 当前状态：
 
-- Eva 当前 system prompt 已开始像 pi-mono 一样基于 active tools 动态构造 `available_tools`。
+- Eva 当前 system prompt 已像 pi-mono 一样基于 active tools 动态构造 `Available tools`。
 - Eva 工具定义已有 schema、renderer、metadata、`promptSnippet` 和 `promptGuidelines` 一等字段。
-- Eva 的 system prompt 已明确列出 `read/write/edit/ls/grep/find/bash` 等真实工具名、必填参数和使用边界；后续需要通过真实 Gemini 任务验证它对空 args 或错误 args 的改善程度。
+- Eva 的 system prompt 已明确列出 `read/write/edit/ls/grep/find/bash` 等真实工具名、必填参数和使用边界；active tool prompt 已从 XML 风格 metadata 注入收敛为 `Available tools` + 全局 `Guidelines` + required arguments 的稳定结构。
 - Eva 核心内置工具真实名已直接收敛为 `read/write/edit/ls/grep/find/bash`，和 pi-mono 保持一致；历史 `_file(s)` tool call 不再作为兼容目标处理。后台 bash 辅助工具 `bash_output` / `bash_kill` 暂保留 Eva 现有后台命令协议。
 
 Agent Runtime 主要差距：
@@ -106,8 +106,8 @@ Provider 主要差距：
 
 ## 下一步
 
-- 第一优先级：用真实 Gemini 运行验证默认 hidden/minimal thinking、2s 起步 agent retry、Google stream 首包 retry 和首包后 durable boundary retry 是否改善 overload/high-demand 体验；如仍失败，再对比 pi-mono 的 Google auth/baseUrl/provider variant。
-- 第二优先级：真实验证动态 tool prompt metadata 对 `write` / `edit` 参数完整性的改善；如仍有错位，再收敛其他工具展示名、真实工具名和 schema/prompt 文案。
+- 第一优先级：真实验证 Tool Prompt 对齐后对 `write` / `edit` 参数完整性的改善；如仍有错位，再收敛其他工具展示名、真实工具名和 schema/prompt 文案。
+- 第二优先级：用真实 Gemini 运行验证默认 hidden/minimal thinking、2s 起步 agent retry、Google stream 首包 retry 和首包后 durable boundary retry 是否改善 overload/high-demand 体验；如仍失败，再对比 pi-mono 的 Google auth/baseUrl/provider variant。
 - 第三优先级：Agent Runtime 对齐 pi-mono 的 failed assistant turn / error assistant message lifecycle，让 error/abort/partial output/retry 进入统一 assistant turn 模型。
 - 第四优先级：Provider 继续补齐 model registry、compat flags、auth variants、stream error contract、payload/response hooks 和 session/cache affinity。
 - 第五优先级：Tool System 补 image block provider vision routing、rich TUI/HTML export renderer、extension source discovery 和完整 extension wrapper 边界。
@@ -118,7 +118,7 @@ Provider 主要差距：
 
 - Provider 层仍偏薄：模型能力、认证解析和请求选项已有最小结构化边界，OpenAI/Anthropic/Gemini 已消费主要 ProviderRequestOptions；Google 默认 thinking、retry 分层和 stream 首包 retry 已向 `pi-mono` 收敛，abort propagation 和 Retry-After 已有最小闭环，但 Google auth/baseUrl/provider variant 仍可能与 pi-mono 实际运行路径不同。
 - Google stream 首包后的中途失败恢复已有 durable boundary 最小闭环，但 UI/TUI 对失败尝试中已经渲染的 partial output 还没有统一撤销/替换机制。
-- 动态 tool prompt metadata 已接入，核心内置工具真实名已对齐 pi-mono；仍需真实 Gemini 任务验证工具参数完整性。
+- 动态 tool prompt metadata 已接入，核心内置工具真实名、prompt 结构和 guidelines 聚合方式已对齐 pi-mono；仍需用真实 Gemini 任务验证工具参数完整性。
 - Provider auth 当前已有 API key resolver，支持 runtime/config/env 优先级；尚未支持 OAuth 或 provider-specific auth storage。
 - 工具层大输出已具备 head/tail 基础策略、lines/bytes truncation details、compaction-time lightweight tool result normalization、tool-specific collapsed line preview、TUI 全局工具结果 expand/collapse、bash streaming partial update、RPC partial update event 和 bash visual-line tail preview；durable details 已有最小闭环，后续需要让 export/compaction 更完整消费这些 details。
 - Tool Result 已有 `contentBlocks + durable typed details` 和工具级 plain text renderer 最小边界；text/image blocks 和 details 已能随 session reload/rebuild 保留，并可重渲染历史 tool message；image block 目前只做 durable data 与文本占位降级，provider vision routing、rich TUI/HTML export renderer 仍未完成。
