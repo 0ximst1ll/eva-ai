@@ -24,7 +24,7 @@ export interface AfterToolCallContext {
 
 export type AfterToolCallResult = Partial<Pick<
   ToolExecutionResult,
-  'success' | 'content' | 'error' | 'details' | 'displayContent'
+  'success' | 'content' | 'contentBlocks' | 'error' | 'details' | 'displayContent'
 >>;
 
 export type BeforeToolCallHook = (

@@ -2,7 +2,8 @@ import type { RuntimeHost } from '../core/runtime-host.js';
 import type { SessionEntryTreeViewNode } from '../core/session-manager.js';
 import type { AgentSessionEvent, ToolExecutionResult } from '../schema.js';
 import type { ToolConfirmationRequest, ToolPermissionDecision } from '../core/runtime.js';
-import { renderToolCall, renderToolResult, type Tool } from '../tools/base.js';
+import { renderToolExecutionResult } from '../core/tool-result-renderer.js';
+import { renderToolCall, type Tool } from '../tools/base.js';
 import { TUI } from '../tui/tui.js';
 import { ProcessTerminal } from '../tui/terminal.js';
 import { Container } from '../tui/component.js';
@@ -117,21 +118,16 @@ export function formatTuiToolCall(
 }
 
 export function formatTuiToolResult(record: Omit<TuiToolResultRecord, 'text'>): string {
-  const display = record.tool
-    ? renderToolResult(
-        record.tool,
-        record.result,
-        {
-          toolCallId: record.result.toolCallId,
-          args: record.args,
-        },
-        {
-          expanded: record.expanded,
-          isPartial: record.isPartial ?? false,
-          terminalColumns: record.terminalColumns,
-        },
-      ) ?? record.result.displayContent
-    : record.result.displayContent;
+  const display = renderToolExecutionResult({
+    tool: record.tool,
+    result: record.result,
+    args: record.args,
+    options: {
+      expanded: record.expanded,
+      isPartial: record.isPartial ?? false,
+      terminalColumns: record.terminalColumns,
+    },
+  });
   const expandedLabel = record.expanded ? ` ${Colors.DIM}(expanded)${Colors.RESET}` : '';
   const status = record.isPartial ? 'running' : 'completed';
 
