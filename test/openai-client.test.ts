@@ -92,3 +92,79 @@ test('OpenAIClient applies provider transport options to SDK client options', ()
     maxRetries: 2,
   });
 });
+
+test('OpenAIClient accepts object tool arguments from OpenAI-compatible completions', async () => {
+  const client = new InspectableOpenAIClient('test-key', 'https://example.test', 'deepseek-test');
+  const inspectable = client as unknown as {
+    client: {
+      chat: {
+        completions: {
+          create: () => Promise<unknown>;
+        };
+      };
+    };
+  };
+  inspectable.client.chat.completions.create = async () => ({
+    choices: [{
+      message: {
+        content: '',
+        tool_calls: [{
+          id: 'call-write',
+          type: 'function',
+          function: {
+            name: 'write',
+            arguments: { path: 'a.txt', content: 'hello' },
+          },
+        }],
+      },
+    }],
+  });
+
+  const response = await client.generate([{ role: 'user', content: 'write file' }]);
+
+  assert.deepEqual(response.tool_calls?.[0]?.function.arguments, {
+    path: 'a.txt',
+    content: 'hello',
+  });
+});
+
+test('OpenAIClient accepts object tool arguments from OpenAI-compatible streams', async () => {
+  const client = new InspectableOpenAIClient('test-key', 'https://example.test', 'deepseek-test');
+  const inspectable = client as unknown as {
+    client: {
+      chat: {
+        completions: {
+          create: () => AsyncGenerator<unknown>;
+        };
+      };
+    };
+  };
+  inspectable.client.chat.completions.create = async function* () {
+    yield {
+      choices: [{
+        delta: {
+          tool_calls: [{
+            index: 0,
+            id: 'call-write',
+            function: {
+              name: 'write',
+              arguments: { path: 'a.txt', content: 'hello' },
+            },
+          }],
+        },
+      }],
+    };
+    yield { choices: [{ finish_reason: 'tool_calls', delta: {} }] };
+  };
+
+  const events = [];
+  for await (const event of client.generateStream([{ role: 'user', content: 'write file' }])) {
+    events.push(event);
+  }
+
+  const toolCallEvent = events.find((event) => event.type === 'tool_call');
+  assert.deepEqual(toolCallEvent?.tool_call.function.arguments, {
+    path: 'a.txt',
+    content: 'hello',
+  });
+});

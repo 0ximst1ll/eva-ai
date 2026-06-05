@@ -10,6 +10,21 @@ import type { ProviderRequestOptions } from './provider.js';
 type ChatCompletion = OpenAI.Chat.ChatCompletion;
 type ChatCompletionChunk = OpenAI.Chat.ChatCompletionChunk;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseToolArguments(value: unknown): Record<string, unknown> {
+    if (isRecord(value)) return { ...value };
+    if (typeof value !== 'string' || value.trim() === '') return {};
+    try {
+        const parsed = JSON.parse(value) as unknown;
+        return isRecord(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
 export class OpenAIClient extends LLMClientBase {
 
     private readonly client: OpenAI;
@@ -178,7 +193,7 @@ export class OpenAIClient extends LLMClientBase {
                     type: 'function',
                     function: {
                         name: tc.function.name,
-                        arguments: JSON.parse(tc.function.arguments) as Record<string, unknown>,
+                        arguments: parseToolArguments(tc.function.arguments),
                   },
                 });
             }
@@ -256,7 +271,7 @@ export class OpenAIClient extends LLMClientBase {
         let finishReason = 'stop';
         let usage: TokenUsage | undefined;
 
-        const toolCallState = new Map<number, { id?: string; name: string; argsText: string }>();
+        const toolCallState = new Map<number, { id?: string; name: string; argsText: string; argsObject?: Record<string, unknown> }>();
         const emittedToolCalls = new Set<string>();
         const toolCalls: ToolCall[] = [];
 
@@ -301,6 +316,12 @@ export class OpenAIClient extends LLMClientBase {
                     if (fn) {
                         if (typeof fn['name'] === 'string') existing.name = fn['name'];
                         if (typeof fn['arguments'] === 'string') existing.argsText += fn['arguments'];
+                        else if (isRecord(fn['arguments'])) {
+                            existing.argsObject = {
+                                ...(existing.argsObject ?? {}),
+                                ...fn['arguments'],
+                            };
+                        }
                     }
                     toolCallState.set(index, existing);
                 }
@@ -313,14 +334,9 @@ export class OpenAIClient extends LLMClientBase {
             const key = `${callId}:${partial.name}:${partial.argsText}`;
             if (emittedToolCalls.has(key)) continue;
 
-            let parsedArgs: Record<string, unknown> = {};
-            if (partial.argsText.trim()) {
-                try {
-                    parsedArgs = JSON.parse(partial.argsText) as Record<string, unknown>;
-                } catch {
-                    parsedArgs = {};
-                }
-            }
+            const parsedArgs = partial.argsText.trim()
+                ? parseToolArguments(partial.argsText)
+                : (partial.argsObject ?? {});
 
             const tc: ToolCall = {
                 id: callId,
