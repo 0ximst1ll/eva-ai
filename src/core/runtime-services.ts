@@ -266,23 +266,10 @@ export async function createRuntimeServices(options: CreateRuntimeServicesOption
     }));
   }
 
-  let tools: Tool[];
-  let toolRegistry: ToolRegistry | null = null;
-  if (options.tools) {
-    tools = options.tools;
-    diagnostics.push(createDiagnostic({
-      source: 'tools',
-      level: 'info',
-      code: 'custom_tools_loaded',
-      message: `Loaded ${tools.length} custom tool(s)`,
-      details: { count: tools.length },
-    }));
-  } else {
-    const loadedTools = await loadConfiguredTools({ config, workspaceDir });
-    tools = loadedTools.tools;
-    toolRegistry = loadedTools.registry;
-    diagnostics.push(...loadedTools.diagnostics);
-  }
+  const loadedTools = await loadConfiguredTools({ config, workspaceDir, customTools: options.tools });
+  const tools = loadedTools.tools;
+  const toolRegistry: ToolRegistry = loadedTools.registry;
+  diagnostics.push(...loadedTools.diagnostics);
 
   const resourceSet = createRuntimeResourceSet(workspaceDir, config, tools);
   diagnostics.push(...resourceSet.diagnostics);

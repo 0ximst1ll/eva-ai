@@ -24,6 +24,7 @@
 - Tool call renderer 边界已对齐 `pi-mono`：工具定义可提供 `renderCall(args)`，TUI 通过工具 renderer 展示 bash `$ command`、read path、grep pattern/path 等关键参数，未知工具保留 fallback 摘要。
 - 工具运行时 schema 校验最小闭环已对齐 `pi-mono`：agent-loop 会在 hooks/execute 前校验 tool arguments，非法参数返回工具错误，不再进入具体工具执行。
 - 动态 tool prompt metadata 最小闭环已对齐 `pi-mono`：`ContextBuilder` 会基于 active tools 注入工具列表、真实工具名、用途、必填参数和使用 guidelines；内置文件/search/bash 工具已提供 prompt metadata，降低复杂任务中错误或空 tool args 的概率。
+- Active ToolRegistry 最小闭环已对齐 `pi-mono` 方向：内置工具和 custom/extension-style tools 会进入同一个 registry，并统一应用 enabled/disabled tools、disabled categories、duplicate detection 和 metadata diagnostics；过滤后的 active tools 同时驱动 agent-loop、provider schema、token counter 和 dynamic tool prompt。
 - AgentSession 已补任务级 auto-retry：provider/SDK 层 retry 耗尽后，503/429/timeout 等可恢复 LLM 错误会按会话层指数退避继续同一个任务，中间失败事件默认不结束用户任务。
 - ProviderModel / ProviderRequestOptions / ProviderAuthResolver 最小骨架已实现：RuntimeServices 会创建结构化 provider runtime context，LLMClient 保持旧构造兼容并可接收结构化 model/auth/request options。
 - Google provider thinkingConfig 已对齐 `pi-mono` 的分层策略：ProviderModel 判断 reasoning 能力，GoogleClient 按 Gemini family 映射 `thinkingLevel` / `thinkingBudget`，不再无条件 `includeThoughts`。
@@ -88,11 +89,11 @@ Session / Recovery 主要差距：
 
 Tool System 主要差距：
 
-- Eva 已有 metadata、governance hook、read-only 并发、write/bash 串行、runtime schema validation、`renderCall`、统一 plain text `renderResult`、text block content、durable typed details 和 partial update。
+- Eva 已有 active ToolRegistry、metadata、governance hook、read-only 并发、write/bash 串行、runtime schema validation、`renderCall`、统一 plain text `renderResult`、text block content、durable typed details 和 partial update。
 - Eva tool result 已有 text block content 最小骨架；pi-mono 的 tool result 还支持 image block content。
 - Eva durable details 已能服务 runtime、历史 tool message 和最小 export text renderer；后续仍需让这些 details 更完整地服务 rich renderer 和更轻量的 compaction。
 - Eva renderer 当前仍返回 plain string；pi-mono renderer 返回 TUI component，并支持更完整 HTML/export renderer。
-- Eva extension-style hook 仍是内部最小边界；pi-mono 已有完整 extension tool registry、active tool filtering、prompt snippets/guidelines、allowed/excluded tools 和 tool event interception。
+- Eva custom/extension-style tool registration 已有最小 registry/filtering/prompt metadata 边界；pi-mono 仍有更完整的 extension source discovery、allowed/excluded tools 产品边界和 tool event interception。
 
 Provider 主要差距：
 
@@ -121,7 +122,7 @@ Provider 主要差距：
 - 工具层大输出已具备 head/tail 基础策略、lines/bytes truncation details、compaction-time lightweight tool result normalization、tool-specific collapsed line preview、TUI 全局工具结果 expand/collapse、bash streaming partial update、RPC partial update event 和 bash visual-line tail preview；durable details 已有最小闭环，后续需要让 export/compaction 更完整消费这些 details。
 - Tool Result 已有 `contentBlocks + durable typed details` 和工具级 plain text renderer 最小边界；text blocks 和 details 已能随 session reload/rebuild 保留，并可重渲染历史 tool message；image blocks、rich TUI/HTML export renderer 仍未完成。
 - abort lifecycle 已覆盖当前内置工具的主要路径，但仍缺更细的 abort reason 和队列状态；工具执行诊断暂保持 lifecycle event + pending state 的简单边界。
-- operation injection 和 tool execution hook 目前是内部最小边界，尚未提供统一 remote workspace adapter、sandbox adapter 或完整 extension wrapper。
+- operation injection 和 tool execution hook 目前是内部最小边界，custom tools 已进入统一 registry/filtering；尚未提供统一 remote workspace adapter、sandbox adapter、完整 extension wrapper 或 tool event interception。
 - `ContextManager` 仍未支持完整 token budget 或 OpenAI provider countTokens。
 - manual `/compact` 仍是最小版：没有工具结果 micro-compaction。
 - skills 已有 resource discovery、source metadata、metadata system prompt 注入和 `/skill:name` 全文按需展开；尚未支持 package/extension source discovery。

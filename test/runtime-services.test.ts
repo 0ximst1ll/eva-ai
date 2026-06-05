@@ -12,10 +12,14 @@ async function writeConfig(
     contextWindowTokens,
     compactionEnabled,
     compactionReserveTokens,
+    enabledTools,
+    disabledTools,
   }: {
     contextWindowTokens?: number;
     compactionEnabled?: boolean;
     compactionReserveTokens?: number;
+    enabledTools?: string[];
+    disabledTools?: string[];
   } = {},
 ): Promise<string> {
   const configPath = path.join(dir, 'config.yaml');
@@ -44,6 +48,8 @@ async function writeConfig(
       '  enable_skills: false',
       '  enable_mcp: false',
       '  require_confirmation: false',
+      ...(enabledTools ? ['  enabled_tools:', ...enabledTools.map((tool) => `    - ${tool}`)] : []),
+      ...(disabledTools ? ['  disabled_tools:', ...disabledTools.map((tool) => `    - ${tool}`)] : []),
     ].join('\n'),
     'utf-8',
   );
@@ -70,7 +76,7 @@ test('createRuntimeServices builds workspace-bound services without creating an 
     assert.equal(services.configPath, configPath);
     assert.equal(services.config.llm.model, 'test-model');
     assert.equal(services.tools.length, 0);
-    assert.equal(services.toolRegistry, null);
+    assert.equal(services.toolRegistry?.size, 0);
     assert.ok(services.resourceLoader);
     assert.equal(services.resourceLoader.projectContext.length, 0);
     assert.ok(services.contextBuilder);
@@ -127,6 +133,105 @@ test('createRuntimeServices passes active tools to ContextBuilder', async () => 
     });
     assert.match(result.messages[0]?.content ?? '', /<tool name="write">/);
     assert.match(result.messages[0]?.content ?? '', /Required arguments: path, content/);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('createRuntimeServices applies governance to custom active tools before ContextBuilder', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-services-'));
+  const visibleTool: Tool = {
+    name: 'visible',
+    description: 'Visible custom tool',
+    promptSnippet: 'Visible prompt snippet',
+    promptGuidelines: ['Use visible when requested.'],
+    parameters: { type: 'object' },
+    metadata: {
+      category: 'read',
+      riskLevel: 'low',
+      source: 'mcp',
+      sourceName: 'custom',
+      isReadOnly: true,
+      isConcurrencySafe: true,
+    },
+    async execute() {
+      return { success: true, content: 'ok' };
+    },
+  };
+  const hiddenTool: Tool = {
+    ...visibleTool,
+    name: 'hidden',
+    description: 'Hidden custom tool',
+    promptSnippet: 'Hidden prompt snippet',
+  };
+
+  try {
+    const configPath = await writeConfig(tempDir, { disabledTools: ['hidden'] });
+    const services = await createRuntimeServices({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'memory',
+      tools: [visibleTool, hiddenTool],
+    });
+
+    assert.deepEqual(services.tools.map((tool) => tool.name), ['visible']);
+    assert.equal(services.toolRegistry?.has('visible'), true);
+    assert.equal(services.toolRegistry?.has('hidden'), false);
+    const result = services.contextBuilder.build({
+      systemPrompt: 'system',
+      llmMessages: [{ role: 'system', content: 'system' }],
+    });
+    const system = result.messages[0]?.content ?? '';
+    assert.match(system, /<tool name="visible">/);
+    assert.match(system, /Visible prompt snippet/);
+    assert.doesNotMatch(system, /<tool name="hidden">/);
+    assert.ok(services.diagnostics.some((diagnostic) => (
+      diagnostic.code === 'tool_disabled'
+      && diagnostic.details?.['toolName'] === 'hidden'
+    )));
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('createRuntimeServices reports duplicate custom tools and keeps the first definition active', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eva-runtime-services-'));
+  const firstTool: Tool = {
+    name: 'duplicate',
+    description: 'First custom tool',
+    promptSnippet: 'First prompt snippet',
+    parameters: { type: 'object' },
+    async execute() {
+      return { success: true, content: 'first' };
+    },
+  };
+  const secondTool: Tool = {
+    ...firstTool,
+    description: 'Second custom tool',
+    promptSnippet: 'Second prompt snippet',
+  };
+
+  try {
+    const configPath = await writeConfig(tempDir);
+    const services = await createRuntimeServices({
+      workspaceDir: tempDir,
+      configPath,
+      sessionMode: 'memory',
+      tools: [firstTool, secondTool],
+    });
+
+    assert.deepEqual(services.tools.map((tool) => tool.name), ['duplicate']);
+    const result = services.contextBuilder.build({
+      systemPrompt: 'system',
+      llmMessages: [{ role: 'system', content: 'system' }],
+    });
+    const system = result.messages[0]?.content ?? '';
+    assert.match(system, /First prompt snippet/);
+    assert.doesNotMatch(system, /Second prompt snippet/);
+    assert.ok(services.diagnostics.some((diagnostic) => (
+      diagnostic.code === 'tool_duplicate_skipped'
+      && diagnostic.details?.['toolName'] === 'duplicate'
+    )));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

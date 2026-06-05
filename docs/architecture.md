@@ -120,7 +120,7 @@ manual `/compact`、auto compaction、prompt-too-long compact-and-retry、post-c
 
 工具通过 registry 和 metadata 暴露给 agent loop。
 
-当前 tool metadata 包含 source、category、risk level、read-only、requires confirmation 等治理信息。agent-loop 在 tool call 前经过统一 governance hook。
+当前 tool metadata 包含 source、category、risk level、read-only、requires confirmation 等治理信息。内置工具和 custom/extension-style tools 会进入同一个 active `ToolRegistry`，并统一应用 enabled/disabled tools、disabled categories、duplicate detection 和 metadata diagnostics。active tools 同时驱动 agent-loop 可执行工具、provider schema、token counter 和 `ContextBuilder` 的 dynamic tool prompt。agent-loop 在 tool call 前经过统一 governance hook。
 
 工具展示当前采用 `renderCall + contentBlocks + durable typed details + displayContent` 最小边界。工具定义可通过 `renderCall(args)` 生成 tool call 摘要；`content` 仍保留为兼容文本，`contentBlocks` 已支持 text block 并可随 tool message 持久化到 session；`details` 承载工具结构化信息，例如截断统计、bash exit code、full output path、行数或结果数。默认 provider request 转换会把 block content flatten 为文本，并剥离 durable details，只发送 provider 需要的 tool result 文本。工具定义可通过 `renderResult` 基于 details 和 `expanded/isPartial` render options 生成 `displayContent`。`ToolResultRenderer` service 会把 runtime result 与 durable tool message 归一到同一套 plain text renderer，CLI/TUI 和最小 export text 边界可复用；`/diagnostics` 不作为 tool details 的主要消费路径。
 
@@ -128,7 +128,7 @@ manual `/compact`、auto compaction、prompt-too-long compact-and-retry、post-c
 
 agent-loop 支持内部 `ToolExecutionHook[]` 边界。hook 可在 tool call 前合并 execution context，也可在 tool result 后补充受限结果字段，例如 details、displayContent、content/error 覆盖。当前 runtime permission governance 已作为命名 hook 接入；该边界仍是内部机制，不是完整 extension API。
 
-当前内置工具仍是主要工具来源。MCP/custom tools 的完整 ownership、result budget、大输出持久化和更复杂 orchestration 尚未实现。
+当前内置工具仍是主要工具来源。custom tools 已有最小 registry/governance/prompt metadata 边界；MCP/extension package source discovery、完整 ownership、remote adapters 和更复杂 orchestration 尚未实现。
 
 ## Permission / Safety
 

@@ -70,7 +70,7 @@ test('createRuntime returns unified diagnostics for config, provider, tools, ses
     assert.equal(findDiagnostic(runtime.diagnostics, 'provider_configured').source, 'provider');
     assert.equal(findDiagnostic(runtime.diagnostics, 'system_prompt_missing').level, 'warning');
     assert.equal(findDiagnostic(runtime.diagnostics, 'context_builder_ready').source, 'context');
-    assert.equal(findDiagnostic(runtime.diagnostics, 'custom_tools_loaded').source, 'tools');
+    assert.equal(findDiagnostic(runtime.diagnostics, 'tool_registry_ready').source, 'tools');
     assert.equal(findDiagnostic(runtime.diagnostics, 'session_created').source, 'session');
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });

@@ -111,6 +111,7 @@ export class ToolRegistry {
 export interface LoadToolRegistryOptions {
   config: ConfigData;
   workspaceDir: string;
+  customTools?: Tool[];
 }
 
 export interface LoadToolRegistryResult {
@@ -208,6 +209,7 @@ function applyToolGovernance(registry: ToolRegistry, diagnostics: ToolDiagnostic
 export async function loadConfiguredTools({
   config,
   workspaceDir,
+  customTools = [],
 }: LoadToolRegistryOptions): Promise<LoadToolRegistryResult> {
   const registry = new ToolRegistry();
   const diagnostics: ToolDiagnostic[] = [];
@@ -296,6 +298,27 @@ export async function loadConfiguredTools({
       code: 'bash_tools_loaded',
       message: `Loaded bash tools (cwd: ${workspaceDir})`,
       details: { workspaceDir },
+    }));
+  }
+
+  for (const tool of customTools) {
+    addTool(registry, diagnostics, tool, {
+      category: tool.metadata?.category ?? 'mcp',
+      riskLevel: tool.metadata?.riskLevel ?? 'medium',
+      source: tool.metadata?.source ?? 'mcp',
+      sourceName: tool.metadata?.sourceName ?? 'custom',
+      isReadOnly: tool.metadata?.isReadOnly ?? false,
+      isConcurrencySafe: tool.metadata?.isConcurrencySafe ?? false,
+      requiresConfirmation: tool.metadata?.requiresConfirmation,
+    });
+  }
+  if (customTools.length > 0) {
+    diagnostics.push(createDiagnostic({
+      source: 'tools',
+      level: 'info',
+      code: 'custom_tools_loaded',
+      message: `Loaded ${customTools.length} custom tool(s)`,
+      details: { count: customTools.length },
     }));
   }
 
